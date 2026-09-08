@@ -673,16 +673,17 @@ fn main() {
     embeddings.start(db.clone());
     let questions = Arc::new(question::Pending::default());
 
-    // Tier 1, started before the window exists like the other two models.
-    // Loading costs ~1.3 s and prefills several hundred tokens of prompt; the
-    // first capture must not be what waits for that, and Tier 0 answers most
-    // commands without ever consulting it.
+    // Tier 1, started before the window exists like the other two models — but
+    // in a process of its own (ADR-0008). Loading costs ~1.3 s and prefills
+    // several hundred tokens of prompt; the first capture must not be what
+    // waits for that, and Tier 0 answers most commands without consulting it.
     let tier1 = router::Tier1::new();
     match router::find_model() {
         Some(path) => tier1.start(path, db.collection_paths().unwrap_or_default()),
-        None => tracing::info!(
-            "no router model; Tier 0 only. Run scripts/fetch-models.ps1 router"
-        ),
+        // Said through the router rather than only logged, so the Hub can
+        // explain why unusual phrasings are not being understood instead of
+        // leaving it as something the user has to notice for themselves.
+        None => tier1.unavailable("No router model. Fetch it: scripts/fetch-models.ps1 router"),
     }
 
     let cfg = config::Config::load();

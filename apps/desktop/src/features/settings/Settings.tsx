@@ -161,20 +161,15 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
               }`}
             />
             <b>Router</b>
-            {router
-              ? router.state === "ready"
-                ? "Qwen3 0.6B"
-                : router.state === "missing"
-                  ? "not installed"
-                  : router.detail || router.state
-              : "…"}
+            {router ? (router.state === "ready" ? "Qwen3 0.6B" : router.detail || router.state) : "…"}
           </span>
         </div>
         {router?.state !== "ready" && (
           <div className="banner">
             <b>Only the built-in grammar is routing commands.</b> Familiar phrasings still work;
-            unusual ones come back as “not sure what to do with that”. Run{" "}
-            <kbd>scripts\fetch-models.ps1 router</kbd> and restart to add the local router.
+            unusual ones come back as “not sure what to do with that”. The router needs a model and
+            its own binary — run <kbd>scripts\fetch-models.ps1 router</kbd> and{" "}
+            <kbd>scripts\build-router.ps1</kbd>, then restart.
           </div>
         )}
         {embed && embed.state !== "ready" && embed.state !== "loading" && (
