@@ -248,11 +248,17 @@ await listen<CaptureResult>("capture:result", (e) => {
     sub.textContent = r.outcome.provenance ?? r.text;
     showResults(r.outcome.results ?? []);
   } else if (r.ask) {
-    // Heard, understood, and deliberately not acted on: two destinations were
-    // indistinguishable, and guessing would file the memory somewhere wrong
+    // Heard, understood, and deliberately not acted on: the destination was
+    // not decidable, and guessing would file the memory somewhere wrong
     // (ADR-0005).
     pill.classList.add("unsure");
-    text.textContent = `Which ${r.ask.slot}?`;
+    // "Which collection?" above an empty list is not a question, it is a
+    // riddle. Nothing matching at all is a different answer from several
+    // things matching equally, and the user can only act on the difference if
+    // we say which one happened.
+    text.textContent = r.ask.options.length
+      ? `Which ${r.ask.slot}?`
+      : `No ${r.ask.slot} matches that`;
     sub.textContent = r.text;
     showCandidates(r.ask.options);
   } else {
