@@ -96,6 +96,31 @@
   /* The best match is stated, not merely listed first. In a list read at a
      glance, position alone is too weak a signal to carry "this is the answer". */
   #results li.best { border-color: #2E5B54; }
+
+  /* ------------------------------------------------------------- answering */
+  /* A question is the one time this window is something you point at. The
+     window stops being click-through only while one is up, and shrinks to
+     roughly this list — a transparent window swallows clicks across its whole
+     rectangle, not merely where something is drawn. */
+  #results li.option { padding: 0; overflow: hidden; }
+  #results li.option button {
+    display: flex; align-items: center; gap: 11px; width: 100%;
+    padding: 9px 12px; background: transparent; border: 0;
+    font: inherit; color: #F1F4F8; text-align: left; cursor: pointer;
+  }
+  #results li.option button:hover { background: #2A3037; }
+  #results li.option button:active { background: #333B44; }
+  #results li.option .num {
+    display: grid; place-items: center; flex: none;
+    width: 19px; height: 19px; border-radius: 6px;
+    background: #2E3238; border: 1px solid #414A54;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 10.5px; color: #8D9AA8;
+  }
+  #results li.option button:hover .num { color: #F1F4F8; border-color: #5A6673; }
+  /* Once a choice is made the list is history: it must not look like it is
+     still asking while the receipt is being written. */
+  #results.answered { opacity: .45; pointer-events: none; }
   #results .title {
     display: block; font-size: 12.5px; color: #F1F4F8;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

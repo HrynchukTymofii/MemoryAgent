@@ -154,12 +154,34 @@ function showResults(hits: Hit[]) {
  */
 function showCandidates(options: Candidate[]) {
   results.replaceChildren();
-  for (const option of options.slice(0, 4)) {
+  for (const [i, option] of options.slice(0, 4).entries()) {
     const li = document.createElement("li");
+    li.className = "option";
+
+    const button = document.createElement("button");
+    button.type = "button";
+    // Numbered because a list of destinations is read, not scanned: the number
+    // gives the eye somewhere to land, and it is what a keyboard answer will
+    // bind to when that arrives.
+    const badge = document.createElement("span");
+    badge.className = "num";
+    badge.textContent = String(i + 1);
+    button.appendChild(badge);
+
     const title = document.createElement("span");
     title.className = "title";
     title.textContent = option.path.replace(/\//g, " / ");
-    li.appendChild(title);
+    button.appendChild(title);
+
+    // The backend answers by emitting a normal receipt, so this handler has
+    // nothing to render — an answered command and one that never needed asking
+    // end up looking identical, which is the point.
+    button.addEventListener("click", () => {
+      results.classList.add("answered");
+      invoke("answer_question", { index: i }).catch(() => {});
+    });
+
+    li.appendChild(button);
     results.appendChild(li);
   }
   if (options.length) results.classList.add("shown");
@@ -167,7 +189,7 @@ function showCandidates(options: Candidate[]) {
 
 function clearResults() {
   results.replaceChildren();
-  results.classList.remove("shown");
+  results.classList.remove("shown", "answered");
 }
 
 await listen("capture:begin", () => {

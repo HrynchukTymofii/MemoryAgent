@@ -4,6 +4,7 @@
 mod config;
 mod embedding;
 mod hotkey;
+mod question;
 mod latency;
 mod transcription;
 mod tray;
@@ -28,6 +29,8 @@ pub struct AppState {
     pub latency: Arc<LatencyTracker>,
     pub stt: Arc<Stt>,
     pub embeddings: Arc<Embeddings>,
+    /// The one destination question waiting on an answer, if any.
+    pub questions: Arc<question::Pending>,
     pub config: parking_lot::Mutex<config::Config>,
     /// Read by the dispatch thread on every engagement, so a changed debounce
     /// takes effect without a restart like the binding does.
@@ -192,6 +195,54 @@ fn capture_level(state: tauri::State<'_, AppState>) -> f32 {
 #[tauri::command]
 fn embed_status(state: tauri::State<'_, AppState>) -> embedding::EmbedStatus {
     state.embeddings.status(&state.db)
+}
+
+/// Answer the overlay's destination question by choosing option `index`.
+///
+/// Executes the command that was waiting rather than re-routing the transcript:
+/// running the grammar a second time could land somewhere else entirely, and
+/// the point of the question was that the *only* undecided part was this slot.
+#[tauri::command]
+fn answer_question(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    index: usize,
+) -> Result<(), String> {
+    // Taking the question consumes it, so a double click cannot save twice.
+    let Some((cmd, ctx)) = state.questions.answer(index) else {
+        // Expired, already answered, or superseded by a newer capture. Not an
+        // error worth showing: the overlay is on its way out either way.
+        tracing::debug!(index, "no question to answer");
+        return Ok(());
+    };
+
+    let out = memos_agent::execute(&state.db, &cmd, &ctx).map_err(|e| e.to_string())?;
+    if matches!(out.kind, "save" | "note") {
+        let _ = state.db.record_capture(&week_start());
+        state.embeddings.nudge();
+    }
+    tracing::info!(summary = %out.summary, "answered");
+
+    // Same receipt the spoken path produces, so an answered command and a
+    // command that never needed asking look identical once done.
+    let _ = app.emit_to(
+        "overlay",
+        "capture:result",
+        transcription::CaptureResult::receipt(&cmd.transcript, out),
+    );
+    if let Some(w) = app.get_webview_window("overlay") {
+        speak_only(&w);
+        let fade = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1_600));
+            let _ = fade.emit_to("overlay", "capture:hide", ());
+            std::thread::sleep(std::time::Duration::from_millis(140));
+            if let Some(w) = fade.get_webview_window("overlay") {
+                let _ = w.hide();
+            }
+        });
+    }
+    Ok(())
 }
 
 /// Search from the Hub.
@@ -423,6 +474,65 @@ pub fn data_dir() -> std::path::PathBuf {
 }
 
 
+/// The overlay's resting shape: tall enough for a list of results to grow
+/// upward into, and click-through so none of that empty space is in the way.
+const OVERLAY_SIZE: (u32, u32) = (520, 320);
+/// Room for the pill, plus one row per option.
+const PILL_HEIGHT: u32 = 78;
+const OPTION_HEIGHT: u32 = 46;
+
+/// Make the overlay something the user can click.
+///
+/// Only ever while a question is on screen. Two changes, both reversed by
+/// [`speak_only`]: clicks stop passing through, and the window shrinks to
+/// roughly its visible content — because a transparent window intercepts clicks
+/// across its entire rectangle, not merely where something is drawn.
+///
+/// The bottom edge does not move: [`position_overlay`] anchors it there, so the
+/// pill stays exactly where the user is already looking.
+fn answerable<R: Runtime>(w: &tauri::WebviewWindow<R>, options: usize) {
+    let height = PILL_HEIGHT + OPTION_HEIGHT * options.min(4) as u32;
+    let _ = w.set_size(tauri::LogicalSize::new(OVERLAY_SIZE.0, height));
+    position_overlay(w);
+    if let Err(e) = w.set_ignore_cursor_events(false) {
+        tracing::warn!(?e, "overlay question will not be clickable");
+    }
+}
+
+/// Back to a window you only ever speak to.
+fn speak_only<R: Runtime>(w: &tauri::WebviewWindow<R>) {
+    let _ = w.set_ignore_cursor_events(true);
+    let _ = w.set_size(tauri::LogicalSize::new(OVERLAY_SIZE.0, OVERLAY_SIZE.1));
+    position_overlay(w);
+}
+
+/// Let the overlay be clicked without ever taking focus.
+///
+/// `WS_EX_NOACTIVATE`. Without it, clicking an option would pull focus out of
+/// the window the user was working in — and the whole premise of this interface
+/// is that it does not interrupt what you were doing. The window is created
+/// with `focus: false`, but that governs *showing* it, not clicking it.
+#[cfg(windows)]
+fn never_activates<R: Runtime>(w: &tauri::WebviewWindow<R>) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE,
+    };
+
+    let Ok(handle) = w.hwnd() else {
+        tracing::warn!("no window handle; overlay may steal focus when clicked");
+        return;
+    };
+    unsafe {
+        let hwnd = HWND(handle.0 as _);
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE.0 as isize);
+    }
+}
+
+#[cfg(not(windows))]
+fn never_activates<R: Runtime>(_w: &tauri::WebviewWindow<R>) {}
+
 /// Place the overlay near the bottom-centre of whichever monitor the pointer is
 /// on, so it appears where the user is actually working on a multi-monitor
 /// setup rather than always on the primary display.
@@ -502,6 +612,7 @@ fn main() {
     // costs ~220 ms and the first capture must not wait for it.
     let embeddings = Embeddings::new();
     embeddings.start(db.clone());
+    let questions = Arc::new(question::Pending::default());
 
     let cfg = config::Config::load();
     let hold_ms = Arc::new(std::sync::atomic::AtomicU64::new(cfg.hold_threshold_ms));
@@ -531,6 +642,7 @@ fn main() {
             audio: parking_lot::Mutex::new(audio),
             stt: stt.clone(),
             embeddings: embeddings.clone(),
+            questions: questions.clone(),
             config: parking_lot::Mutex::new(cfg.clone()),
             hold_ms: hold_ms.clone(),
         })
@@ -545,6 +657,7 @@ fn main() {
             stt_status,
             capture_level,
             embed_status,
+            answer_question,
             search,
             items,
             recent,
@@ -592,10 +705,45 @@ fn main() {
             // what was actually heard before it disappears.
             stt.attach_db(db.clone());
             stt.attach_embeddings(embeddings.clone());
+            stt.attach_questions(questions.clone());
+
+            // Clicking an option must never pull focus out of whatever the user
+            // was working in.
+            never_activates(&overlay);
 
             let result_handle = app.handle().clone();
             stt.start(None, move |res| {
                 let _ = result_handle.emit_to("overlay", "capture:result", res.clone());
+
+                // A question is the one time the overlay is something you point
+                // at rather than speak to, so for as long as one stands it stops
+                // being click-through and shrinks to fit its options — a
+                // transparent window swallows clicks across its whole rectangle,
+                // and 520x320 of that over someone's work is not acceptable for
+                // the sake of three rows.
+                if let Some(ask) = &res.ask {
+                    if let Some(w) = result_handle.get_webview_window("overlay") {
+                        answerable(&w, ask.options.len());
+                    }
+                    // Answering hides the overlay; expiry is what dismisses an
+                    // unanswered one, and it is deliberately slower than the
+                    // reading linger below.
+                    let expire = result_handle.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(question::LIFETIME);
+                        if let Some(state) = expire.try_state::<AppState>() {
+                            state.questions.clear();
+                        }
+                        if let Some(w) = expire.get_webview_window("overlay") {
+                            let _ = expire.emit_to("overlay", "capture:hide", ());
+                            std::thread::sleep(std::time::Duration::from_millis(140));
+                            let _ = w.hide();
+                            speak_only(&w);
+                        }
+                    });
+                    return;
+                }
+
                 if let Some(w) = result_handle.get_webview_window("overlay") {
                     // Scale with how much there is to read. A fixed dwell either
                     // rushes a long transcript off the screen or leaves a short

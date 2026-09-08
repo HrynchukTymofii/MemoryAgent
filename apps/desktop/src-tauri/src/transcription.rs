@@ -43,6 +43,27 @@ pub struct CaptureResult {
     pub ask: Option<Ambiguity>,
 }
 
+impl CaptureResult {
+    /// A receipt for a command that finished later than its capture did.
+    ///
+    /// An answered question produces the same shape as a command that never
+    /// needed asking — once it is done, how it got there is not the user's
+    /// problem. The timings are zero because they were measured on the capture
+    /// this answers, and reporting them twice would double-count.
+    pub fn receipt(transcript: &str, outcome: memos_agent::Outcome) -> Self {
+        Self {
+            text: transcript.to_string(),
+            context: Context::default(),
+            audio_secs: 0.0,
+            inference_ms: 0,
+            total_ms: 0,
+            empty: false,
+            outcome: Some(outcome),
+            ask: None,
+        }
+    }
+}
+
 /// A narrow question for the user: one slot, a few candidates.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Ambiguity {
@@ -75,6 +96,8 @@ pub struct Stt {
     /// failing, which is the state of the app for the first second after launch
     /// and permanently on a machine with no model.
     embeddings: RwLock<Option<Arc<crate::Embeddings>>>,
+    /// Where an unanswered destination question waits for a click.
+    questions: RwLock<Option<Arc<crate::question::Pending>>>,
     model: RwLock<Option<Arc<dyn Transcriber>>>,
     state: RwLock<ModelState>,
     detail: RwLock<String>,
@@ -86,6 +109,7 @@ impl Stt {
         Arc::new(Self {
             db: RwLock::new(None),
             embeddings: RwLock::new(None),
+            questions: RwLock::new(None),
             model: RwLock::new(None),
             state: RwLock::new(ModelState::Loading),
             detail: RwLock::new(String::new()),
@@ -110,6 +134,10 @@ impl Stt {
 
     pub fn attach_embeddings(&self, e: Arc<crate::Embeddings>) {
         *self.embeddings.write() = Some(e);
+    }
+
+    pub fn attach_questions(&self, q: Arc<crate::question::Pending>) {
+        *self.questions.write() = Some(q);
     }
 
     pub fn start(
@@ -291,8 +319,26 @@ impl Stt {
                     }
                 }
             }
-            Tier0::Ambiguous { slot, resolution, .. } => {
+            Tier0::Ambiguous {
+                intent,
+                slot,
+                resolution,
+                transcript,
+            } => {
                 tracing::info!(slot, margin = resolution.margin, "ambiguous; asking");
+                // Hold the decision that was already made, minus the one slot
+                // nobody could settle. Re-routing the transcript when the answer
+                // arrives would run the grammar again and could land somewhere
+                // else entirely.
+                if let Some(q) = self.questions.read().as_ref() {
+                    q.ask(
+                        intent,
+                        transcript,
+                        memos_core::Slots::default(),
+                        context.clone(),
+                        resolution.candidates.clone(),
+                    );
+                }
                 (
                     None,
                     Some(Ambiguity {
