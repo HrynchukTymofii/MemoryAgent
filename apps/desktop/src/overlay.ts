@@ -216,10 +216,18 @@ function fitWindowToContent() {
   requestAnimationFrame(() => {
     const top = results.getBoundingClientRect().top;
     const bottom = pill.getBoundingClientRect().bottom;
-    // The margins live outside both rects: 10px above the list, 10px below the
-    // pill, plus a little slack so a rounding difference cannot re-clip it.
-    const height = Math.ceil(bottom - top) + 26;
-    invoke("size_overlay", { height }).catch(() => {});
+    // The margins live outside both rects: nothing above the list, 10px below
+    // the pill, plus slack so a rounding difference cannot re-clip it.
+    const css = Math.ceil(bottom - top) + 26;
+
+    // Sent in *physical* pixels. These rects are CSS pixels, and a window is
+    // sized in logical ones — on a scaled display those are not the same unit,
+    // so passing the number straight through made the window short by exactly
+    // the scale factor and clipped the top option away. `devicePixelRatio` is
+    // the conversion, and it is right whichever unit the webview turns out to
+    // be using.
+    const dpr = window.devicePixelRatio || 1;
+    invoke("size_overlay", { height: Math.ceil(css * dpr), css, dpr }).catch(() => {});
   });
 }
 

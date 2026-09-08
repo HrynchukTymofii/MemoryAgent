@@ -209,12 +209,23 @@ fn embed_status(state: tauri::State<'_, AppState>) -> embedding::EmbedStatus {
 /// Clamped at both ends anyway. This number arrives from a webview, and a
 /// webview mid-layout can report anything at all.
 #[tauri::command]
-fn size_overlay(app: tauri::AppHandle, height: u32) {
+fn size_overlay(app: tauri::AppHandle, height: u32, css: f64, dpr: f64) {
     let Some(w) = app.get_webview_window("overlay") else {
         return;
     };
-    let height = height.clamp(OVERLAY_MIN_HEIGHT, OVERLAY_MAX_HEIGHT);
-    if let Err(e) = w.set_size(tauri::LogicalSize::new(OVERLAY_SIZE.0, height)) {
+    let Ok(current) = w.outer_size() else { return };
+    let scale = w.scale_factor().unwrap_or(1.0);
+
+    // Physical throughout, because that is the only unit both sides agree on.
+    // The page measures in CSS pixels and the window is configured in logical
+    // ones; on a scaled display those differ, and passing one for the other is
+    // what clipped the top option off the list.
+    let min = (OVERLAY_MIN_HEIGHT as f64 * scale) as u32;
+    let max = (OVERLAY_MAX_HEIGHT as f64 * scale) as u32;
+    let height = height.clamp(min, max);
+
+    tracing::debug!(css, dpr, scale, height, current = current.height, "sizing overlay");
+    if let Err(e) = w.set_size(tauri::PhysicalSize::new(current.width, height)) {
         tracing::warn!(?e, "could not resize the overlay");
         return;
     }
