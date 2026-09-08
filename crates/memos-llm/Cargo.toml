@@ -20,9 +20,20 @@ parking_lot = { workspace = true }
 # the workspace building.
 llama-cpp-2 = { version = "0.1.156", optional = true }
 
+# Only the sidecar binary logs; the library leaves that to whoever links it.
+tracing-subscriber = { workspace = true, optional = true }
+
 [features]
 default = []
-local = ["dep:llama-cpp-2"]
+local = ["dep:llama-cpp-2", "dep:tracing-subscriber"]
+
+# The Tier 1 sidecar (ADR-0008). A separate binary, not a module of the app:
+# llama.cpp and whisper.cpp each vendor their own ggml and cannot be linked into
+# one executable, and llama.cpp aborts the process on a failed assertion.
+[[bin]]
+name = "memos-router"
+path = "src/bin/memos-router.rs"
+required-features = ["local"]
 
 [[example]]
 name = "route_check"

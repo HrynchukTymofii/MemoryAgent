@@ -14,12 +14,47 @@
 //! decides whether the other half is safe.
 
 pub mod grammar;
+pub mod protocol;
 
 #[cfg(feature = "local")]
 pub mod runner;
 
+pub use protocol::ModelState;
+
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
 use memos_core::{Confidence, Intent, RoutedCommand, Slots, Tier};
 use serde::Deserialize;
+
+/// How long a caller will wait for a route before giving up on it.
+///
+/// The command is already spoken and the user is watching an overlay. Past this
+/// point the honest thing is to say nothing was understood, rather than to keep
+/// them waiting for a better answer.
+///
+/// Both ends of the pipe read this constant: the sidecar stops decoding here,
+/// and the app waits slightly longer (`router::ROUTE_DEADLINE`) so the sidecar
+/// gets to say *why* it gave up instead of just going quiet.
+pub const ROUTE_TIMEOUT: Duration = Duration::from_millis(1_500);
+
+/// Locate the router model.
+///
+/// Same order as the other two: the installed layout first, then the repository
+/// one, so development and production need no build-time switch. Lives here
+/// rather than beside the runner because the app is what has to find the file —
+/// it passes the path to the sidecar, which never searches for anything.
+pub fn find_model(explicit: Option<&Path>, data_dir: &Path) -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(p) = explicit {
+        candidates.push(p.to_path_buf());
+    }
+    candidates.push(data_dir.join("models/llm/router.gguf"));
+    for prefix in ["models/llm", "../../models/llm", "../../../models/llm"] {
+        candidates.push(PathBuf::from(prefix).join("router.gguf"));
+    }
+    candidates.into_iter().find(|p| p.exists())
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum LlmError {

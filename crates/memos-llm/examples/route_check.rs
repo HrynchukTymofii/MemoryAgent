@@ -8,7 +8,8 @@
 
 use std::time::Instant;
 
-use memos_llm::runner::{ModelState, Router};
+use memos_llm::runner::Router;
+use memos_llm::ModelState;
 
 const STARTER: &[&str] = &[
     "Career",
@@ -46,7 +47,7 @@ const CASES: &[(&str, &str)] = &[
 
 fn main() {
     let collections: Vec<String> = STARTER.iter().map(|s| s.to_string()).collect();
-    let Some(model) = memos_llm::runner::find_model(None, std::path::Path::new(".")) else {
+    let Some(model) = memos_llm::find_model(None, std::path::Path::new(".")) else {
         println!("No router model. Run: scripts/fetch-models.ps1 router");
         std::process::exit(1);
     };
