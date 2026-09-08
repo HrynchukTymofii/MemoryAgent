@@ -484,7 +484,7 @@ figcaption b{color:var(--ink-2);font-weight:700}
       <tr><td><b>Client store</b></td><td>SQLite + FTS5 + sqlite-vec</td>
         <td>A capture must succeed offline, instantly, always. Postgres on a customer machine is an installer, a service and a support ticket.</td></tr>
       <tr><td><b>Client runtime</b></td><td>Single Rust process (Tauri 2)</td>
-        <td>No sidecar, no localhost HTTP, no serialization on the hot path. A capture is one call stack.</td></tr>
+        <td>No localhost HTTP, no serialization on the hot path. A capture is one call stack. The Tier 1 router is the one thing outside it, in a child process, because llama.cpp aborts the process it is in.</td></tr>
       <tr><td><b>Model routing</b></td><td>Three tiers: grammar, small local LLM, cloud</td>
         <td>Most commands are formulaic and deserve no inference at all. Hard commands deserve a real model.</td></tr>
       <tr><td><b>Cloud role</b></td><td>Authoritative store, reranking, agents</td>
@@ -657,6 +657,13 @@ figcaption b{color:var(--ink-2);font-weight:700}
   and no inter-process serialization anywhere on the capture path — a capture is a direct function
   call from the hotkey handler to SQLite. The cloud tier is a conventional FastAPI service on AWS
   that the client talks to asynchronously and can always survive without.</p>
+
+  <p>One process sits beside it: <span class="mono">memos-router</span>, the Tier 1 model, spoken to
+  over a pipe. That is not a hot-path exception — Tier 1 is only reached once the Tier 0 grammar has
+  already failed — and it is there because llama.cpp calls <span class="mono">abort()</span> on a
+  failed assertion. Inside the app, an unusual phrasing that walked a 0.6B model into a grammar
+  corner would take the tray, the hotkey and the capture loop with it. Outside, it takes the router,
+  the command returns "not understood", and the app starts a fresh one.</p>
 
   <figure>
     <svg viewBox="0 0 900 610" role="img" aria-label="Layered architecture: a single-process Windows client containing UI, nine Rust crates and SQLite, connected over TLS to an AWS cloud tier containing FastAPI, LangGraph workers, a GPU reranker, Postgres with pgvector, Redis and S3.">

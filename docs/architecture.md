@@ -61,8 +61,15 @@ durable the moment the SQLite transaction commits.
         +------------------------------------------------------+
 ```
 
-**One process.** No localhost HTTP, no sidecar, no IPC serialisation on the hot
-path. A capture is a direct function call from the hotkey handler to SQLite.
+**One process on the hot path.** No localhost HTTP, no IPC serialisation between
+the hotkey and the database. A capture is a direct function call from the hotkey
+handler to SQLite.
+
+The one exception is Tier 1, which runs as a `memos-router` child process spoken
+to over a pipe — because llama.cpp `abort()`s on a failed assertion, and a
+routing failure must not be able to take the tray, the hotkey and the capture
+loop with it. Tier 1 is never on the hot path: it is only reached once Tier 0
+has already failed. See ADR-0008.
 
 **SQLite is the source of truth on the client.** Postgres + pgvector exists, but
 server-side, for the sync tier — see ADR-0001.

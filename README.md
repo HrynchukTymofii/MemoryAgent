@@ -7,19 +7,20 @@ Architecture and reasoning live in [`docs/architecture-brief.html`](docs/archite
 decision records are in [`docs/adr/`](docs/adr/). Where those and the original
 `personal_memory_os_spec.md` disagree, the brief wins and an ADR says why.
 
-## Status — M2 complete
+## Status — M2 complete, M3 in progress
 
 The loop closes. You can speak something into it and later ask for it back in
-words you did not use when you saved it.
+words you did not use when you saved it — and, now, ask for it in a phrasing the
+grammar has never seen.
 
 | | |
 |---|---|
 | ✅ **M0** skeleton | workspace, SQLite + FTS5, tray, global hotkey, pre-warmed overlay |
 | ✅ **M1** capture | ring buffer, VAD, whisper.cpp, Windows context, Tier 0 grammar, `SAVE`/`NOTE` |
 | ✅ **M2** retrieval | ONNX embeddings, background embed worker, FTS5 + vectors + RRF, `SEARCH`/`SHOW`/`OPEN`, page capture, the Hub |
-| ⬜ **M3** intelligence | Tier 1 router, correction log, derived confidence, `MOVE`/`TAG`/`TASK` |
+| 🔨 **M3** intelligence | ✅ Tier 1 router, in a supervised sidecar · ⬜ correction log · ⬜ derived confidence · ⬜ `MOVE`/`TAG`/`TASK` |
 
-144 tests, clippy clean, `tsc --noEmit` clean.
+177 tests, clippy clean, `tsc --noEmit` clean.
 
 ## Prerequisites
 
@@ -38,7 +39,23 @@ Models are not committed. Fetch them once:
 ```
 .\scripts\fetch-models.ps1 base.en     # speech, ~148 MB
 .\scripts\fetch-models.ps1 embedding   # bge-small-en-v1.5, int8, ~33 MB
+.\scripts\fetch-models.ps1 router      # Qwen3 0.6B, the Tier 1 router, ~609 MB
 ```
+
+The router also needs its own binary, built separately because it is the one
+thing in the workspace that links llama.cpp (ADR-0008):
+
+```
+.\scripts\build-router.ps1
+```
+
+Once, in release — a debug app finds a release router, so `npm start` picks it
+up and nobody compiles llama.cpp twice. (`-Debug` exists for iterating on the
+sidecar itself.)
+
+Skip both and the app still runs. Tier 0 answers the formulaic commands, and
+unusual phrasings come back "not sure what to do with that" - which is what they
+did before Tier 1 existed.
 
 ## Run
 
@@ -170,7 +187,7 @@ happened" by naming which of the two happened:
   put this in react                                 SAVE      Study/Programming/React
   file this under react                             SAVE      Study/Programming/React
   add this to my react notes                        AMBIGUOUS collection: Study/Programming/React 0.28
-  remind me next Tuesday                            UNRECOGNISED  -> Tier 1 (M3)
+  remind me next Tuesday                            UNRECOGNISED  -> Tier 1
 
   17/18 routed by grammar alone
 ```
@@ -180,6 +197,40 @@ one most people reach for first: `add`, `put`, `file`, `keep`, `store`,
 `capture` and `bookmark` all route now. Each requires an object — "add this",
 never a bare "add" — because the bare verbs belong to other intents ("add a
 task"), and a first-match grammar would swallow them.
+
+### When the grammar gives up — Tier 1
+
+The two lines above that are not a clean `SAVE` are the whole reason Tier 1
+exists. A phrase the grammar cannot route, or can only route ambiguously, is
+handed to a 0.6B model running locally under a GBNF grammar generated from the
+user's own collection list — so it structurally *cannot* emit invalid JSON, an
+unknown intent, or a collection that does not exist. It chooses among
+alternatives we generated; it never invents one.
+
+Driven through its own protocol, on the phrasings Tier 0 refuses:
+
+```
+[ 1.4s] ready — 269 tokens prefilled, loaded in 1325 ms
+
+  stick this in with the python stuff                564 ms  save     Study/Programming/Python
+  file this under job applications                   532 ms  save     Career/Job Applications
+  what did I read about hooks last week              457 ms  search   hooks
+  save this page to the react programming database   579 ms  save     Study/Programming/React
+  jot down that the bins go out on tuesday           757 ms  note     the bins go out tuesday
+```
+
+It runs as **its own process** (`memos-router`), not as part of the app. Partly
+because whisper.cpp and llama.cpp each vendor their own ggml and refuse to link
+into one binary — but mostly because llama.cpp calls `abort()` on a failed
+assertion, and one was hit during development. In the app that takes the tray,
+the hotkey and the capture loop with it. Out of process it takes the router: the
+command comes back "not understood", the app restarts it, and Tier 0 never
+noticed. See [ADR-0008](docs/adr/0008-tier-1-router-in-a-sidecar-process.md).
+
+The escalation is narrow by design. Tier 0 answers the formulaic majority in
+microseconds and never consults this; ~600 ms is affordable exactly once per
+command that would otherwise have failed outright or interrupted you with a
+question, and not at all on the ones that already worked.
 
 ## What M2 proves
 
