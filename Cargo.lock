@@ -2588,6 +2588,7 @@ dependencies = [
  "memos-core",
  "memos-db",
  "memos-embed",
+ "memos-llm",
  "memos-retrieval",
  "memos-stt",
  "parking_lot",

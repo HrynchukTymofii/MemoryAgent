@@ -11,6 +11,26 @@ license.workspace      = true
 # not — which is what keeps a broken native toolchain from blocking everything.
 default = ["whisper", "embeddings"]
 whisper = ["memos-stt/whisper"]
+
+# The Tier 1 local router. NOT in `default`, and it does not currently link:
+#
+#   libllama_cpp_sys_2(ggml.c.obj): ggml_abs already defined in
+#   libwhisper_rs_sys(ggml.c.obj)
+#
+# whisper.cpp and llama.cpp each vendor their own copy of ggml, so linking both
+# into one binary defines every ggml symbol twice. llama-cpp-sys-2 offers
+# `dynamic-link` and `system-ggml` to work around it, but both mean matching a
+# prebuilt llama.cpp to the exact revision these bindings were generated from.
+#
+# The better answer is a separate process, for a reason that has nothing to do
+# with the linker: llama.cpp calls abort() on a failed assertion. One was hit
+# during development - a grammar edge case - and it killed the whole process.
+# In this binary that would take the tray, the hotkey and the capture loop with
+# it. In a sidecar it takes the router, and Tier 0 carries on.
+#
+# All the wiring behind this flag is written and compiles; only the transport
+# changes when the sidecar lands.
+router = ["dep:memos-llm"]
 # Semantic search. Off, the app still captures and still searches — by keyword
 # only — which is the same state as a machine whose model has not downloaded yet.
 embeddings = ["memos-embed/onnx"]
@@ -26,6 +46,7 @@ memos-context = { workspace = true }
 memos-agent = { workspace = true }
 memos-embed = { workspace = true }
 memos-retrieval = { workspace = true }
+memos-llm  = { workspace = true, features = ["local"], optional = true }
 
 tauri      = { version = "2", features = ["tray-icon", "image-png"] }
 serde      = { workspace = true }

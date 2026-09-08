@@ -6,6 +6,7 @@ import {
   type HookStats,
   type LatencyReport,
   type MicStatus,
+  type RouterStatus,
   type Settings as SettingsData,
   type SttStatus,
 } from "../../lib/api";
@@ -18,6 +19,7 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
   const [mic, setMic] = useState<MicStatus | null>(null);
   const [stt, setStt] = useState<SttStatus | null>(null);
   const [embed, setEmbed] = useState<EmbedStatus | null>(null);
+  const [router, setRouter] = useState<RouterStatus | null>(null);
   const [latency, setLatency] = useState<LatencyReport | null>(null);
 
   useEffect(() => {
@@ -25,17 +27,19 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
     let live = true;
     const tick = async () => {
       try {
-        const [m, s, e, l] = await Promise.all([
+        const [m, s, e, l, r] = await Promise.all([
           api.mic(),
           api.stt(),
           api.embed(),
           api.latency(),
+          api.router(),
         ]);
         if (!live) return;
         setMic(m);
         setStt(s);
         setEmbed(e);
         setLatency(l);
+        setRouter(r);
       } catch {
         /* the shell already reports a dead backend */
       }
@@ -123,8 +127,9 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
       <div className="card">
         <h2>Models</h2>
         <p>
-          Both run locally. Speech is required for capture; embeddings are not — without them
-          search still works on exact words, and only the queries that needed meaning stop working.
+          All three run locally. Only speech is required: without embeddings, search still works on
+          exact words and only the queries that needed meaning stop working; without the router,
+          familiar phrasings still route and unusual ones come back as not understood.
         </p>
         <div className="pillrow">
           <span className="pill">
@@ -149,7 +154,29 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
               {embed.pending > 0 && ` · ${embed.pending} queued`}
             </span>
           )}
+          <span className="pill">
+            <span
+              className={`led ${
+                router?.state === "ready" ? "ok" : router?.state === "loading" ? "warn" : ""
+              }`}
+            />
+            <b>Router</b>
+            {router
+              ? router.state === "ready"
+                ? "Qwen3 0.6B"
+                : router.state === "missing"
+                  ? "not installed"
+                  : router.detail || router.state
+              : "…"}
+          </span>
         </div>
+        {router?.state !== "ready" && (
+          <div className="banner">
+            <b>Only the built-in grammar is routing commands.</b> Familiar phrasings still work;
+            unusual ones come back as “not sure what to do with that”. Run{" "}
+            <kbd>scripts\fetch-models.ps1 router</kbd> and restart to add the local router.
+          </div>
+        )}
         {embed && embed.state !== "ready" && embed.state !== "loading" && (
           <div className="banner">
             <b>Semantic search is off.</b> {embed.detail}

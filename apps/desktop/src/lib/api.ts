@@ -51,6 +51,11 @@ export interface EmbedStatus {
   dim: number;
 }
 
+export interface RouterStatus {
+  state: ModelState;
+  detail: string;
+}
+
 export interface Settings {
   hotkey: string;
   hold_threshold_ms: number;
@@ -91,6 +96,7 @@ export const api = {
   mic: () => invoke<MicStatus>("mic_status"),
   stt: () => invoke<SttStatus>("stt_status"),
   embed: () => invoke<EmbedStatus>("embed_status"),
+  router: () => invoke<RouterStatus>("router_status"),
   settings: () => invoke<Settings>("get_settings"),
   setHotkey: (spec: string, holdThresholdMs: number) =>
     invoke<Settings>("set_hotkey", { spec, holdThresholdMs }),

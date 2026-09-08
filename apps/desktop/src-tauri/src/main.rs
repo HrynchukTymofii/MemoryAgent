@@ -5,6 +5,7 @@ mod config;
 mod embedding;
 mod hotkey;
 mod question;
+mod router;
 mod latency;
 mod transcription;
 mod tray;
@@ -31,6 +32,7 @@ pub struct AppState {
     pub embeddings: Arc<Embeddings>,
     /// The one destination question waiting on an answer, if any.
     pub questions: Arc<question::Pending>,
+    pub router: Arc<router::Tier1>,
     pub config: parking_lot::Mutex<config::Config>,
     /// Read by the dispatch thread on every engagement, so a changed debounce
     /// takes effect without a restart like the binding does.
@@ -195,6 +197,25 @@ fn capture_level(state: tauri::State<'_, AppState>) -> f32 {
 #[tauri::command]
 fn embed_status(state: tauri::State<'_, AppState>) -> embedding::EmbedStatus {
     state.embeddings.status(&state.db)
+}
+
+#[derive(serde::Serialize)]
+struct RouterStatus {
+    state: router::ModelState,
+    detail: String,
+}
+
+/// Whether commands the grammar does not recognise get a second chance.
+///
+/// Worth showing, because the difference is invisible until you phrase
+/// something unusually: with the router, an unfamiliar phrasing is understood;
+/// without it, the same words come back as "not sure what to do with that".
+#[tauri::command]
+fn router_status(state: tauri::State<'_, AppState>) -> RouterStatus {
+    RouterStatus {
+        state: state.router.state(),
+        detail: state.router.detail(),
+    }
 }
 
 /// Resize the overlay to the height the page just measured for itself.
@@ -652,6 +673,18 @@ fn main() {
     embeddings.start(db.clone());
     let questions = Arc::new(question::Pending::default());
 
+    // Tier 1, started before the window exists like the other two models.
+    // Loading costs ~1.3 s and prefills several hundred tokens of prompt; the
+    // first capture must not be what waits for that, and Tier 0 answers most
+    // commands without ever consulting it.
+    let tier1 = router::Tier1::new();
+    match router::find_model() {
+        Some(path) => tier1.start(path, db.collection_paths().unwrap_or_default()),
+        None => tracing::info!(
+            "no router model; Tier 0 only. Run scripts/fetch-models.ps1 router"
+        ),
+    }
+
     let cfg = config::Config::load();
     let hold_ms = Arc::new(std::sync::atomic::AtomicU64::new(cfg.hold_threshold_ms));
     tracing::info!(
@@ -681,6 +714,7 @@ fn main() {
             stt: stt.clone(),
             embeddings: embeddings.clone(),
             questions: questions.clone(),
+            router: tier1.clone(),
             config: parking_lot::Mutex::new(cfg.clone()),
             hold_ms: hold_ms.clone(),
         })
@@ -695,6 +729,7 @@ fn main() {
             stt_status,
             capture_level,
             embed_status,
+            router_status,
             answer_question,
             size_overlay,
             search,
@@ -745,6 +780,7 @@ fn main() {
             stt.attach_db(db.clone());
             stt.attach_embeddings(embeddings.clone());
             stt.attach_questions(questions.clone());
+            stt.attach_router(tier1.clone());
 
             // Clicking an option must never pull focus out of whatever the user
             // was working in.

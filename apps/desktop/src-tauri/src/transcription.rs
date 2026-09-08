@@ -98,6 +98,9 @@ pub struct Stt {
     embeddings: RwLock<Option<Arc<crate::Embeddings>>>,
     /// Where an unanswered destination question waits for a click.
     questions: RwLock<Option<Arc<crate::question::Pending>>>,
+    /// Tier 1. Absent until the model has loaded, and absent forever on a
+    /// machine that never fetched one — in both cases Tier 0 is the system.
+    router: RwLock<Option<Arc<crate::router::Tier1>>>,
     model: RwLock<Option<Arc<dyn Transcriber>>>,
     state: RwLock<ModelState>,
     detail: RwLock<String>,
@@ -110,6 +113,7 @@ impl Stt {
             db: RwLock::new(None),
             embeddings: RwLock::new(None),
             questions: RwLock::new(None),
+            router: RwLock::new(None),
             model: RwLock::new(None),
             state: RwLock::new(ModelState::Loading),
             detail: RwLock::new(String::new()),
@@ -138,6 +142,10 @@ impl Stt {
 
     pub fn attach_questions(&self, q: Arc<crate::question::Pending>) {
         *self.questions.write() = Some(q);
+    }
+
+    pub fn attach_router(&self, r: Arc<crate::router::Tier1>) {
+        *self.router.write() = Some(r);
     }
 
     pub fn start(
@@ -254,11 +262,13 @@ impl Stt {
             .expect("spawn transcription worker");
     }
 
-    /// Route a transcript through Tier 0 and execute it.
+    /// Route a transcript and execute it.
     ///
-    /// Tier 1 and Tier 2 escalation land here later; today an unrecognised
-    /// shape is reported as such rather than guessed at, which is the same
-    /// contract the model tiers will inherit.
+    /// Tier 0 first, always: it is deterministic, costs microseconds, and
+    /// handles the formulaic majority. Tier 1 is consulted only when Tier 0
+    /// refuses or cannot settle a destination — the two cases that, until now,
+    /// ended in "not sure what to do with that" or a question the user had to
+    /// answer by hand.
     fn route_and_execute(
         &self,
         text: &str,
@@ -278,46 +288,7 @@ impl Stt {
                     tier = ?cmd.tier,
                     "routed"
                 );
-                // Embed the query only for the intents that retrieve. A SAVE
-                // pays nothing for a model it does not use, which is what keeps
-                // the capture path at the latency the budget assumes.
-                let vector = match cmd.intent {
-                    memos_core::Intent::Search
-                    | memos_core::Intent::Show
-                    | memos_core::Intent::Open => self
-                        .embeddings
-                        .read()
-                        .clone()
-                        .and_then(|e| e.embed_query(cmd.slots.query.as_deref().unwrap_or(text))),
-                    _ => None,
-                };
-
-                match memos_agent::execute_with(&db, &cmd, context, vector.as_deref()) {
-                    Ok(out) => {
-                        // Only a real capture counts against the weekly meter.
-                        // Metering a search, or a command that failed, would be
-                        // charging the user for nothing.
-                        if matches!(out.kind, "save" | "note") {
-                            let _ = db.record_capture(&crate::week_start());
-                            // A new item means work for the embedding worker.
-                            // Nudging beats polling: the backfill starts within
-                            // milliseconds of the commit instead of up to 30 s
-                            // later, so search is current almost immediately.
-                            if let Some(e) = self.embeddings.read().as_ref() {
-                                e.nudge();
-                            }
-                        }
-                        if let Some(target) = &out.open {
-                            open_target(target);
-                        }
-                        tracing::info!(summary = %out.summary, took_ms = out.took_ms, "executed");
-                        (Some(out), None)
-                    }
-                    Err(e) => {
-                        tracing::error!(?e, "execution failed");
-                        (None, None)
-                    }
-                }
+                self.execute(&db, &cmd, context, text)
             }
             Tier0::Ambiguous {
                 intent,
@@ -325,6 +296,17 @@ impl Stt {
                 resolution,
                 transcript,
             } => {
+                // Ask Tier 1 before asking the user. Tier 0 resolves the phrase
+                // after the preposition against collection names and scores by
+                // string similarity; the router reads the whole sentence and
+                // knows what the collections are. "add this to my react notes"
+                // is the case that defeats the first and not the second, and
+                // interrupting somebody for a question a model can answer is
+                // the worst of both.
+                if let Some(cmd) = self.escalate(text, &paths) {
+                    return self.execute(&db, &cmd, context, text);
+                }
+
                 tracing::info!(slot, margin = resolution.margin, "ambiguous; asking");
                 // Hold the decision that was already made, minus the one slot
                 // nobody could settle. Re-routing the transcript when the answer
@@ -348,9 +330,75 @@ impl Stt {
                 )
             }
             Tier0::Unrecognised => {
-                // Tier 1 takes this case once the local router lands. Until
-                // then the transcript is still shown, so nothing is lost.
-                tracing::debug!(text, "no Tier 0 shape matched");
+                if let Some(cmd) = self.escalate(text, &paths) {
+                    return self.execute(&db, &cmd, context, text);
+                }
+                // Both tiers passed. The transcript is still shown, so the user
+                // learns they were heard correctly and the phrasing was the
+                // problem — which is all that was ever on offer here.
+                tracing::debug!(text, "no shape matched and Tier 1 did not route it");
+                (None, None)
+            }
+        }
+    }
+
+    /// Hand a transcript Tier 0 gave up on to the local router.
+    ///
+    /// Costs ~600 ms, paid only on commands that would otherwise have failed
+    /// outright or interrupted the user with a question. The common path never
+    /// reaches here.
+    fn escalate(&self, text: &str, paths: &[String]) -> Option<memos_core::RoutedCommand> {
+        self.router.read().clone()?.route(text, paths)
+    }
+
+    /// Execute a routed command, whichever tier produced it.
+    ///
+    /// Shared on purpose: a command routed by the grammar and the same command
+    /// routed by the model must do exactly the same thing, or "it worked
+    /// yesterday" becomes a question about which tier happened to catch it.
+    fn execute(
+        &self,
+        db: &Db,
+        cmd: &memos_core::RoutedCommand,
+        context: &Context,
+        text: &str,
+    ) -> (Option<memos_agent::Outcome>, Option<Ambiguity>) {
+        // Embed the query only for the intents that retrieve. A SAVE pays
+        // nothing for a model it does not use, which is what keeps the capture
+        // path at the latency the budget assumes.
+        let vector = match cmd.intent {
+            memos_core::Intent::Search | memos_core::Intent::Show | memos_core::Intent::Open => {
+                self.embeddings
+                    .read()
+                    .clone()
+                    .and_then(|e| e.embed_query(cmd.slots.query.as_deref().unwrap_or(text)))
+            }
+            _ => None,
+        };
+
+        match memos_agent::execute_with(db, cmd, context, vector.as_deref()) {
+            Ok(out) => {
+                // Only a real capture counts against the weekly meter. Metering
+                // a search, or a command that failed, would be charging the
+                // user for nothing.
+                if matches!(out.kind, "save" | "note") {
+                    let _ = db.record_capture(&crate::week_start());
+                    // A new item means work for the embedding worker. Nudging
+                    // beats polling: the backfill starts within milliseconds of
+                    // the commit instead of up to 30 s later, so search is
+                    // current almost immediately.
+                    if let Some(e) = self.embeddings.read().as_ref() {
+                        e.nudge();
+                    }
+                }
+                if let Some(target) = &out.open {
+                    open_target(target);
+                }
+                tracing::info!(summary = %out.summary, took_ms = out.took_ms, "executed");
+                (Some(out), None)
+            }
+            Err(e) => {
+                tracing::error!(?e, "execution failed");
                 (None, None)
             }
         }
