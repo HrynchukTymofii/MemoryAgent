@@ -4,6 +4,8 @@
 #   .\scripts\fetch-models.ps1 tiny.en      # ~78 MB, for the Light profile
 #   .\scripts\fetch-models.ps1 small.en     # ~488 MB, better accuracy
 #   .\scripts\fetch-models.ps1 embedding    # ~33 MB, semantic search
+#   .\scripts\fetch-models.ps1 router       # ~609 MB, the Tier 1 intent router
+#   .\scripts\fetch-models.ps1 router-light # ~378 MB, same model, Q4
 #
 # Weights are never committed - .gitignore excludes *.bin, *.onnx and friends.
 #
@@ -76,6 +78,31 @@ if ($Model -eq "embedding") {
     exit 0
 }
 
+# The Tier 1 router (ADR-0003). Qwen3 0.6B at Q8 rather than Q4: this model
+# decodes under a GBNF grammar, so it is mostly choosing among tokens the
+# grammar already allows, and what is left to get wrong is the intent decision
+# itself - which is exactly what heavy quantisation costs you at this size. Q4
+# is offered for the Light profile, at 378 MB.
+if ($Model -eq "router" -or $Model -eq "router-light") {
+    $dir = Join-Path $PSScriptRoot "..\models\llm"
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+
+    if ($Model -eq "router") {
+        $url = "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf"
+        $mb = 609
+    } else {
+        $url = "https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
+        $mb = 378
+    }
+    # One filename whatever the quantisation, so the app finds the router
+    # without being told which build the user chose.
+    Get-File $url (Join-Path $dir "router.gguf") $mb
+    Write-Host ""
+    Write-Host "Router model ready. Check it with:" -ForegroundColor Green
+    Write-Host "  cargo run -p memos-llm --example grammar_check"
+    exit 0
+}
+
 $known = @{
     "tiny.en"   = 78
     "base.en"   = 148
@@ -83,7 +110,7 @@ $known = @{
     "medium.en" = 1533
 }
 if (-not $known.ContainsKey($Model)) {
-    Write-Host "Unknown model '$Model'. Choose one of: $($known.Keys -join ', '), embedding" -ForegroundColor Red
+    Write-Host "Unknown model '$Model'. Choose one of: $($known.Keys -join ', '), embedding, router, router-light" -ForegroundColor Red
     exit 1
 }
 
