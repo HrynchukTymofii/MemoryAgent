@@ -16,10 +16,10 @@ words you did not use when you saved it.
 |---|---|
 | ✅ **M0** skeleton | workspace, SQLite + FTS5, tray, global hotkey, pre-warmed overlay |
 | ✅ **M1** capture | ring buffer, VAD, whisper.cpp, Windows context, Tier 0 grammar, `SAVE`/`NOTE` |
-| ✅ **M2** retrieval | ONNX embeddings, background embed worker, FTS5 + vectors + RRF, `SEARCH`/`SHOW`/`OPEN`, the Hub |
+| ✅ **M2** retrieval | ONNX embeddings, background embed worker, FTS5 + vectors + RRF, `SEARCH`/`SHOW`/`OPEN`, page capture, the Hub |
 | ⬜ **M3** intelligence | Tier 1 router, correction log, derived confidence, `MOVE`/`TAG`/`TASK` |
 
-131 tests, clippy clean, `tsc --noEmit` clean.
+144 tests, clippy clean, `tsc --noEmit` clean.
 
 ## Prerequisites
 
@@ -71,11 +71,47 @@ find the thing about state snapshots     -> results in the overlay
 open the react article                   -> reopens the source in your browser
 ```
 
-**`SAVE` needs something to save.** Said while looking at a page or with text
-selected, it captures that. Said at a blank desktop it declines and tells you to
-use `note that…` — storing the command itself as a memory titled "add this to
-react" is an echo, not a capture, and it would cost one of the fifty weekly
-captures the free plan allows.
+### What `SAVE` actually stores
+
+In order of how directly you chose it:
+
+| | |
+|---|---|
+| **A selection** | exactly what you highlighted. An explicit choice always wins |
+| **The page** | its readable text, trimmed of navigation, banners and footer |
+| **A URL alone** | only when the page has no prose in it — a bookmark, not a memory |
+
+The receipt says which one happened — `highlighted text + voice`, `page + voice`
+or `link only + voice` — because they look identical in the library and mean very
+different things about what will be findable later.
+
+The page is read through the same UI Automation interface as the selection: the
+rendered text is already in the accessibility tree because screen readers need it
+there, so there is no browser extension and no network fetch. Measured on a real
+article: 9,603 characters in 177 ms, inside the 400 ms collection deadline.
+
+**A save still needs something to save.** With no selection, no page and no URL,
+it declines and points you at `note that…`: storing the command itself as a
+memory titled "add this to react" is an echo, not a capture, and it would spend
+one of the fifty weekly captures the free plan allows.
+
+### Trimming is the hard half
+
+UI Automation returns the article *and* the navigation bar, the cookie banner,
+the "related stories" rail and the footer, in reading order with no structure to
+tell them apart. That furniture is near-identical on every page anyone saves,
+which is the worst possible property for a search index — it makes every
+document look faintly like every other one.
+
+With no markup the one usable signal is text density. Chrome is short lines:
+menu items, buttons, bylines. Prose is long lines. So `readable::extract` takes
+the span between the first and last dense line, then drops any run of three or
+more short lines inside it — a menu or a sidebar. One or two short lines between
+paragraphs are headings, and they stay.
+
+A page with no prose at all returns nothing rather than something. A search
+results page or a mail client's folder list would otherwise be stored, and every
+such capture looks like every other one.
 
 ## The loop, end to end
 
@@ -99,7 +135,7 @@ Check any piece on its own:
 ```
 cargo run -p memos-stt --example mic_check                              # microphone
 cargo run -p memos-stt --features whisper --example transcribe_check    # record 5 s, transcribe
-cargo run -p memos-context --example context_check                      # what we can read
+cargo run -p memos-context --example context_check                      # what we can read from a window
 cargo run -p memos-embed --features onnx --example embed_check          # embeddings carry meaning
 cargo run -p memos-embed --features onnx --example search_check         # capture -> embed -> retrieve
 cargo run -p memos-agent --example route_check                          # what Tier 0 does with a sentence
@@ -385,7 +421,7 @@ them together. That is what lets search run with no embedder at all.
 ## Testing
 
 ```
-cargo test --workspace                        # 131 tests
+cargo test --workspace                        # 144 tests
 cargo clippy --workspace --all-targets        # clean
 cd apps/desktop && npx tsc --noEmit           # clean
 ```
