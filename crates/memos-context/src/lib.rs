@@ -18,9 +18,13 @@
 
 pub mod capture;
 pub mod readable;
-pub use capture::{collect, start, Pending};
+
+/// The Windows implementation, public so diagnostics can ask it direct
+/// questions — "what does this window actually expose" is not answerable from
+/// the trimmed [`Context`] alone.
 #[cfg(windows)]
-mod windows_impl;
+pub mod windows_impl;
+pub use capture::{collect, start, Pending};
 
 use serde::{Deserialize, Serialize};
 

@@ -6,7 +6,7 @@
 //! exceptional.
 
 use windows::core::{Interface, BSTR, VARIANT};
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, MAX_PATH};
+use windows::Win32::Foundation::{BOOL, CloseHandle, HANDLE, HWND, LPARAM, MAX_PATH};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
 };
@@ -19,7 +19,8 @@ use windows::Win32::UI::Accessibility::{
     UIA_DocumentControlTypeId, UIA_EditControlTypeId, UIA_TextPatternId, UIA_ValuePatternId,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
+    EnumWindows, GetForegroundWindow, GetWindowTextLengthW, GetWindowTextW,
+    GetWindowThreadProcessId,
 };
 
 /// Initialise COM once per process for this thread's use of UI Automation.
@@ -41,6 +42,38 @@ pub fn foreground_window() -> Option<HWND> {
     } else {
         Some(hwnd)
     }
+}
+
+/// Find a top-level window whose title contains `needle`, case-insensitively.
+///
+/// For diagnostics: it makes "what would we capture from *that* window" a
+/// question you can ask without focusing it, which matters because focusing a
+/// window to inspect it is exactly what changes what is on screen.
+pub fn find_window(needle: &str) -> Option<HWND> {
+    struct Search {
+        needle: String,
+        found: Option<HWND>,
+    }
+
+    unsafe extern "system" fn visit(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let search = &mut *(lparam.0 as *mut Search);
+        if let Some(title) = window_title(hwnd) {
+            if title.to_lowercase().contains(&search.needle) {
+                search.found = Some(hwnd);
+                return BOOL(0); // stop enumerating
+            }
+        }
+        BOOL(1)
+    }
+
+    let mut search = Search {
+        needle: needle.to_lowercase(),
+        found: None,
+    };
+    unsafe {
+        let _ = EnumWindows(Some(visit), LPARAM(&mut search as *mut Search as isize));
+    }
+    search.found
 }
 
 pub fn window_title(hwnd: HWND) -> Option<String> {

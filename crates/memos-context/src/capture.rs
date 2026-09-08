@@ -71,24 +71,25 @@ pub fn collect(perms: ContextPermissions) -> Context {
 /// gathered milliseconds earlier. Taking the *last* message rather than the
 /// first is what makes the expensive stage strictly additive.
 fn drain_until(rx: &mpsc::Receiver<Context>, started: Instant) -> Context {
+    // Everything published so far, keeping the most complete. This is not a
+    // wait: by the time a capture ends the user has been speaking for seconds,
+    // and the page reader has been publishing improvements throughout.
     let mut best: Option<Context> = None;
-    loop {
-        let remaining = DEADLINE.saturating_sub(started.elapsed());
-        match rx.recv_timeout(remaining) {
-            Ok(ctx) => best = Some(ctx),
-            // Disconnected means the worker finished: nothing better is coming.
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                if best.is_none() {
-                    tracing::warn!("context collection exceeded {DEADLINE:?}; continuing without it");
-                } else {
-                    tracing::debug!("context deadline reached; using what arrived");
-                }
-                break;
-            }
-        }
+    while let Ok(ctx) = rx.try_recv() {
+        best = Some(ctx);
     }
-    best.unwrap_or_default()
+    if let Some(ctx) = best {
+        return ctx;
+    }
+
+    // Nothing at all yet — a very short utterance, or a slow first read. Wait
+    // out what remains of the deadline for something rather than nothing, then
+    // give up: the capture matters more than the context attached to it.
+    let remaining = DEADLINE.saturating_sub(started.elapsed());
+    rx.recv_timeout(remaining).unwrap_or_else(|_| {
+        tracing::warn!("context collection exceeded {DEADLINE:?}; continuing without it");
+        Context::default()
+    })
 }
 
 /// Collect, reporting progressively. `emit` returns false once nobody is
@@ -139,12 +140,68 @@ fn collect_staged(perms: ContextPermissions, mut emit: impl FnMut(Context) -> bo
     // sits in, so when there is one, the expensive read is skipped entirely.
     if perms.page && ctx.selected_text.is_none() {
         if let Some(uia) = &uia {
-            ctx.page_text = w::document_text(uia, hwnd, crate::readable::MAX_CHARS as i32)
-                .as_deref()
-                .and_then(crate::readable::extract);
-            if ctx.page_text.is_some() {
-                emit(ctx);
+            read_page_while_speaking(uia, hwnd, ctx, emit);
+        }
+    }
+}
+
+/// Read the page repeatedly, publishing each improvement.
+///
+/// **Chromium builds its accessibility tree lazily.** It does no such work until
+/// a client asks for it, and the tree is not finished when the first request
+/// returns. Measured against a docs page in Edge: the first read returned
+/// *nothing*, and the same read seconds later returned 15,637 characters. A
+/// single retry a few milliseconds later does not fix it, because the delay is
+/// seconds, not milliseconds.
+///
+/// The symptom is the worst kind. Not an error — a memory that quietly holds
+/// one section of an article, or only its headings, and looks entirely fine
+/// until a search fails to find it a month later. One real capture stored 687
+/// characters of a page that had 15,000.
+///
+/// Polling is the right shape because the deadline here is not a stopwatch: the
+/// user is holding the key and speaking, and every attempt lands in time that
+/// was already being spent (§4, stage 3). Each improvement is published as it
+/// arrives, so whatever has been read by the time they stop talking is what the
+/// capture uses — and `emit` returning false says nobody is listening any more,
+/// which ends the loop immediately.
+#[cfg(windows)]
+fn read_page_while_speaking(
+    uia: &windows::Win32::UI::Accessibility::IUIAutomation,
+    hwnd: windows::Win32::Foundation::HWND,
+    mut ctx: Context,
+    mut emit: impl FnMut(Context) -> bool,
+) {
+    use crate::windows_impl as w;
+
+    /// Pauses between attempts. They lengthen because a tree that was not ready
+    /// at 200 ms is waiting on rendering, not on scheduling — and the total,
+    /// 2.1 s, is about as long as a person speaks a command for.
+    const BACKOFF_MS: &[u64] = &[0, 200, 300, 500, 500, 600];
+    /// Enough text that waiting for more is not worth another attempt.
+    const SETTLED: usize = 1_200;
+
+    let mut best = 0usize;
+    for pause in BACKOFF_MS {
+        if *pause > 0 {
+            std::thread::sleep(Duration::from_millis(*pause));
+        }
+        let Some(raw) = w::document_text(uia, hwnd, crate::readable::MAX_CHARS as i32) else {
+            continue;
+        };
+        let len = raw.chars().count();
+        if len <= best {
+            continue;
+        }
+        best = len;
+        if let Some(text) = crate::readable::extract(&raw) {
+            ctx.page_text = Some(text);
+            if !emit(ctx.clone()) {
+                return;
             }
+        }
+        if best >= SETTLED {
+            return;
         }
     }
 }
