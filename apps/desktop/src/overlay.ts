@@ -142,6 +142,8 @@ function showResults(hits: Hit[]) {
     results.appendChild(li);
   }
   results.classList.add("shown");
+  // Five results overflow the resting window exactly as three options did.
+  fitWindowToContent();
 }
 
 /**
@@ -184,12 +186,41 @@ function showCandidates(options: Candidate[]) {
     li.appendChild(button);
     results.appendChild(li);
   }
-  if (options.length) results.classList.add("shown");
+  if (options.length) {
+    results.classList.add("shown");
+    fitWindowToContent();
+  }
 }
 
 function clearResults() {
   results.replaceChildren();
   results.classList.remove("shown", "answered");
+}
+
+/**
+ * Tell the backend how tall this window needs to be.
+ *
+ * The content is anchored to the bottom of the window, so a window shorter than
+ * its content does not scroll — it overflows off the *top* and is clipped away,
+ * leaving only the last row visible. Estimating the height in Rust got that
+ * wrong, and it would keep getting it wrong: row heights depend on the font
+ * Windows actually resolved, on display scaling, and on how many options there
+ * are.
+ *
+ * So the page measures itself instead. `getBoundingClientRect` reports the full
+ * laid-out height even for the part the viewport is currently clipping, which is
+ * exactly the number needed to stop clipping it. Measured after a paint, or the
+ * rows just added have no geometry yet.
+ */
+function fitWindowToContent() {
+  requestAnimationFrame(() => {
+    const top = results.getBoundingClientRect().top;
+    const bottom = pill.getBoundingClientRect().bottom;
+    // The margins live outside both rects: 10px above the list, 10px below the
+    // pill, plus a little slack so a rounding difference cannot re-clip it.
+    const height = Math.ceil(bottom - top) + 26;
+    invoke("size_overlay", { height }).catch(() => {});
+  });
 }
 
 await listen("capture:begin", () => {

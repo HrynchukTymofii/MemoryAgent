@@ -197,6 +197,32 @@ fn embed_status(state: tauri::State<'_, AppState>) -> embedding::EmbedStatus {
     state.embeddings.status(&state.db)
 }
 
+/// Resize the overlay to the height the page just measured for itself.
+///
+/// The page is the only thing that knows how tall its content actually is —
+/// row heights fall out of the font Windows resolved and the display scaling,
+/// neither of which is knowable from here. Estimating it in Rust clipped the
+/// question: content is anchored to the bottom of the window, so a window
+/// shorter than its content overflows off the *top* and leaves only the last
+/// row visible.
+///
+/// Clamped at both ends anyway. This number arrives from a webview, and a
+/// webview mid-layout can report anything at all.
+#[tauri::command]
+fn size_overlay(app: tauri::AppHandle, height: u32) {
+    let Some(w) = app.get_webview_window("overlay") else {
+        return;
+    };
+    let height = height.clamp(OVERLAY_MIN_HEIGHT, OVERLAY_MAX_HEIGHT);
+    if let Err(e) = w.set_size(tauri::LogicalSize::new(OVERLAY_SIZE.0, height)) {
+        tracing::warn!(?e, "could not resize the overlay");
+        return;
+    }
+    // The window is positioned by its bottom edge, so this keeps the pill where
+    // the user is already looking and grows the list upward into empty space.
+    position_overlay(&w);
+}
+
 /// Answer the overlay's destination question by choosing option `index`.
 ///
 /// Executes the command that was waiting rather than re-routing the transcript:
@@ -477,23 +503,24 @@ pub fn data_dir() -> std::path::PathBuf {
 /// The overlay's resting shape: tall enough for a list of results to grow
 /// upward into, and click-through so none of that empty space is in the way.
 const OVERLAY_SIZE: (u32, u32) = (520, 320);
-/// Room for the pill, plus one row per option.
-const PILL_HEIGHT: u32 = 78;
-const OPTION_HEIGHT: u32 = 46;
+/// Bounds on what the page may ask for. A measurement is a number from a
+/// webview, and a webview mid-layout can report anything at all.
+const OVERLAY_MIN_HEIGHT: u32 = 120;
+const OVERLAY_MAX_HEIGHT: u32 = 620;
 
 /// Make the overlay something the user can click.
 ///
-/// Only ever while a question is on screen. Two changes, both reversed by
-/// [`speak_only`]: clicks stop passing through, and the window shrinks to
-/// roughly its visible content — because a transparent window intercepts clicks
-/// across its entire rectangle, not merely where something is drawn.
+/// Only ever while a question is on screen: a transparent window intercepts
+/// clicks across its entire rectangle rather than where something is drawn, so
+/// the rest of the time this window must stay out of the way. Reversed by
+/// [`speak_only`].
 ///
-/// The bottom edge does not move: [`position_overlay`] anchors it there, so the
-/// pill stays exactly where the user is already looking.
-fn answerable<R: Runtime>(w: &tauri::WebviewWindow<R>, options: usize) {
-    let height = PILL_HEIGHT + OPTION_HEIGHT * options.min(4) as u32;
-    let _ = w.set_size(tauri::LogicalSize::new(OVERLAY_SIZE.0, height));
-    position_overlay(w);
+/// The window is *not* sized here. The page measures itself once the options
+/// are laid out and calls `size_overlay`, because the height depends on the
+/// font Windows resolved, on display scaling and on how many options there are
+/// — and a window shorter than its content does not scroll, it clips the top
+/// away and leaves only the last row showing.
+fn answerable<R: Runtime>(w: &tauri::WebviewWindow<R>) {
     if let Err(e) = w.set_ignore_cursor_events(false) {
         tracing::warn!(?e, "overlay question will not be clickable");
     }
@@ -658,6 +685,7 @@ fn main() {
             capture_level,
             embed_status,
             answer_question,
+            size_overlay,
             search,
             items,
             recent,
@@ -721,9 +749,9 @@ fn main() {
                 // transparent window swallows clicks across its whole rectangle,
                 // and 520x320 of that over someone's work is not acceptable for
                 // the sake of three rows.
-                if let Some(ask) = &res.ask {
+                if res.ask.is_some() {
                     if let Some(w) = result_handle.get_webview_window("overlay") {
-                        answerable(&w, ask.options.len());
+                        answerable(&w);
                     }
                     // Answering hides the overlay; expiry is what dismisses an
                     // unanswered one, and it is deliberately slower than the
@@ -775,6 +803,10 @@ fn main() {
                         let _ = fade.emit_to("overlay", "capture:hide", ());
                         std::thread::sleep(std::time::Duration::from_millis(140));
                         let _ = w.hide();
+                        // Back to the resting shape while it is hidden, so the
+                        // next capture starts from a known size rather than
+                        // from whatever the last result list needed.
+                        speak_only(&w);
                     });
                 }
             });
