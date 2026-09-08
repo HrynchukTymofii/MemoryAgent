@@ -16,7 +16,7 @@ use windows::Win32::System::Threading::{
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
     IUIAutomationValuePattern, TreeScope_Descendants, UIA_ControlTypePropertyId,
-    UIA_EditControlTypeId, UIA_TextPatternId, UIA_ValuePatternId,
+    UIA_DocumentControlTypeId, UIA_EditControlTypeId, UIA_TextPatternId, UIA_ValuePatternId,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
@@ -126,6 +126,43 @@ pub fn selected_text(uia: &IUIAutomation) -> Option<String> {
             None
         } else {
             Some(trimmed.to_string())
+        }
+    }
+}
+
+/// The whole document's text, for "save this page".
+///
+/// Finds the first Document element in the window and reads its full range.
+/// Browsers expose the rendered page this way, which is what makes capturing an
+/// article possible with no extension and no network fetch — the text is
+/// already in the accessibility tree because a screen reader needs it there.
+///
+/// `max_chars` is passed to UIA rather than applied afterwards: marshalling a
+/// megabyte of text across the process boundary and then throwing most of it
+/// away is the expensive half of this call.
+pub fn document_text(uia: &IUIAutomation, hwnd: HWND, max_chars: i32) -> Option<String> {
+    unsafe {
+        let root = uia.ElementFromHandle(hwnd).ok()?;
+        let cond = uia
+            .CreatePropertyCondition(
+                UIA_ControlTypePropertyId,
+                &VARIANT::from(UIA_DocumentControlTypeId.0),
+            )
+            .ok()?;
+
+        // FindFirst, not FindAll: a page has one document, and walking every
+        // descendant of a complex application is exactly the call that blows
+        // the collection deadline.
+        let doc = root.FindFirst(TreeScope_Descendants, &cond).ok()?;
+        let pattern = doc.GetCurrentPattern(UIA_TextPatternId).ok()?;
+        let text: IUIAutomationTextPattern = pattern.cast().ok()?;
+        let range = text.DocumentRange().ok()?;
+        let raw = range.GetText(max_chars).ok()?.to_string();
+
+        if raw.trim().is_empty() {
+            None
+        } else {
+            Some(raw)
         }
     }
 }

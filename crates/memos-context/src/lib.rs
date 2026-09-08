@@ -17,6 +17,7 @@
 //! the latency the whole design exists to protect.
 
 pub mod capture;
+pub mod readable;
 pub use capture::{collect, start, Pending};
 #[cfg(windows)]
 mod windows_impl;
@@ -33,6 +34,12 @@ pub struct Context {
     pub active_window_title: Option<String>,
     pub current_url: Option<String>,
     pub selected_text: Option<String>,
+    /// The readable text of the page, when there is one and it has prose in it.
+    ///
+    /// Trimmed by [`readable::extract`] before it gets here — the raw
+    /// accessibility text is half navigation, and that half is identical across
+    /// every page a user saves.
+    pub page_text: Option<String>,
     pub clipboard_text: Option<String>,
     pub captured_at: Option<String>,
     /// How long collection took. Watched because this runs on the capture path
@@ -43,11 +50,25 @@ pub struct Context {
 impl Context {
     /// Whether there is anything worth attaching to a memory.
     ///
-    /// A window title alone is weak evidence of intent; a selection or a URL is
-    /// a real referent for the word "this".
+    /// A window title alone is weak evidence of intent; a selection, a page or
+    /// a URL is a real referent for the word "this".
     pub fn has_referent(&self) -> bool {
         self.selected_text.as_deref().is_some_and(|s| !s.trim().is_empty())
+            || self.page_text.as_deref().is_some_and(|s| !s.trim().is_empty())
             || self.current_url.is_some()
+    }
+
+    /// What "this" refers to, in order of how directly the user chose it.
+    ///
+    /// A selection is an explicit choice and always wins. The page is what they
+    /// were looking at. The URL is the last resort — it names the memory
+    /// without containing any of it, which is a bookmark rather than a memory.
+    pub fn referent(&self) -> Option<&str> {
+        self.selected_text
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| self.page_text.as_deref().filter(|s| !s.trim().is_empty()))
+            .or(self.current_url.as_deref())
     }
 
     /// The best available title for a memory captured from here.
@@ -76,6 +97,11 @@ pub struct ContextPermissions {
     pub window: bool,
     pub url: bool,
     pub selection: bool,
+    /// Read the whole page, not only what is selected.
+    ///
+    /// On by default: it is the difference between saving an article and saving
+    /// a link to one, and it only ever runs on a capture the user asked for.
+    pub page: bool,
     pub clipboard: bool,
 }
 
@@ -85,6 +111,7 @@ impl Default for ContextPermissions {
             window: true,
             url: true,
             selection: true,
+            page: true,
             // Off by default. The clipboard frequently holds passwords and
             // tokens the user never intended to share, and unlike a selection
             // it is not evidence of present intent — it may be hours old.
