@@ -1,0 +1,46 @@
+[package]
+name         = "memos-desktop"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+
+[features]
+# On by default now that the toolchain is in place. Turning it off still builds
+# a working app — capture, shortcut and storage all function; only speech does
+# not — which is what keeps a broken native toolchain from blocking everything.
+default = ["whisper", "embeddings"]
+whisper = ["memos-stt/whisper"]
+# Semantic search. Off, the app still captures and still searches — by keyword
+# only — which is the same state as a machine whose model has not downloaded yet.
+embeddings = ["memos-embed/onnx"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+memos-core = { workspace = true }
+memos-db   = { workspace = true }
+memos-stt  = { workspace = true }
+memos-context = { workspace = true }
+memos-agent = { workspace = true }
+memos-embed = { workspace = true }
+memos-retrieval = { workspace = true }
+
+tauri      = { version = "2", features = ["tray-icon", "image-png"] }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+chrono     = { workspace = true }
+parking_lot = { workspace = true }
+tracing    = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow     = { workspace = true }
+tauri-plugin-single-instance = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_LibraryLoader",
+] }

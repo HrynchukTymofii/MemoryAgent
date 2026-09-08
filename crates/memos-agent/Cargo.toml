@@ -1,0 +1,16 @@
+[package]
+name         = "memos-agent"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+
+[dependencies]
+memos-core    = { workspace = true }
+memos-db      = { workspace = true }
+memos-context = { workspace = true }
+memos-retrieval = { workspace = true }
+serde         = { workspace = true }
+serde_json    = { workspace = true }
+chrono        = { workspace = true }
+tracing       = { workspace = true }

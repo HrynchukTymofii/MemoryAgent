@@ -1,0 +1,180 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { api, CAPTURE_LIMIT, type HookStats, type LibrarySummary } from "../lib/api";
+import { Home } from "../features/home/Home";
+import { Library } from "../features/library/Library";
+import { Collections } from "../features/collections/Collections";
+import { Settings } from "../features/settings/Settings";
+
+export type Page = "home" | "library" | "collections" | "settings";
+
+/**
+ * How often the shell polls the backend.
+ *
+ * Two rates, not one. The shortcut recorder reads the keyboard hook's *peak*
+ * held state, so it needs samples faster than a person can press and release a
+ * chord — miss the peak and Ctrl+Win records as Ctrl. Nothing else on screen
+ * changes faster than a person reads, and polling eight IPC calls at 120 ms
+ * forever is a background cost paid by an app that is meant to sit in the tray
+ * all day.
+ */
+const FAST_MS = 120;
+const CALM_MS = 1000;
+
+export function App() {
+  const [page, setPage] = useState<Page>("home");
+  // Set when a collection is picked in Collections; the Library opens filtered.
+  const [filter, setFilter] = useState<string | null>(null);
+
+  const [used, setUsed] = useState(0);
+  const [summary, setSummary] = useState<LibrarySummary | null>(null);
+  const [hook, setHook] = useState<HookStats | null>(null);
+  const [offline, setOffline] = useState(false);
+  /** Bumped after anything that changes the store, to re-fetch lists. */
+  const [revision, setRevision] = useState(0);
+  const refresh = useCallback(() => setRevision((r) => r + 1), []);
+
+  // The recorder is the only fast consumer, and it lives on Settings.
+  const interval = page === "settings" ? FAST_MS : CALM_MS;
+
+  useEffect(() => {
+    let live = true;
+    const tick = async () => {
+      try {
+        const [count, sum, stats] = await Promise.all([
+          api.captureCount(),
+          api.summary(),
+          api.hookStats(),
+        ]);
+        if (!live) return;
+        setUsed(count);
+        setSummary(sum);
+        setHook(stats);
+        setOffline(false);
+      } catch {
+        // Never fail silently. When the backend stopped answering, every tile
+        // kept its last value and read as a confident zero — indistinguishable
+        // from a dead hook, and it sent us chasing a bug that did not exist.
+        if (live) setOffline(true);
+      }
+    };
+    void tick();
+    const t = window.setInterval(tick, interval);
+    return () => {
+      live = false;
+      window.clearInterval(t);
+    };
+  }, [interval, revision]);
+
+  const openCollection = useCallback((path: string | null) => {
+    setFilter(path);
+    setPage("library");
+  }, []);
+
+  const quota = useMemo(
+    () => Math.min(100, (used / CAPTURE_LIMIT) * 100),
+    [used],
+  );
+
+  return (
+    <div className="shell">
+      <aside className="side">
+        <div className="brand">
+          <span className="bars" aria-hidden="true">
+            <i style={{ height: 7 }} />
+            <i style={{ height: 13 }} />
+            <i style={{ height: 10 }} />
+            <i style={{ height: 15 }} />
+          </span>
+          Memory OS
+        </div>
+        <nav>
+          <ul>
+            <NavItem page="home" current={page} onGo={setPage} glyph="◈" label="Home" />
+            <NavItem
+              page="library"
+              current={page}
+              onGo={(p) => {
+                setFilter(null);
+                setPage(p);
+              }}
+              glyph="▤"
+              label="Library"
+            />
+            <NavItem
+              page="collections"
+              current={page}
+              onGo={setPage}
+              glyph="◱"
+              label="Collections"
+            />
+            <li className="muted">
+              <span className="g">◷</span> Tasks
+            </li>
+          </ul>
+          <div className="navh">Tools</div>
+          <ul>
+            <li className="muted">
+              <span className="g">Aa</span> Dictionary
+            </li>
+            <li className="muted">
+              <span className="g">↺</span> History
+            </li>
+            <NavItem page="settings" current={page} onGo={setPage} glyph="⚙" label="Settings" />
+          </ul>
+        </nav>
+        <div className="meter">
+          <div className="n">
+            {used} of {CAPTURE_LIMIT} captures
+          </div>
+          <div className="s">Free plan · resets Monday</div>
+          <div className="bar">
+            <i style={{ width: `${quota}%` }} />
+          </div>
+        </div>
+      </aside>
+
+      <main>
+        {page === "home" && (
+          <Home summary={summary} offline={offline} revision={revision} onGo={setPage} />
+        )}
+        {page === "library" && (
+          <Library
+            filter={filter}
+            onFilter={setFilter}
+            revision={revision}
+            onChanged={refresh}
+          />
+        )}
+        {page === "collections" && (
+          <Collections revision={revision} onOpen={openCollection} />
+        )}
+        {page === "settings" && <Settings hook={hook} offline={offline} />}
+      </main>
+    </div>
+  );
+}
+
+function NavItem({
+  page,
+  current,
+  onGo,
+  glyph,
+  label,
+}: {
+  page: Page;
+  current: Page;
+  onGo: (p: Page) => void;
+  glyph: string;
+  label: string;
+}) {
+  return (
+    <li
+      className={page === current ? "on" : ""}
+      data-page={page}
+      onClick={() => onGo(page)}
+    >
+      <span className="g">{glyph}</span> {label}
+    </li>
+  );
+}

@@ -1,0 +1,36 @@
+# Rust
+/target
+**/target
+Cargo.lock.bak
+
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Python (cloud tier)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Model weights — never commit, fetched by scripts/fetch-models.ps1
+/models/**/*.bin
+/models/**/*.gguf
+/models/**/*.onnx
+/models/**/*.safetensors
+
+# Local data & secrets
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,48 @@
+[package]
+name         = "memos-embed"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+
+[dependencies]
+memos-core  = { workspace = true }
+serde       = { workspace = true }
+tracing     = { workspace = true }
+thiserror   = { workspace = true }
+parking_lot = { workspace = true }
+
+# ONNX Runtime, not PyTorch: ~30 MB against ~800 MB, and no Python anywhere near
+# the desktop app. Optional so a missing native runtime cannot stop the build.
+# Two deliberate choices here.
+#
+# `load-dynamic`, not static linking: the prebuilt ONNX Runtime is compiled with
+# MSVC toolset 14.40+, and linking it against an older toolset fails on missing
+# STL vectorised helpers (__std_find_end_1 and friends). Loading the DLL at run
+# time lets it bring its own runtime and decouples us from whichever compiler
+# the upstream binaries were built with.
+#
+# `api-20` rather than the newest: it pins the minimum ONNX Runtime we accept to
+# 1.20, which is widely available. It also means we must ship our own DLL and
+# point ORT_DYLIB_PATH at it - Windows itself carries onnxruntime.dll 1.17.1 in
+# System32, and a bare-name search finds that first.
+ort        = { version = "=2.0.0-rc.13", default-features = false, features = ["load-dynamic", "api-20", "ndarray"], optional = true }
+tokenizers = { version = "0.23", default-features = false, features = ["onig"], optional = true }
+
+# Only the end-to-end example needs the store and the retriever; the crate
+# itself stays a leaf that knows nothing about SQLite.
+[dev-dependencies]
+memos-db        = { workspace = true }
+memos-retrieval = { workspace = true }
+
+[features]
+default = []
+onnx = ["dep:ort", "dep:tokenizers"]
+
+[[example]]
+name = "embed_check"
+required-features = ["onnx"]
+
+[[example]]
+name = "search_check"
+required-features = ["onnx"]

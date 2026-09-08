@@ -1,0 +1,33 @@
+[package]
+name         = "memos-stt"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+
+[dependencies]
+memos-core  = { workspace = true }
+parking_lot = { workspace = true }
+tracing     = { workspace = true }
+thiserror   = { workspace = true }
+serde       = { workspace = true }
+
+# cpal drives WASAPI directly and needs no native toolchain.
+cpal = "0.15"
+
+# whisper.cpp is optional so a missing or broken native toolchain can never stop
+# the application building. It also matches how the model ships: an optional
+# download, not something every user carries.
+whisper-rs = { version = "0.16", optional = true }
+
+[features]
+default = []
+whisper = ["dep:whisper-rs"]
+
+[[example]]
+name = "transcribe_check"
+required-features = ["whisper"]
+
+[[example]]
+name = "wav_check"
+required-features = ["whisper"]

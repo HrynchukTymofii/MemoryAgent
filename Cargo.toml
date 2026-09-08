@@ -1,0 +1,53 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/memos-core",
+    "crates/memos-db",
+    "crates/memos-stt",
+    "crates/memos-context",
+    "crates/memos-agent",
+    "crates/memos-embed",
+    "crates/memos-retrieval",
+    "apps/desktop/src-tauri",
+]
+
+[workspace.package]
+version      = "0.1.0"
+edition      = "2021"
+rust-version = "1.82"
+license      = "proprietary"
+
+# Heavy ML deps (whisper-rs, llama-cpp-2, ort) arrive with the crates that need
+# them, so the workspace stays green before those toolchains are installed.
+[workspace.dependencies]
+memos-core = { path = "crates/memos-core" }
+memos-db   = { path = "crates/memos-db" }
+memos-stt  = { path = "crates/memos-stt" }
+memos-context = { path = "crates/memos-context" }
+memos-agent   = { path = "crates/memos-agent" }
+memos-embed   = { path = "crates/memos-embed" }
+memos-retrieval = { path = "crates/memos-retrieval" }
+
+anyhow             = "1"
+thiserror          = "1"
+serde              = { version = "1", features = ["derive"] }
+serde_json         = "1"
+uuid               = { version = "1", features = ["v4", "v7", "serde"] }
+chrono             = { version = "0.4", features = ["serde"] }
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+parking_lot        = "0.12"
+rusqlite           = { version = "0.32", features = ["bundled", "chrono", "uuid", "serde_json"] }
+
+# Latency-sensitive always-on desktop app.
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1
+panic         = "abort"
+strip         = true
+
+# Optimise dependencies even in debug builds — an unoptimised whisper or llama
+# build makes local latency testing meaningless. Our own crates stay fast to compile.
+[profile.dev.package."*"]
+opt-level = 3

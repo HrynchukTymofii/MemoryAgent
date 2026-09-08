@@ -1,0 +1,265 @@
+/* Hub shell. Palette after the Polaris reference: cool blue-grey ground, white
+   panels, selection expressed as elevation rather than colour, and a single
+   warm accent used sparingly.
+
+   Plain CSS, not CSS-in-JS or modules: one document, one designer, and a
+   stylesheet that can be read top to bottom. The overlay has its own, inline
+   and framework-free — it must not load this or anything else. */
+/* Hub shell. Palette after the Polaris reference: cool blue-grey ground,
+     white panels, selection expressed as elevation rather than colour, and a
+     single warm accent used sparingly. React arrives at M2 when the Hub gains
+     real content; the overlay stays framework-free permanently. */
+  :root {
+    --bg:#F1F4F8; --side:#EDF1F6; --card:#FFFFFF; --card2:#F7F9FC;
+    --ink:#1F2328; --ink2:#5A6673; --ink3:#93A0AE;
+    --line:#E4EAF0; --line2:#D5DEE7;
+    --acc:#E8850C; --acc-soft:#FDF2E2; --acc-line:#F2D2A5;
+    --ok:#0F8A6A; --bad:#C0392B;
+    --lift:0 1px 2px rgba(31,35,40,.05), 0 3px 10px rgba(31,35,40,.07);
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+    font-size:13px; line-height:1.45; user-select:none;
+  }
+  .shell { display:grid; grid-template-columns:196px minmax(0,1fr); min-height:100vh; }
+
+  /* ---------------------------------------------------------- sidebar */
+  .side { background:var(--side); padding:14px 10px; display:flex; flex-direction:column; }
+  .brand {
+    display:flex; align-items:center; gap:9px; padding:4px 8px 12px; margin-bottom:10px;
+    font-weight:700; font-size:15px; letter-spacing:-.015em;
+    border-bottom:1px dashed var(--line2);
+  }
+  .brand .bars { display:flex; align-items:flex-end; gap:2px; height:15px; }
+  .brand .bars i { width:3px; border-radius:1px; background:var(--ink); display:block; }
+  .brand .bars i:last-child { background:var(--acc); }
+  nav ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:1px; }
+  nav li {
+    display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:11px;
+    color:var(--ink2); font-size:12.5px; font-weight:500; border:1px solid transparent;
+  }
+  nav li[data-page] { cursor:pointer; }
+  nav li[data-page]:hover { background:rgba(255,255,255,.65); }
+  nav li.muted { opacity:.45; }
+  /* Selection is elevation, not colour — keeps the chrome monochrome so the one
+     accent carries meaning. */
+  nav li.on {
+    background:var(--card); border-color:var(--line); color:var(--ink);
+    font-weight:600; box-shadow:var(--lift);
+  }
+  nav li .g {
+    width:19px; height:19px; border-radius:6px; flex:none; display:grid; place-items:center;
+    font-size:10px; color:var(--ink2);
+    background:linear-gradient(155deg,#FFFFFF,#DFE7EE);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 1px 1.5px rgba(31,50,72,.13);
+  }
+  .navh {
+    font-size:9px; font-weight:700; letter-spacing:.13em; text-transform:uppercase;
+    color:var(--ink3); padding:14px 9px 5px;
+  }
+  .meter {
+    margin:auto 0 4px; background:var(--acc-soft); border:1px solid var(--acc-line);
+    border-radius:13px; padding:12px 13px;
+  }
+  .meter .n { font-size:15px; font-weight:700; }
+  .meter .s { font-size:10.5px; color:var(--ink2); margin:3px 0 9px; }
+  .meter .bar { height:5px; border-radius:3px; background:#F0DDC0; overflow:hidden; }
+  .meter .bar i { display:block; height:100%; background:var(--acc); width:0%; }
+
+  /* ------------------------------------------------------------- page */
+  main { padding:16px; }
+  .panel {
+    background:var(--card); border:1px solid var(--line); border-radius:15px;
+    padding:22px 24px; box-shadow:var(--lift); min-height:calc(100vh - 32px);
+  }
+  h1 { font-size:23px; font-weight:700; letter-spacing:-.015em; margin:0 0 6px; }
+  .sub { color:var(--ink2); font-size:13px; margin:0 0 22px; max-width:64ch; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:11px; }
+  .stat { background:var(--card2); border:1px solid var(--line); border-radius:12px; padding:14px 15px; }
+  .stat .v { font-size:24px; font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+  .stat .v small { font-size:11px; font-weight:500; color:var(--ink2); margin-left:5px; }
+  .stat .k {
+    font-size:9px; font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--ink3); margin-bottom:6px;
+  }
+  .verdict { font-size:11.5px; font-weight:600; margin-top:7px; }
+  .verdict.ok  { color:var(--ok); }
+  .verdict.bad { color:var(--bad); }
+
+  .card {
+    margin-top:18px; background:var(--card2); border:1px solid var(--line);
+    border-radius:12px; padding:4px 18px 16px;
+  }
+  .card h2 {
+    font-size:11px; font-weight:700; letter-spacing:.11em; text-transform:uppercase;
+    color:var(--ink3); margin:16px 0 4px;
+  }
+  .card p { margin:0 0 12px; color:var(--ink2); font-size:12.5px; max-width:64ch; }
+
+  /* ---------------------------------------------------------- settings */
+  .row {
+    display:flex; align-items:center; gap:16px; padding:15px 0;
+    border-bottom:1px solid var(--line);
+  }
+  .row.last { border-bottom:none; }
+  .row .bd { flex:1; min-width:0; }
+  /* Both are spans, so they need to be told to stack — inline, the label runs
+     straight into its own description ("ShortcutHold this anywhere..."). */
+  .row .k { display:block; font-size:13px; font-weight:600; margin-bottom:3px; }
+  .row .v { display:block; font-size:11.5px; color:var(--ink2); max-width:58ch; }
+  .btn {
+    border:1px solid var(--line2); background:var(--card); color:var(--ink);
+    border-radius:10px; padding:8px 15px; font-size:12.5px; font-weight:600;
+    font-family:inherit; cursor:pointer; box-shadow:var(--lift); flex:none;
+  }
+  .btn:hover { background:var(--card2); }
+  .btn:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+  .btn.primary { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .btn.primary:hover { background:#2C333A; }
+  .btn:disabled { opacity:.4; cursor:default; }
+
+  /* The shortcut display doubles as the recording surface. */
+  .keycap {
+    display:inline-flex; align-items:center; justify-content:center; flex:none;
+    background:var(--card); border:1px solid var(--line2); border-radius:11px;
+    padding:9px 15px; box-shadow:0 1px 0 var(--line2), var(--lift);
+    font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;
+    font-size:14px; font-weight:700; min-width:168px; color:var(--ink);
+  }
+  .keycap.listening {
+    border-color:var(--acc); box-shadow:0 0 0 3px var(--acc-soft);
+    color:var(--acc); animation:pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 50% { opacity:.55; } }
+  @media (prefers-reduced-motion: reduce) { .keycap.listening { animation:none; } }
+  .hint { font-size:11.5px; color:var(--ink2); min-height:16px; }
+  .hint.ok  { color:var(--ok); font-weight:600; }
+  .hint.bad { color:var(--bad); font-weight:600; }
+
+  .lvl {
+    flex:none; width:120px; height:8px; border-radius:5px; overflow:hidden;
+    background:var(--line); border:1px solid var(--line2);
+  }
+  .lvl i {
+    display:block; height:100%; width:0%; background:var(--ok);
+    transition:width 90ms linear;
+  }
+  @media (prefers-reduced-motion: reduce) { .lvl i { transition:none; } }
+
+  .seg { display:flex; gap:6px; flex:none; }
+  .seg button {
+    border:1px solid var(--line2); background:var(--card); color:var(--ink2);
+    border-radius:9px; padding:7px 12px; font-size:12px; font-weight:600;
+    font-family:inherit; cursor:pointer;
+  }
+  .seg button.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+
+  kbd {
+    font-family:ui-monospace,"Cascadia Mono",Consolas,monospace; font-size:11px;
+    background:var(--card); border:1px solid var(--line2); border-radius:5px;
+    padding:2px 6px; box-shadow:0 1px 0 var(--line2); color:var(--ink);
+  }
+
+/* ============================================================== M2 screens */
+
+/* ------------------------------------------------------------ item lists */
+/* Used by Home, Library and search results alike. One row shape everywhere:
+   a memory should look the same wherever you meet it, or the Library reads as
+   a different product from the search you arrived through. */
+.items { display:flex; flex-direction:column; gap:7px; margin-top:12px; }
+.item {
+  display:flex; align-items:flex-start; gap:13px; text-align:left; width:100%;
+  background:var(--card2); border:1px solid var(--line); border-radius:12px;
+  padding:12px 14px; font:inherit; color:inherit; cursor:pointer;
+}
+.item:hover { background:#FFFFFF; border-color:var(--line2); box-shadow:var(--lift); }
+.item:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+/* Nothing to open: still selectable, but it must not promise a click that
+   leads somewhere. */
+.item.inert { cursor:default; }
+.item.inert:hover { background:var(--card2); border-color:var(--line); box-shadow:none; }
+.item .bd { flex:1; min-width:0; }
+.item .t {
+  font-size:13px; font-weight:600; color:var(--ink);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.item .s {
+  font-size:11.5px; color:var(--ink2); margin-top:3px;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+}
+.item .m {
+  display:flex; align-items:center; gap:8px; margin-top:6px;
+  font-size:10.5px; color:var(--ink3);
+}
+.item .m .dot { color:var(--line2); }
+.tag {
+  display:inline-block; background:var(--card); border:1px solid var(--line2);
+  border-radius:6px; padding:1px 7px; font-size:10px; font-weight:600; color:var(--ink2);
+}
+/* Which retriever found a result. Monospace and quiet — diagnostic, not decor:
+   a hit the keyword side never saw is a different kind of answer. */
+.why {
+  font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;
+  font-size:9.5px; color:var(--ink3); letter-spacing:.02em;
+}
+.day {
+  font-size:9.5px; font-weight:700; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--ink3); margin:18px 0 2px;
+}
+.day:first-child { margin-top:6px; }
+
+/* --------------------------------------------------------------- search */
+.search { display:flex; gap:9px; align-items:center; margin-bottom:4px; }
+.search input {
+  flex:1; min-width:0; font:inherit; font-size:13.5px; color:var(--ink);
+  background:var(--card); border:1px solid var(--line2); border-radius:11px;
+  padding:10px 14px; box-shadow:var(--lift);
+}
+.search input::placeholder { color:var(--ink3); }
+.search input:focus { outline:2px solid var(--acc); outline-offset:1px; }
+.searchnote { font-size:11.5px; color:var(--ink2); min-height:17px; margin:9px 0 0; }
+
+/* ---------------------------------------------------------- collections */
+.tree { display:flex; flex-direction:column; gap:3px; margin-top:12px; }
+.node {
+  display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+  background:transparent; border:1px solid transparent; border-radius:10px;
+  padding:8px 11px; font:inherit; color:var(--ink); cursor:pointer;
+}
+.node:hover { background:var(--card2); border-color:var(--line); }
+.node:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+.node.on { background:var(--card2); border-color:var(--line2); font-weight:600; }
+.node .n { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.node .c { font-size:11px; color:var(--ink3); font-variant-numeric:tabular-nums; }
+
+/* ------------------------------------------------------------ empty state */
+/* An empty screen has to say which of two very different things is true: the
+   library is empty, or the search found nothing. */
+.empty {
+  border:1px dashed var(--line2); border-radius:12px; padding:26px 22px;
+  text-align:center; color:var(--ink2); font-size:12.5px; margin-top:14px;
+}
+.empty strong { display:block; color:var(--ink); font-size:13.5px; margin-bottom:5px; }
+
+/* ---------------------------------------------------------------- status */
+.pillrow { display:flex; flex-wrap:wrap; gap:7px; margin-top:10px; }
+.pill {
+  display:inline-flex; align-items:center; gap:7px;
+  background:var(--card2); border:1px solid var(--line); border-radius:999px;
+  padding:5px 12px; font-size:11.5px; color:var(--ink2);
+}
+.pill b { color:var(--ink); font-weight:600; }
+.pill .led { width:7px; height:7px; border-radius:50%; background:var(--ink3); flex:none; }
+.pill .led.ok { background:var(--ok); }
+.pill .led.bad { background:var(--bad); }
+.pill .led.warn { background:var(--acc); }
+
+.banner {
+  margin-top:14px; background:var(--acc-soft); border:1px solid var(--acc-line);
+  border-radius:12px; padding:12px 15px; font-size:12px; color:var(--ink2);
+}
+.banner b { color:var(--ink); }

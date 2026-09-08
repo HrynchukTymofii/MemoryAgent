@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Capture</title>
+<style>
+  /* No framework here on purpose. This window's paint time IS stage 1 of the
+     latency budget (§4), and a React mount would sit directly on it. The Hub
+     can afford a framework; the overlay cannot. */
+  :root { color-scheme: dark; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: transparent;   /* the window itself is transparent */
+    overflow: hidden;
+    font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    user-select: none; cursor: default;
+  }
+  /* Everything is pinned to the bottom of the window, and the window is
+     positioned by its bottom edge — so the pill sits in exactly the same place
+     whether or not there are results, and a result list grows upward into
+     transparent space rather than pushing the pill around. */
+  body { display: flex; flex-direction: column; justify-content: flex-end; }
+  /* The overlay is a fixed-size chromeless window. A scrollbar here is always
+     a bug, and a visible one would break the illusion of a floating pill. */
+  ::-webkit-scrollbar { width: 0; height: 0; display: none; }
+  #pill {
+    display: flex; align-items: center; gap: 13px;
+    margin: 10px 14px;
+    padding: 11px 18px 11px 15px;
+    background: #1F2328;
+    border: 1px solid #363D45;
+    border-radius: 14px;
+    box-shadow: 0 12px 32px rgba(15, 26, 40, .40);
+    color: #F1F4F8;
+    /* Start hidden-but-laid-out so showing the window never triggers a
+       reflow — only a repaint. */
+    opacity: 0;
+    transition: opacity 90ms ease-out;
+  }
+  /* Visibility is its own class, separate from the phase classes below.
+     Tying it to `.live` meant the pill faded out the instant the key was
+     released — exactly when it should be showing the transcript. */
+  #pill.shown { opacity: 1; }
+  #dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #E2564B; flex: none;
+    box-shadow: 0 0 0 4px rgba(226, 86, 75, .20);
+  }
+  #wave { display: flex; align-items: center; gap: 2.5px; height: 20px; flex: none; }
+  #wave i {
+    width: 2.5px; border-radius: 2px; background: #DCE5EC; display: block;
+    height: 6px; transition: height 110ms ease-out;
+  }
+  #text {
+    font-size: 13.5px; flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #text .hint { color: #8D9AA8; }
+  /* The provenance line, under the summary. Small and quiet: it is there to be
+     trusted, not read every time. */
+  #text .sub {
+    display: block; font-size: 11px; color: #8D9AA8; margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #pill { min-height: 44px; }
+  /* The pill widens for a transcript. Fixed-width would truncate most
+     sentences, and the point of showing it is that the user can read it. */
+  #pill.done { border-color: #2E5B54; }
+  #pill.done #text { color: #FFFFFF; }
+  #pill.empty #text { color: #8D9AA8; }
+  /* Heard, not acted on. Amber rather than red: nothing failed and nothing was
+     lost — the system simply declined to guess, and the user needs to know that
+     rather than assume it worked. */
+  #pill.unsure { border-color: #6B5320; }
+  #pill.unsure #text { color: #F1F4F8; }
+  #pill.unsure #kbd { color: #E8A33D; border-color: #6B5320; }
+  #pill.done #kbd { color: #4FC9B2; border-color: #2E5B54; }
+  #kbd {
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 10px; color: #8D9AA8;
+    border: 1px solid #414A54; border-radius: 5px; padding: 2px 6px; flex: none;
+  }
+
+  /* ------------------------------------------------------------- results */
+  #results {
+    margin: 0 14px 6px; padding: 0; list-style: none;
+    display: flex; flex-direction: column; gap: 5px;
+    opacity: 0; transition: opacity 120ms ease-out;
+  }
+  #results.shown { opacity: 1; }
+  #results li {
+    background: #1F2328; border: 1px solid #363D45; border-radius: 10px;
+    padding: 8px 12px;
+    box-shadow: 0 8px 20px rgba(15, 26, 40, .32);
+  }
+  /* The best match is stated, not merely listed first. In a list read at a
+     glance, position alone is too weak a signal to carry "this is the answer". */
+  #results li.best { border-color: #2E5B54; }
+  #results .title {
+    display: block; font-size: 12.5px; color: #F1F4F8;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #results .meta {
+    display: block; font-size: 10.5px; color: #8D9AA8; margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* Which retriever found it. Quiet, but present: a result the keyword side
+     never saw is a different kind of answer, and the difference is worth being
+     able to see when search surprises you. */
+  #results .why {
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 9.5px; color: #6E7C8A;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #pill, #wave i, #results { transition: none; }
+  }
+</style>
+</head>
+<body>
+  <ul id="results"></ul>
+  <div id="pill">
+    <span id="dot"></span>
+    <span id="wave" aria-hidden="true"></span>
+    <span id="text"><span class="hint">Listening…</span></span>
+    <span id="kbd">hold to speak</span>
+  </div>
+  <script type="module" src="/src/overlay.ts"></script>
+</body>
+</html>

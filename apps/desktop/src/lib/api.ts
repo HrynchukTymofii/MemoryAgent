@@ -1,0 +1,109 @@
+/**
+ * Every call into the Rust side, in one place.
+ *
+ * Typed wrappers rather than raw `invoke` at each call site: the command names
+ * and argument shapes are a contract with `main.rs`, and a typo in one of them
+ * fails at run time inside a `catch` that renders as an empty panel. Here, at
+ * least, there is a single list to check against the `invoke_handler`.
+ */
+import { invoke } from "@tauri-apps/api/core";
+
+export interface LatencyReport {
+  count: number;
+  p50_ms: number;
+  p95_ms: number;
+  worst_ms: number;
+  within_budget: boolean;
+}
+
+export interface HookStats {
+  events: number;
+  mod_events: number;
+  injected_events: number;
+  held_mods: number;
+  held_key: number;
+  last_vk: number;
+  engaged: boolean;
+}
+
+export interface MicStatus {
+  available: boolean;
+  device: string;
+  input_rate: number;
+  channels: number;
+  level: number;
+  buffered_secs: number;
+}
+
+export type ModelState = "loading" | "ready" | "missing" | "failed";
+
+export interface SttStatus {
+  state: ModelState;
+  detail: string;
+}
+
+export interface EmbedStatus {
+  state: ModelState;
+  detail: string;
+  embedded: number;
+  pending: number;
+  model_id: string;
+  dim: number;
+}
+
+export interface Settings {
+  hotkey: string;
+  hold_threshold_ms: number;
+  debug_keys: boolean;
+  active_chord: string;
+}
+
+export interface Item {
+  id: string;
+  title: string;
+  snippet: string;
+  collection: string | null;
+  source_url: string | null;
+  captured_at: string;
+  access_count: number;
+  /** Search results only: the fused score, and which retrievers found it. */
+  score: number | null;
+  why: string | null;
+}
+
+export interface CollectionRow {
+  id: string;
+  name: string;
+  path: string;
+  depth: number;
+  items: number;
+}
+
+export interface LibrarySummary {
+  items: number;
+  collections: number;
+  this_week: number;
+}
+
+export const api = {
+  latency: () => invoke<LatencyReport>("latency_report"),
+  hookStats: () => invoke<HookStats>("hook_stats"),
+  mic: () => invoke<MicStatus>("mic_status"),
+  stt: () => invoke<SttStatus>("stt_status"),
+  embed: () => invoke<EmbedStatus>("embed_status"),
+  settings: () => invoke<Settings>("get_settings"),
+  setHotkey: (spec: string, holdThresholdMs: number) =>
+    invoke<Settings>("set_hotkey", { spec, holdThresholdMs }),
+  captureCount: () => invoke<number>("capture_count"),
+  summary: () => invoke<LibrarySummary>("library_summary"),
+  recent: (limit: number) => invoke<Item[]>("recent", { limit }),
+  items: (collection: string | null, limit: number, offset: number) =>
+    invoke<Item[]>("items", { collection, limit, offset }),
+  search: (query: string, limit: number) => invoke<Item[]>("search", { query, limit }),
+  collections: () => invoke<CollectionRow[]>("collections"),
+  /** Resolves to what was opened, or `null` for an item with no source. */
+  openItem: (id: string) => invoke<string | null>("open_item", { id }),
+};
+
+/** The free plan's weekly allowance (§16). */
+export const CAPTURE_LIMIT = 50;

@@ -1,0 +1,13 @@
+[package]
+name         = "memos-retrieval"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+
+[dependencies]
+memos-core = { workspace = true }
+memos-db   = { workspace = true }
+serde      = { workspace = true }
+chrono     = { workspace = true }
+tracing    = { workspace = true }

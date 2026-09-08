@@ -1,0 +1,2384 @@
+<title>Personal Memory OS Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+:root{
+  --paper:#F2F4F3; --surface:#FFFFFF; --surface-2:#E8EDEB; --surface-3:#DFE5E3;
+  --ink:#14191D; --ink-2:#47535A; --ink-3:#6E7C84;
+  --rule:#D2DAD7; --rule-strong:#B7C2BE;
+  --local:#0B7F74; --local-soft:#DBEFEC; --local-line:#8CCEC6;
+  --cloud:#A93A72; --cloud-soft:#F8E4EE; --cloud-line:#E2A7C5;
+  --warn:#8A6206; --warn-soft:#F7ECD4;
+  --code-bg:#EBEFED; --code-ink:#1B2226;
+  --shadow:0 1px 2px rgba(20,25,29,.05), 0 8px 24px rgba(20,25,29,.06);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0D1214; --surface:#151B1E; --surface-2:#1D2529; --surface-3:#253034;
+    --ink:#E7EEEB; --ink-2:#A3B1B5; --ink-3:#74858B;
+    --rule:#283236; --rule-strong:#3A484D;
+    --local:#3FD4BE; --local-soft:#0E2F2C; --local-line:#1F6A62;
+    --cloud:#F286B8; --cloud-soft:#33182600; --cloud-line:#7E3859;
+    --warn:#E3B45C; --warn-soft:#2C2312;
+    --code-bg:#111719; --code-ink:#D8E3E0;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0D1214; --surface:#151B1E; --surface-2:#1D2529; --surface-3:#253034;
+  --ink:#E7EEEB; --ink-2:#A3B1B5; --ink-3:#74858B;
+  --rule:#283236; --rule-strong:#3A484D;
+  --local:#3FD4BE; --local-soft:#0E2F2C; --local-line:#1F6A62;
+  --cloud:#F286B8; --cloud-soft:#331826; --cloud-line:#7E3859;
+  --warn:#E3B45C; --warn-soft:#2C2312;
+  --code-bg:#111719; --code-ink:#D8E3E0;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:"Source Serif 4",Georgia,"Times New Roman",serif;
+  font-size:17px; line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,h4,.ui{font-family:"Archivo","Helvetica Neue",Arial,sans-serif}
+code,pre,.mono,.num{font-family:"JetBrains Mono","SFMono-Regular",Consolas,monospace}
+
+/* ---------- shell ---------- */
+.wrap{max-width:1240px;margin:0 auto;padding:0 28px;
+  display:grid;grid-template-columns:236px minmax(0,1fr);gap:56px}
+@media(max-width:980px){.wrap{grid-template-columns:1fr;gap:0}}
+
+nav.toc{position:sticky;top:0;align-self:start;max-height:100vh;overflow-y:auto;
+  padding:40px 0 40px;font-family:"Archivo",sans-serif;font-size:12.5px;line-height:1.45}
+@media(max-width:980px){nav.toc{position:static;max-height:none;
+  border-bottom:1px solid var(--rule);margin-bottom:8px}}
+nav.toc .toc-h{font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);font-weight:700;margin-bottom:14px}
+nav.toc ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px}
+nav.toc a{display:grid;grid-template-columns:24px 1fr;gap:6px;
+  color:var(--ink-2);text-decoration:none;padding:5px 8px 5px 0;border-radius:4px}
+nav.toc a:hover{color:var(--local);background:var(--surface-2)}
+nav.toc a:focus-visible{outline:2px solid var(--local);outline-offset:1px}
+nav.toc a span.n{color:var(--ink-3);font-variant-numeric:tabular-nums;font-weight:600}
+
+main{padding:40px 0 120px;min-width:0}
+
+/* ---------- masthead ---------- */
+.mast{border-bottom:2px solid var(--ink);padding-bottom:26px;margin-bottom:14px}
+.kicker{font-family:"Archivo",sans-serif;font-size:10.5px;font-weight:700;
+  letter-spacing:.2em;text-transform:uppercase;color:var(--local);margin-bottom:16px}
+h1{font-size:clamp(34px,5.2vw,54px);line-height:1.02;font-weight:800;
+  letter-spacing:-.028em;margin:0 0 16px;text-wrap:balance}
+.standfirst{font-size:19px;line-height:1.5;color:var(--ink-2);max-width:62ch;margin:0}
+.meta{display:flex;flex-wrap:wrap;gap:0 30px;margin-top:26px;
+  font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--ink-3)}
+.meta b{display:block;font-weight:700;color:var(--ink-2);
+  letter-spacing:.08em;text-transform:uppercase;font-size:9.5px;margin-bottom:3px}
+
+/* ---------- legend ---------- */
+.legend{display:flex;flex-wrap:wrap;gap:22px;margin:22px 0 44px;padding:14px 18px;
+  background:var(--surface);border:1px solid var(--rule);border-radius:8px;
+  font-family:"Archivo",sans-serif;font-size:12.5px;color:var(--ink-2)}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:3px;
+  margin-right:8px;vertical-align:-1px}
+.legend .l1{background:var(--local)} .legend .l2{background:var(--cloud)}
+
+/* ---------- sections ---------- */
+section{margin:0 0 62px;scroll-margin-top:24px}
+h2{font-size:12px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 6px;
+  display:grid;grid-template-columns:34px 1fr;align-items:baseline}
+h2 .n{color:var(--local);font-family:"JetBrains Mono",monospace;font-size:12px}
+.h2t{font-family:"Archivo",sans-serif;font-size:clamp(24px,3vw,32px);font-weight:700;
+  letter-spacing:-.02em;line-height:1.16;margin:0 0 20px;padding-bottom:14px;
+  border-bottom:1px solid var(--rule);text-wrap:balance}
+h3{font-size:17.5px;font-weight:700;letter-spacing:-.008em;margin:34px 0 10px;color:var(--ink)}
+h4{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-3);margin:26px 0 8px}
+p{margin:0 0 15px;max-width:68ch}
+ul,ol{max-width:68ch;margin:0 0 15px;padding-left:22px}
+li{margin-bottom:7px}
+strong{font-weight:600;color:var(--ink)}
+a{color:var(--local);text-decoration-thickness:1px;text-underline-offset:2px}
+
+.lede{font-size:18.5px;line-height:1.55;color:var(--ink-2);max-width:64ch;margin-bottom:22px}
+
+/* pull quote / thesis */
+.thesis{margin:26px 0;padding:22px 26px;background:var(--surface);
+  border-left:3px solid var(--local);border-radius:0 8px 8px 0;box-shadow:var(--shadow)}
+.thesis p{font-family:"Archivo",sans-serif;font-size:19px;line-height:1.4;
+  font-weight:600;letter-spacing:-.012em;margin:0;color:var(--ink);max-width:56ch}
+.thesis p + p{margin-top:9px}
+
+/* callouts */
+.note{margin:20px 0;padding:16px 20px;border-radius:8px;font-size:15.5px;
+  background:var(--surface);border:1px solid var(--rule)}
+.note.warn{background:var(--warn-soft);border-color:var(--warn)}
+.note.cloud{background:var(--cloud-soft);border-color:var(--cloud-line)}
+.note p{margin:0;max-width:64ch}
+.note p+p{margin-top:9px}
+.note .lbl{font-family:"Archivo",sans-serif;font-size:10px;font-weight:700;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);
+  display:block;margin-bottom:6px}
+.note.warn .lbl{color:var(--warn)} .note.cloud .lbl{color:var(--cloud)}
+
+/* ---------- tables ---------- */
+.tw{overflow-x:auto;margin:22px 0;border:1px solid var(--rule);border-radius:8px;
+  background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14.5px;
+  font-family:"Archivo",sans-serif}
+th{text-align:left;font-size:10px;font-weight:700;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--ink-3);padding:12px 16px;
+  border-bottom:1px solid var(--rule-strong);white-space:nowrap;background:var(--surface-2)}
+td{padding:11px 16px;border-bottom:1px solid var(--rule);vertical-align:top;
+  color:var(--ink-2);line-height:1.45}
+tr:last-child td{border-bottom:none}
+td strong,td b{color:var(--ink);font-weight:600}
+.num,td.num{font-family:"JetBrains Mono",monospace;font-variant-numeric:tabular-nums;
+  white-space:nowrap;font-size:13px}
+.tagL{color:var(--local);font-weight:700;font-size:11px;font-family:"JetBrains Mono",monospace}
+.tagC{color:var(--cloud);font-weight:700;font-size:11px;font-family:"JetBrains Mono",monospace}
+
+/* ---------- code ---------- */
+pre{background:var(--code-bg);color:var(--code-ink);border:1px solid var(--rule);
+  border-radius:8px;padding:16px 18px;overflow-x:auto;font-size:13px;line-height:1.6;
+  margin:18px 0}
+code{font-size:.88em;background:var(--surface-2);padding:1px 5px;border-radius:3px;
+  color:var(--ink)}
+pre code{background:none;padding:0;font-size:inherit;color:inherit}
+
+/* ---------- figures ---------- */
+figure{margin:30px 0;padding:22px 20px 16px;background:var(--surface);
+  border:1px solid var(--rule);border-radius:10px;box-shadow:var(--shadow)}
+figure svg{display:block;width:100%;max-width:100%;height:auto;color:var(--ink)}
+figcaption{margin-top:14px;padding-top:12px;border-top:1px solid var(--rule);
+  font-family:"Archivo",sans-serif;font-size:12.5px;line-height:1.5;color:var(--ink-3)}
+figcaption b{color:var(--ink-2);font-weight:700}
+
+/* svg helpers */
+.sv-box{fill:var(--surface-2);stroke:var(--rule-strong);stroke-width:1}
+.sv-boxL{fill:var(--local-soft);stroke:var(--local-line);stroke-width:1.2}
+.sv-boxC{fill:var(--cloud-soft);stroke:var(--cloud-line);stroke-width:1.2}
+.sv-t{font-family:"Archivo",sans-serif;font-size:11.5px;fill:var(--ink);font-weight:600}
+.sv-ts{font-family:"Archivo",sans-serif;font-size:10px;fill:var(--ink-3);font-weight:600}
+.sv-tm{font-family:"JetBrains Mono",monospace;font-size:9.5px;fill:var(--ink-3)}
+.sv-lbl{font-family:"Archivo",sans-serif;font-size:9.5px;font-weight:700;
+  letter-spacing:.13em;text-transform:uppercase;fill:var(--ink-3)}
+.sv-ln{stroke:var(--ink-3);stroke-width:1.3;fill:none}
+.sv-lnL{stroke:var(--local);stroke-width:1.6;fill:none}
+.sv-lnC{stroke:var(--cloud);stroke-width:1.6;fill:none}
+.sv-dash{stroke:var(--rule-strong);stroke-width:1.2;stroke-dasharray:5 4;fill:none}
+.sv-reg{fill:none;stroke:var(--rule);stroke-width:1;stroke-dasharray:3 3}
+.sv-barL{fill:var(--local)} .sv-barC{fill:var(--cloud)}
+.sv-barN{fill:var(--rule-strong)}
+
+/* ---------- App UI mockups — the product's own design language ---------- */
+/* Warm paper ground and serif display, after the Wispr Flow reference, with our
+   own accent (teal, not amber) and hairline-bordered cards at a tighter radius. */
+.mock{margin:26px 0;padding:26px 20px;border-radius:12px;
+  background:var(--surface-2);border:1px solid var(--rule);
+  display:flex;flex-direction:column;align-items:center;gap:14px}
+.mock .cap{font-family:"Archivo",sans-serif;font-size:11.5px;line-height:1.5;
+  color:var(--ink-3);text-align:center;max-width:60ch}
+
+.app{
+  --a-bg:#F1F4F8; --a-side:#EDF1F6; --a-card:#FFFFFF; --a-card2:#F7F9FC;
+  --a-ink:#1F2328; --a-ink2:#5A6673; --a-ink3:#93A0AE;
+  --a-line:#E4EAF0; --a-line2:#D5DEE7;
+  --a-acc:#E8850C; --a-acc-soft:#FDF2E2; --a-acc-line:#F2D2A5;
+  --a-ok:#0F8A6A;
+  --a-btn:#1F2328; --a-btn-ink:#FFFFFF;
+  --a-lift:0 1px 2px rgba(31,35,40,.05), 0 3px 10px rgba(31,35,40,.07);
+  width:100%;font-family:"Figtree","Segoe UI",system-ui,sans-serif;
+  color:var(--a-ink);font-size:13px;line-height:1.45;
+  border:1px solid var(--a-line2);border-radius:16px;overflow:hidden;
+  background:var(--a-bg);box-shadow:0 8px 30px rgba(31,50,72,.13)}
+.app *{box-sizing:border-box}
+.app .serif{font-family:"Source Serif 4",Georgia,serif}
+
+.a-title{display:flex;align-items:center;gap:9px;padding:8px 12px;background:var(--a-bg)}
+.a-title .ic{width:15px;height:15px;border-radius:4px;border:1.4px solid var(--a-ink3)}
+.a-title .sp{margin-left:auto;display:flex;gap:13px;color:var(--a-ink3);font-size:12px}
+
+.a-body{display:grid;grid-template-columns:184px minmax(0,1fr)}
+@media(max-width:700px){.a-body{grid-template-columns:1fr}.a-side{display:none}}
+
+.a-side{background:var(--a-side);padding:12px 9px 10px;display:flex;
+  flex-direction:column;gap:3px;min-height:330px}
+.a-brand{display:flex;align-items:center;gap:8px;padding:4px 8px 12px;margin-bottom:10px;
+  font-weight:700;font-size:15px;letter-spacing:-.015em;
+  border-bottom:1px dashed var(--a-line2)}
+.a-brand .bars{display:flex;align-items:flex-end;gap:1.5px;height:14px}
+.a-brand .bars i{width:2.5px;background:var(--a-ink);border-radius:1px;display:block}
+.a-nav{display:flex;flex-direction:column;gap:1px;list-style:none;padding:0;margin:0}
+.a-nav li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:11px;
+  color:var(--a-ink2);font-size:12.5px;font-weight:500;margin:0;border:1px solid transparent}
+.a-nav li.on{background:var(--a-card);border-color:var(--a-line);
+  color:var(--a-ink);font-weight:600;box-shadow:var(--a-lift)}
+.a-nav li .g{width:19px;height:19px;flex:none;border-radius:6px;display:grid;
+  place-items:center;font-size:10px;color:var(--a-ink2);
+  background:linear-gradient(155deg,#FFFFFF,#DFE7EE);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 1px 1.5px rgba(31,50,72,.13)}
+.a-nav li.on .g{color:var(--a-ink);
+  background:linear-gradient(155deg,#FFFFFF,#D3DEE8)}
+.a-navh{font-size:9px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--a-ink3);padding:12px 9px 5px}
+.a-meter{margin:auto 0 8px;background:var(--a-acc-soft);border:1px solid var(--a-acc-line);
+  border-radius:13px;padding:12px 13px}
+.a-meter .n{font-family:"Source Serif 4",serif;font-size:17px;font-weight:600;
+  color:var(--a-ink)}
+.a-meter .s{font-size:10.5px;color:var(--a-ink2);margin:3px 0 9px;line-height:1.35}
+.a-meter .bar{height:5px;border-radius:3px;background:#F0DDC0;overflow:hidden;margin-bottom:10px}
+.a-meter .bar i{display:block;height:100%;background:var(--a-acc);width:36%}
+.a-btn{display:block;text-align:center;background:var(--a-btn);color:var(--a-btn-ink);
+  border-radius:10px;padding:8px 11px;font-size:12px;font-weight:600;
+  box-shadow:0 1px 2px rgba(31,35,40,.16)}
+.a-btn.ghost{background:var(--a-card);color:var(--a-ink);border:1px solid var(--a-line2);
+  box-shadow:var(--a-lift)}
+.a-btn.acc{background:var(--a-acc);color:#fff}
+
+.a-main{padding:14px}
+.a-panel{background:var(--a-card);border:1px solid var(--a-line);border-radius:15px;
+  padding:20px 22px;min-height:300px;box-shadow:var(--a-lift)}
+.a-h1{font-family:"Source Serif 4",serif;font-size:24px;font-weight:600;
+  letter-spacing:-.01em;margin:0 0 15px}
+.a-cols{display:grid;grid-template-columns:minmax(0,1fr) 168px;gap:16px}
+@media(max-width:700px){.a-cols{grid-template-columns:1fr}.a-rail{display:none}}
+
+.a-banner{background:linear-gradient(150deg,#2A3038,#1F2328);color:#F2F5F8;
+  border-radius:14px;padding:17px 19px;margin-bottom:18px}
+.a-banner .t{font-family:"Source Serif 4",serif;font-size:18px;font-weight:600;
+  margin-bottom:4px}
+.a-banner .t em{font-style:italic}
+.a-banner .s{font-size:11.5px;color:#A9B4C0;margin-bottom:12px}
+.a-banner .b{display:inline-block;background:#FFFFFF;color:#1F2328;border-radius:9px;
+  padding:7px 14px;font-size:11.5px;font-weight:600}
+
+.a-daylbl{font-size:9.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--a-ink3);margin:0 0 9px;display:flex;align-items:center;gap:8px}
+.a-daylbl::after{content:"";flex:1;height:1px;background:var(--a-line)}
+.a-row{display:grid;grid-template-columns:50px minmax(0,1fr) auto;gap:11px;
+  background:var(--a-card2);border:1px solid var(--a-line);border-radius:12px;
+  padding:12px 14px;margin-bottom:7px;align-items:start}
+.a-row .tm{font-size:10px;color:var(--a-ink3);padding-top:2px;
+  font-variant-numeric:tabular-nums}
+.a-row .bd{min-width:0}
+.a-row .tx{font-size:12.5px;color:var(--a-ink);line-height:1.5}
+.a-row .mt{font-size:10px;color:var(--a-ink3);margin-top:6px;display:flex;
+  gap:7px;flex-wrap:wrap;align-items:center}
+.a-row .acts{display:flex;gap:8px;color:var(--a-ink3);font-size:11px;padding-top:2px}
+.a-pill{font-size:9.5px;padding:2px 7px;border-radius:99px;background:var(--a-acc-soft);
+  color:var(--a-acc);border:1px solid var(--a-acc-line);font-weight:600}
+.a-pill.n{background:var(--a-bg);color:var(--a-ink3);border-color:var(--a-line2)}
+
+.a-rail{display:flex;flex-direction:column;gap:11px}
+.a-stat{background:var(--a-card2);border:1px solid var(--a-line);border-radius:12px;
+  padding:13px 14px}
+.a-stat .v{font-family:"Source Serif 4",serif;font-size:22px;font-weight:600;
+  letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.a-stat .v small{font-family:"Figtree",sans-serif;font-size:11px;font-weight:500;
+  color:var(--a-ink2);margin-left:4px}
+.a-stat + .a-stat{margin-top:-4px}
+.a-promo{background:var(--a-card2);border:1px solid var(--a-line);border-radius:12px;
+  padding:13px 14px}
+.a-promo .t{font-size:12px;font-weight:700;margin-bottom:3px}
+.a-promo .s{font-size:10.5px;color:var(--a-ink2);margin-bottom:10px;line-height:1.4}
+
+/* settings */
+.a-set{display:grid;grid-template-columns:170px minmax(0,1fr)}
+@media(max-width:700px){.a-set{grid-template-columns:1fr}}
+.a-setrow{display:flex;align-items:center;gap:14px;padding:14px 0;
+  border-bottom:1px solid var(--a-line)}
+.a-setrow:last-child{border-bottom:none}
+.a-setrow .bd{flex:1;min-width:0}
+.a-setrow .k{font-size:12.5px;font-weight:600;margin-bottom:2px}
+.a-setrow .v{font-size:11px;color:var(--a-ink2)}
+.a-kbd{font-family:"JetBrains Mono",monospace;font-size:10px;background:var(--a-card);
+  border:1px solid var(--a-line2);border-radius:5px;padding:1.5px 6px;color:var(--a-ink);
+  box-shadow:0 1px 0 var(--a-line2)}
+.a-ver{padding:9px 14px;font-size:10px;color:var(--a-ink3);border-top:1px solid var(--a-line)}
+
+/* account menu */
+.a-menu{background:var(--a-card);border:1px solid var(--a-line2);border-radius:15px;
+  overflow:hidden;width:100%;max-width:390px;box-shadow:0 12px 34px rgba(31,50,72,.17)}
+.a-menu .sec{padding:13px 15px;border-bottom:1px solid var(--a-line);
+  display:flex;align-items:center;gap:12px}
+.a-menu .sec:last-child{border-bottom:none}
+.a-menu .av{width:34px;height:34px;border-radius:50%;
+  background:linear-gradient(150deg,#FFFFFF,#D8E2EB);
+  border:1px solid var(--a-line2);flex:none;display:grid;place-items:center;
+  color:var(--a-ink);font-weight:700;font-size:12px;box-shadow:var(--a-lift)}
+.a-menu .bd{flex:1;min-width:0}
+.a-menu .n{font-size:13px;font-weight:600}
+.a-menu .e{font-size:11px;color:var(--a-ink2);overflow:hidden;text-overflow:ellipsis}
+.a-menu .k{font-size:12px;font-weight:600}
+.a-menu .s{font-size:10.5px;color:var(--a-ink2);margin-top:2px}
+.a-menu .a-btn{flex:none;padding:6px 12px}
+
+/* sign-in */
+.a-auth{padding:34px 30px;text-align:center;background:var(--a-bg)}
+.a-auth .lg{display:inline-flex;align-items:center;gap:8px;font-weight:700;
+  font-size:16px;margin-bottom:6px}
+.a-auth h4{font-family:"Source Serif 4",serif;font-size:21px;font-weight:600;
+  margin:12px 0 5px;color:var(--a-ink);letter-spacing:0;text-transform:none}
+.a-auth .sub{font-size:12px;color:var(--a-ink2);margin-bottom:20px}
+.a-auth .btns{display:flex;flex-direction:column;gap:8px;max-width:290px;margin:0 auto}
+.a-oauth{display:flex;align-items:center;justify-content:center;gap:9px;
+  background:var(--a-card);border:1px solid var(--a-line2);border-radius:11px;
+  padding:11px 14px;font-size:12.5px;font-weight:600;color:var(--a-ink);
+  box-shadow:var(--a-lift)}
+.a-oauth .g{width:15px;height:15px;border-radius:50%;flex:none;display:grid;
+  place-items:center;font-size:10px;font-weight:700}
+.a-or{display:flex;align-items:center;gap:10px;color:var(--a-ink3);font-size:10px;
+  margin:4px 0;letter-spacing:.08em}
+.a-or::before,.a-or::after{content:"";flex:1;height:1px;background:var(--a-line)}
+.a-field{background:var(--a-card);border:1px solid var(--a-line2);border-radius:11px;
+  padding:11px 13px;font-size:12.5px;color:var(--a-ink3);text-align:left;
+  box-shadow:var(--a-lift)}
+.a-auth .fine{font-size:10px;color:var(--a-ink3);margin-top:16px;line-height:1.5}
+
+/* overlay + toast, restyled to the app language */
+.pill{display:flex;align-items:center;gap:13px;background:#1F2328;color:#F1F4F8;
+  border-radius:14px;padding:11px 18px 11px 15px;font-family:"Figtree",sans-serif;
+  min-width:min(430px,100%);border:1px solid #363D45;
+  box-shadow:0 12px 32px rgba(15,26,40,.36)}
+.dot{width:8px;height:8px;border-radius:50%;background:#E2564B;flex:none;
+  box-shadow:0 0 0 4px rgba(226,86,75,.2)}
+.wave{display:flex;align-items:center;gap:2.5px;height:20px;flex:none}
+.wave i{width:2.5px;border-radius:2px;background:#DCE5EC;display:block}
+.pill .txt{font-size:13.5px;flex:1;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.pill .txt em{font-style:normal;color:#8D9AA8}
+.pill .kbd{font-family:"JetBrains Mono",monospace;font-size:10px;color:#8D9AA8;
+  border:1px solid #414A54;border-radius:5px;padding:2px 6px;flex:none}
+
+.toast{display:flex;align-items:center;gap:12px;background:#1F2328;color:#F1F4F8;
+  border-radius:12px;padding:12px 15px;font-family:"Figtree",sans-serif;
+  min-width:min(430px,100%);border:1px solid #363D45;
+  box-shadow:0 12px 32px rgba(15,26,40,.36)}
+.toast .ok{width:21px;height:21px;border-radius:50%;background:#0F8A6A;flex:none;
+  display:grid;place-items:center;color:#fff;font-size:11px;font-weight:700}
+.toast .body{flex:1;min-width:0}
+.toast .t1{font-size:13px;font-weight:600}
+.toast .t2{font-size:10.5px;color:#8D9AA8;margin-top:2px;
+  font-family:"JetBrains Mono",monospace}
+.toast .undo{font-size:11px;color:#F0A64B;border:1px solid #5A4A2E;border-radius:6px;
+  padding:5px 10px;flex:none;font-weight:600}
+
+.ask{background:#1F2328;color:#F1F4F8;border-radius:12px;padding:14px 15px;
+  font-family:"Figtree",sans-serif;min-width:min(430px,100%);border:1px solid #363D45;
+  box-shadow:0 12px 32px rgba(15,26,40,.36)}
+.ask .q{font-size:13px;font-weight:600;margin-bottom:10px}
+.ask .opts{display:flex;flex-direction:column;gap:5px}
+.ask .opt{display:flex;align-items:center;gap:10px;padding:8px 11px;border-radius:8px;
+  background:#282F37;font-size:12px;border:1px solid #363D45}
+.ask .opt.sel{border-color:#4C5762;background:#333B44}
+.ask .opt .k{font-family:"JetBrains Mono",monospace;font-size:10px;color:#8D9AA8;
+  border:1px solid #414A54;border-radius:4px;padding:1px 5px;flex:none}
+.ask .opt .pct{margin-left:auto;font-family:"JetBrains Mono",monospace;
+  font-size:10.5px;color:#8D9AA8}
+
+/* ---------- feature cards ---------- */
+.feat{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+  gap:12px;margin:22px 0}
+.fc{border:1px solid var(--rule);border-radius:9px;padding:14px 16px;background:var(--surface)}
+.fc h5{font-family:"Archivo",sans-serif;font-size:11px;font-weight:700;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--local);margin:0 0 8px}
+.fc .say{font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--ink);
+  background:var(--code-bg);border-radius:5px;padding:8px 10px;margin-bottom:8px;
+  border-left:2px solid var(--local-line)}
+.fc p{font-size:13.5px;line-height:1.5;margin:0;color:var(--ink-2);max-width:none}
+.fc .tier{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--ink-3);
+  margin-top:8px;display:block}
+
+/* ---------- misc ---------- */
+.hr{height:1px;background:var(--rule);border:0;margin:56px 0}
+.end{margin-top:60px;padding-top:22px;border-top:2px solid var(--ink);
+  font-family:"Archivo",sans-serif;font-size:12px;color:var(--ink-3)}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+
+<nav class="toc">
+  <div class="toc-h">Contents</div>
+  <ol>
+    <li><a href="#s1"><span class="n">01</span>Summary</a></li>
+    <li><a href="#s2"><span class="n">02</span>The organizing principle</a></li>
+    <li><a href="#s3"><span class="n">03</span>System overview</a></li>
+    <li><a href="#s4"><span class="n">04</span>Latency budget</a></li>
+    <li><a href="#s5"><span class="n">05</span>Capture pipeline</a></li>
+    <li><a href="#s6"><span class="n">06</span>Model architecture</a></li>
+    <li><a href="#s7"><span class="n">07</span>Retrieval</a></li>
+    <li><a href="#s8"><span class="n">08</span>Confidence &amp; undo</a></li>
+    <li><a href="#s9"><span class="n">09</span>Data model</a></li>
+    <li><a href="#s10"><span class="n">10</span>Cloud tier</a></li>
+    <li><a href="#s11"><span class="n">11</span>Sync</a></li>
+    <li><a href="#s12"><span class="n">12</span>Identity &amp; security</a></li>
+    <li><a href="#s13"><span class="n">13</span>Interface &amp; app map</a></li>
+    <li><a href="#s14"><span class="n">14</span>Feature catalogue</a></li>
+    <li><a href="#s15"><span class="n">15</span>Personalization</a></li>
+    <li><a href="#s16"><span class="n">16</span>Business model</a></li>
+    <li><a href="#s17"><span class="n">17</span>Changes from spec</a></li>
+    <li><a href="#s18"><span class="n">18</span>Roadmap</a></li>
+    <li><a href="#s19"><span class="n">19</span>Risks &amp; open questions</a></li>
+    <li><a href="#s20"><span class="n">20</span>Skills exercised</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<header class="mast">
+  <div class="kicker">Technical Architecture — Revision A</div>
+  <h1>Personal Memory OS</h1>
+  <p class="standfirst">A local-first desktop assistant for capturing, organizing, retrieving and acting on
+  personal knowledge through a global voice shortcut. This document records the architecture, the
+  reasoning behind each decision, and where it deliberately departs from the original specification.</p>
+  <div class="meta">
+    <div><b>Status</b>Approved for build</div>
+    <div><b>Date</b>6 September 2026</div>
+    <div><b>Supersedes</b>personal_memory_os_spec.md</div>
+    <div><b>Platform</b>Windows first, macOS next</div>
+  </div>
+</header>
+
+<div class="legend">
+  <span><i class="l1"></i>Local — runs on the user's machine, never fails</span>
+  <span><i class="l2"></i>Cloud — runs on AWS, can be smarter</span>
+</div>
+
+<!-- ============ 01 ============ -->
+<section id="s1">
+  <h2><span class="n">01</span> Summary</h2>
+  <div class="h2t">What we are building and why it is shaped this way</div>
+
+  <p class="lede">The product is a control layer between the user and their computer. Press a
+  shortcut, speak, and the system understands the context, performs the action, and disappears.
+  The engineering problem is not intelligence. It is <strong>friction</strong>.</p>
+
+  <p>Everything in this document descends from one number: <strong>the user must see a result
+  within roughly one second of finishing speaking.</strong> That budget is what makes the product a
+  habit rather than an app. If capture is slower or less reliable than the user's existing bad
+  habit — leaving a browser tab open — the product loses, regardless of how good its retrieval is.</p>
+
+  <p>The architecture is therefore split by a single rule. Anything on the capture path runs
+  locally and cannot fail. Anything on the retrieval or reasoning path may cross the network and
+  should be as smart as we can afford. This split is not a compromise between local and cloud; it
+  is a division by physics, and it happens to place the interesting engineering work in the cloud
+  tier where it belongs.</p>
+
+  <div class="thesis">
+    <p>Capture is a reflex. Retrieval is a query.</p>
+    <p>Reflexes must be local. Queries can afford the network.</p>
+  </div>
+
+  <h4>The four decisions that define the system</h4>
+  <div class="tw">
+  <table>
+    <thead><tr><th>Decision</th><th>Choice</th><th>Because</th></tr></thead>
+    <tbody>
+      <tr><td><b>Client store</b></td><td>SQLite + FTS5 + sqlite-vec</td>
+        <td>A capture must succeed offline, instantly, always. Postgres on a customer machine is an installer, a service and a support ticket.</td></tr>
+      <tr><td><b>Client runtime</b></td><td>Single Rust process (Tauri 2)</td>
+        <td>No sidecar, no localhost HTTP, no serialization on the hot path. A capture is one call stack.</td></tr>
+      <tr><td><b>Model routing</b></td><td>Three tiers: grammar, small local LLM, cloud</td>
+        <td>Most commands are formulaic and deserve no inference at all. Hard commands deserve a real model.</td></tr>
+      <tr><td><b>Cloud role</b></td><td>Authoritative store, reranking, agents</td>
+        <td>Quality work that is not latency-critical: cross-encoder reranking, research, planning, sync.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ============ 02 ============ -->
+<section id="s2">
+  <h2><span class="n">02</span> The organizing principle</h2>
+  <div class="h2t">Why the capture path never touches the network</div>
+
+  <p>There are two distinct moments in this product, and they have opposite requirements.</p>
+
+  <p><strong>The reflex.</strong> The user is mid-thought. They hit the shortcut and speak without
+  breaking their attention. They are not waiting for the system; they are using it the way they use
+  a keyboard. Any hitch breaks the flow, and any failure is data loss — the thought is gone.</p>
+
+  <p><strong>The query.</strong> The user has stopped what they were doing and asked a question.
+  They are prepared to wait. Four hundred milliseconds is invisible; being <em>right</em> matters far
+  more than being instant.</p>
+
+  <h3>Average latency is the wrong metric</h3>
+
+  <p>The tempting comparison is that local capture takes about 250 ms and cloud capture about
+  350 ms, so cloud is fine. That comparison is misleading, because for a tool pressed forty times a
+  day the user does not perceive the median — they perceive the worst case.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Condition</th><th class="num">Local</th><th class="num">Cloud (warm socket, regional)</th></tr></thead>
+    <tbody>
+      <tr><td>P50, good connection</td><td class="num">250 ms</td><td class="num">300–400 ms</td></tr>
+      <tr><td>P95</td><td class="num">300 ms</td><td class="num">700 ms</td></tr>
+      <tr><td>P99</td><td class="num">350 ms</td><td class="num">2–4 s</td></tr>
+      <tr><td>Hotel wi-fi, train, VPN</td><td class="num">350 ms</td><td class="num">3 s or fails</td></tr>
+      <tr><td>Offline</td><td class="num">350 ms</td><td><b>fails</b></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>The first row is a tie. The last three rows are the entire product. A capture tool that works
+  ninety-eight percent of the time is not ninety-eight percent as good as one that works every
+  time — it is substantially worse, because the user stops trusting it and reverts to the old
+  habit. Trust is lost at the second failure, not the fiftieth.</p>
+
+  <figure>
+    <svg viewBox="0 0 900 400" role="img" aria-label="Two flows: the capture reflex stays entirely on the local machine and never crosses the network boundary, while a retrieval query sends candidates across the boundary to a cloud reranker and back.">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+        <marker id="ahL" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--local)"/>
+        </marker>
+        <marker id="ahC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--cloud)"/>
+        </marker>
+      </defs>
+
+      <text x="20" y="24" class="sv-lbl">Local — the user's machine</text>
+      <line x1="20" y1="252" x2="880" y2="252" class="sv-dash"/>
+      <text x="880" y="245" class="sv-lbl" text-anchor="end">Network boundary</text>
+      <text x="20" y="286" class="sv-lbl">AWS</text>
+
+      <text x="20" y="62" class="sv-t" fill="var(--local)">A · The reflex — capture</text>
+      <rect x="20" y="86" width="82" height="34" rx="6" class="sv-boxL"/>
+      <text x="61" y="107" class="sv-t" text-anchor="middle">Hotkey</text>
+      <rect x="126" y="86" width="82" height="34" rx="6" class="sv-boxL"/>
+      <text x="167" y="107" class="sv-t" text-anchor="middle">Local STT</text>
+      <rect x="232" y="86" width="82" height="34" rx="6" class="sv-boxL"/>
+      <text x="273" y="107" class="sv-t" text-anchor="middle">Router</text>
+      <rect x="338" y="86" width="82" height="34" rx="6" class="sv-boxL"/>
+      <text x="379" y="107" class="sv-t" text-anchor="middle">SQLite</text>
+      <line x1="102" y1="103" x2="120" y2="103" class="sv-lnL" marker-end="url(#ahL)"/>
+      <line x1="208" y1="103" x2="226" y2="103" class="sv-lnL" marker-end="url(#ahL)"/>
+      <line x1="314" y1="103" x2="332" y2="103" class="sv-lnL" marker-end="url(#ahL)"/>
+      <path d="M379,120 L379,152 L61,152 L61,124" class="sv-lnL" marker-end="url(#ahL)"/>
+      <text x="220" y="168" class="sv-ts" text-anchor="middle" fill="var(--local)">acknowledged in under 1 s — works offline</text>
+      <text x="220" y="200" class="sv-tm" text-anchor="middle">never crosses the boundary below</text>
+
+      <text x="480" y="62" class="sv-t" fill="var(--cloud)">B · The query — retrieval</text>
+      <rect x="480" y="86" width="86" height="34" rx="6" class="sv-boxC"/>
+      <text x="523" y="107" class="sv-t" text-anchor="middle">Ask</text>
+      <rect x="590" y="86" width="106" height="34" rx="6" class="sv-boxC"/>
+      <text x="643" y="102" class="sv-t" text-anchor="middle">Local hybrid</text>
+      <text x="643" y="114" class="sv-tm" text-anchor="middle">FTS5 + vec</text>
+      <line x1="566" y1="103" x2="584" y2="103" class="sv-lnC" marker-end="url(#ahC)"/>
+
+      <path d="M643,120 L643,296" class="sv-lnC" marker-end="url(#ahC)"/>
+      <text x="633" y="200" class="sv-tm" text-anchor="end">top-50 candidates</text>
+
+      <rect x="556" y="300" width="176" height="40" rx="6" class="sv-boxC"/>
+      <text x="644" y="317" class="sv-t" text-anchor="middle">Cross-encoder rerank</text>
+      <text x="644" y="331" class="sv-tm" text-anchor="middle">+ Tier 2 reasoning</text>
+
+      <path d="M732,320 L800,320 L800,124" class="sv-lnC" marker-end="url(#ahC)"/>
+      <text x="810" y="200" class="sv-tm">reranked</text>
+      <rect x="756" y="86" width="88" height="34" rx="6" class="sv-boxC"/>
+      <text x="800" y="107" class="sv-t" text-anchor="middle">Results</text>
+
+      <text x="660" y="372" class="sv-ts" text-anchor="middle" fill="var(--cloud)">degrades to local-only ranking when offline</text>
+    </svg>
+    <figcaption><b>Figure 1 — The split.</b> The capture flow (A) is a closed loop above the network
+    boundary: every component it needs is on the machine, so it cannot be slowed or broken by the
+    network. The retrieval flow (B) deliberately crosses the boundary to reach a cross-encoder
+    reranker that is too heavy to run locally, and falls back to local-only ranking when offline.</figcaption>
+  </figure>
+
+  <h3>Both at once — but never wait for a timeout</h3>
+
+  <p>Reflex and query are not two modes the system switches between. They are two kinds of
+  <em>moment</em>: saving is always a reflex, searching is always a query. The question that matters
+  is a different one — when the cloud <em>could</em> help, how do we use it without ever being hurt
+  by it?</p>
+
+  <p>The obvious answer is a fallback chain: try the cloud, and if it fails, use local. <strong>That
+  is a trap, and it makes the worst case worse.</strong> A chain has to wait for the cloud to fail
+  before the local path can begin, so a two-second timeout plus 300 ms of local work is 2.3 seconds.
+  An occasional failure has been converted into a guaranteed slow path.</p>
+
+  <div class="thesis">
+    <p>Race, don't chain. Both start at the same instant.</p>
+    <p>The local result is always what is shown. The cloud only ever upgrades what is already on screen.</p>
+  </div>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Path</th><th>Local</th><th>Cloud</th><th>What the user experiences</th></tr></thead>
+    <tbody>
+      <tr><td><b>Transcript</b></td>
+        <td>Always runs; drives the overlay and the router</td>
+        <td>Re-transcribes the same audio asynchronously</td>
+        <td>Sees local text immediately; the <em>stored</em> text is silently upgraded later</td></tr>
+      <tr><td><b>Intent routing</b></td>
+        <td>Always decides the action</td>
+        <td>Not used on the capture path at all</td>
+        <td>Never waits on a network call to save something</td></tr>
+      <tr><td><b>Search ranking</b></td>
+        <td>Always runs, ~40 ms</td>
+        <td>Reranks, with a 400 ms budget</td>
+        <td>Local list appears at once; order improves in place if the rerank arrives in time</td></tr>
+      <tr><td><b>Research, plan, explain</b></td>
+        <td>Not possible locally</td>
+        <td>Required</td>
+        <td>An honest "needs a connection" — never a spinner that ends in an error</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>The invariant is simple enough to hold in your head while writing any feature:
+  <strong>nothing the user is looking at ever waits for a network call to fail.</strong> Cloud work
+  is either already overlapping something local, or it is an enhancement that swaps in when it
+  arrives, or it is a capability that is honestly reported as unavailable. It is never a dependency
+  in the middle of a path the user is waiting on.</p>
+
+  <p>A useful side effect: this makes the offline case require no special code. There is no "offline
+  mode" to build and no branch to test — offline is simply the case where the enhancement never
+  arrives, and the system was already designed to render correctly before it did.</p>
+</section>
+
+<!-- ============ 03 ============ -->
+<section id="s3">
+  <h2><span class="n">03</span> System overview</h2>
+  <div class="h2t">Components, and which side of the boundary they live on</div>
+
+  <p>The client is a single Tauri 2 process. There is no Python sidecar, no localhost HTTP server,
+  and no inter-process serialization anywhere on the capture path — a capture is a direct function
+  call from the hotkey handler to SQLite. The cloud tier is a conventional FastAPI service on AWS
+  that the client talks to asynchronously and can always survive without.</p>
+
+  <figure>
+    <svg viewBox="0 0 900 610" role="img" aria-label="Layered architecture: a single-process Windows client containing UI, nine Rust crates and SQLite, connected over TLS to an AWS cloud tier containing FastAPI, LangGraph workers, a GPU reranker, Postgres with pgvector, Redis and S3.">
+      <rect x="16" y="34" width="868" height="284" rx="10" class="sv-reg"/>
+      <text x="30" y="26" class="sv-lbl">Windows client — Tauri 2, one process, ~150 MB installed</text>
+
+      <text x="34" y="60" class="sv-lbl">Interface</text>
+      <rect x="34" y="68" width="164" height="34" rx="6" class="sv-box"/>
+      <text x="116" y="83" class="sv-t" text-anchor="middle">Overlay</text>
+      <text x="116" y="95" class="sv-tm" text-anchor="middle">pre-warmed, hidden</text>
+      <rect x="210" y="68" width="150" height="34" rx="6" class="sv-box"/>
+      <text x="285" y="89" class="sv-t" text-anchor="middle">Main window</text>
+      <rect x="372" y="68" width="150" height="34" rx="6" class="sv-box"/>
+      <text x="447" y="89" class="sv-t" text-anchor="middle">Tray + hotkey</text>
+
+      <text x="34" y="130" class="sv-lbl">Rust core — nine crates</text>
+      <rect x="34" y="138" width="132" height="42" rx="6" class="sv-boxL"/>
+      <text x="100" y="155" class="sv-t" text-anchor="middle">memos-context</text>
+      <text x="100" y="169" class="sv-tm" text-anchor="middle">Win32 UIA, URL</text>
+      <rect x="178" y="138" width="132" height="42" rx="6" class="sv-boxL"/>
+      <text x="244" y="155" class="sv-t" text-anchor="middle">memos-stt</text>
+      <text x="244" y="169" class="sv-tm" text-anchor="middle">ring buffer, whisper</text>
+      <rect x="322" y="138" width="132" height="42" rx="6" class="sv-boxL"/>
+      <text x="388" y="155" class="sv-t" text-anchor="middle">memos-agent</text>
+      <text x="388" y="169" class="sv-tm" text-anchor="middle">router, tools</text>
+      <rect x="466" y="138" width="132" height="42" rx="6" class="sv-boxL"/>
+      <text x="532" y="155" class="sv-t" text-anchor="middle">memos-llm</text>
+      <text x="532" y="169" class="sv-tm" text-anchor="middle">llama.cpp, GBNF</text>
+      <rect x="610" y="138" width="132" height="42" rx="6" class="sv-boxL"/>
+      <text x="676" y="155" class="sv-t" text-anchor="middle">memos-embed</text>
+      <text x="676" y="169" class="sv-tm" text-anchor="middle">ONNX Runtime</text>
+
+      <rect x="34" y="190" width="132" height="42" rx="6" class="sv-boxL"/>
+      <text x="100" y="207" class="sv-t" text-anchor="middle">memos-retrieval</text>
+      <text x="100" y="221" class="sv-tm" text-anchor="middle">hybrid + RRF</text>
+      <rect x="178" y="190" width="132" height="42" rx="6" class="sv-boxL"/>
+      <text x="244" y="207" class="sv-t" text-anchor="middle">memos-db</text>
+      <text x="244" y="221" class="sv-tm" text-anchor="middle">migrations, repos</text>
+      <rect x="322" y="190" width="132" height="42" rx="6" class="sv-boxL"/>
+      <text x="388" y="207" class="sv-t" text-anchor="middle">memos-license</text>
+      <text x="388" y="221" class="sv-tm" text-anchor="middle">entitlements</text>
+      <rect x="466" y="190" width="132" height="42" rx="6" class="sv-boxL"/>
+      <text x="532" y="207" class="sv-t" text-anchor="middle">memos-core</text>
+      <text x="532" y="221" class="sv-tm" text-anchor="middle">types, intents</text>
+      <rect x="610" y="190" width="132" height="42" rx="6" class="sv-box"/>
+      <text x="676" y="207" class="sv-t" text-anchor="middle">memos-sync</text>
+      <text x="676" y="221" class="sv-tm" text-anchor="middle">outbox worker</text>
+
+      <rect x="34" y="252" width="708" height="48" rx="6" class="sv-boxL"/>
+      <text x="388" y="272" class="sv-t" text-anchor="middle">SQLite (WAL) — knowledge, FTS5 index, sqlite-vec vectors, jobs, outbox, correction log</text>
+      <text x="388" y="288" class="sv-tm" text-anchor="middle">single file · source of truth while offline · always writable</text>
+
+      <rect x="758" y="138" width="112" height="162" rx="6" class="sv-box"/>
+      <text x="814" y="164" class="sv-t" text-anchor="middle">Models</text>
+      <text x="814" y="184" class="sv-tm" text-anchor="middle">whisper .bin</text>
+      <text x="814" y="200" class="sv-tm" text-anchor="middle">router .gguf</text>
+      <text x="814" y="216" class="sv-tm" text-anchor="middle">bge .onnx</text>
+      <text x="814" y="242" class="sv-tm" text-anchor="middle">resident,</text>
+      <text x="814" y="256" class="sv-tm" text-anchor="middle">~1.0 GB RAM</text>
+
+      <line x1="16" y1="340" x2="884" y2="340" class="sv-dash"/>
+      <text x="450" y="333" class="sv-lbl" text-anchor="middle">TLS 1.3 · token auth · asynchronous, never blocking</text>
+
+      <rect x="16" y="362" width="868" height="230" rx="10" class="sv-reg"/>
+      <text x="30" y="382" class="sv-lbl">AWS — eu-central-1</text>
+
+      <rect x="34" y="396" width="150" height="46" rx="6" class="sv-boxC"/>
+      <text x="109" y="414" class="sv-t" text-anchor="middle">FastAPI</text>
+      <text x="109" y="429" class="sv-tm" text-anchor="middle">auth, sync, quota</text>
+      <rect x="196" y="396" width="150" height="46" rx="6" class="sv-boxC"/>
+      <text x="271" y="414" class="sv-t" text-anchor="middle">LangGraph</text>
+      <text x="271" y="429" class="sv-tm" text-anchor="middle">research, plan, learn</text>
+      <rect x="358" y="396" width="150" height="46" rx="6" class="sv-boxC"/>
+      <text x="433" y="414" class="sv-t" text-anchor="middle">Reranker</text>
+      <text x="433" y="429" class="sv-tm" text-anchor="middle">cross-encoder, GPU</text>
+      <rect x="520" y="396" width="150" height="46" rx="6" class="sv-boxC"/>
+      <text x="595" y="414" class="sv-t" text-anchor="middle">Tier 2 LLM</text>
+      <text x="595" y="429" class="sv-tm" text-anchor="middle">Claude / GPT</text>
+      <rect x="682" y="396" width="150" height="46" rx="6" class="sv-boxC"/>
+      <text x="757" y="414" class="sv-t" text-anchor="middle">Training</text>
+      <text x="757" y="429" class="sv-tm" text-anchor="middle">LoRA, evals</text>
+
+      <rect x="34" y="462" width="240" height="46" rx="6" class="sv-boxC"/>
+      <text x="154" y="480" class="sv-t" text-anchor="middle">PostgreSQL + pgvector</text>
+      <text x="154" y="495" class="sv-tm" text-anchor="middle">authoritative store, full corpus</text>
+      <rect x="286" y="462" width="180" height="46" rx="6" class="sv-boxC"/>
+      <text x="376" y="480" class="sv-t" text-anchor="middle">Redis</text>
+      <text x="376" y="495" class="sv-tm" text-anchor="middle">queue, cache, pub/sub</text>
+      <rect x="478" y="462" width="160" height="46" rx="6" class="sv-boxC"/>
+      <text x="558" y="480" class="sv-t" text-anchor="middle">S3</text>
+      <text x="558" y="495" class="sv-tm" text-anchor="middle">files, attachments</text>
+      <rect x="650" y="462" width="182" height="46" rx="6" class="sv-boxC"/>
+      <text x="741" y="480" class="sv-t" text-anchor="middle">Paddle (billing)</text>
+      <text x="741" y="495" class="sv-tm" text-anchor="middle">merchant of record</text>
+
+      <text x="450" y="546" class="sv-ts" text-anchor="middle">Every cloud component is optional. If the whole tier is unreachable, the client still captures,</text>
+      <text x="450" y="562" class="sv-ts" text-anchor="middle">searches and organizes — it only loses reranking, research, planning and multi-device sync.</text>
+    </svg>
+    <figcaption><b>Figure 2 — Component map.</b> Nine Rust crates and SQLite inside one process above
+    the boundary; a conventional service tier below it. The dashed boundary is crossed only by the
+    sync outbox and by query-time enrichment, never by a capture.</figcaption>
+  </figure>
+
+  <h3>Crate dependency direction</h3>
+  <p>Acyclic, with <code>memos-core</code> at the root holding domain types and no I/O. Only
+  <code>memos-context</code> needs a platform-specific implementation, and it already hides that
+  behind a trait — which is what will make the macOS port cheap.</p>
+
+<pre><code>memos-core          domain types, intent enum, errors — no I/O
+  ├── memos-db        SQLite, migrations, repositories
+  ├── memos-embed     EmbeddingProvider trait + ONNX implementation
+  ├── memos-stt       ring buffer, VAD, whisper.cpp
+  ├── memos-llm       LlmProvider trait, llama.cpp + cloud, GBNF grammars
+  ├── memos-context   OS context capture   ← only crate needing a macOS impl
+  ├── memos-license   entitlements, Ed25519 offline tokens
+  ├── memos-sync      outbox worker, conflict resolution
+  └── memos-retrieval hybrid search (depends on db + embed)
+        └── memos-agent   router, tools, confidence, execution
+              └── apps/desktop/src-tauri</code></pre>
+</section>
+
+<!-- ============ 04 ============ -->
+<section id="s4">
+  <h2><span class="n">04</span> The latency budget</h2>
+  <div class="h2t">A contract, not an aspiration</div>
+
+  <p>Each stage below has an owner and a ceiling. If a change pushes any stage over its ceiling,
+  the change is wrong. The total from key release to visible acknowledgement is under 700 ms in the
+  worst tier-1 case and under 350 ms when the fast path matches.</p>
+
+  <div class="note">
+    <span class="lbl">Stage 1 — measured, not projected</span>
+    <p>Built and instrumented in M0. On a Ryzen 7 7800X3D, debug build with the dev server still in
+    the path, hotkey → overlay painted measured <b>9.9 ms median and 15.8 ms at p95</b> against the
+    50 ms ceiling — roughly five times the headroom the budget needs. Synthetic injection over ten
+    cycles reproduced the same distribution, so it is a stable figure rather than a lucky run.</p>
+    <p>The number holds for one reason: the overlay window is constructed and painted at startup and
+    merely <em>shown</em> on the shortcut. The native position-and-show call itself costs
+    <b>0.4 ms</b>; the remaining ~9 ms is IPC and compositing. Building the window on demand would
+    cost 200–400 ms and blow the budget on its own.</p>
+  </div>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>#</th><th>Stage</th><th class="num">Ceiling</th><th>Owner</th><th>How it is met</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1</td><td>Hotkey → overlay painted</td><td class="num">50 ms</td><td class="mono">src-tauri</td><td>Window created hidden at boot; showing it is one call</td></tr>
+      <tr><td class="num">2</td><td>Hotkey → first audio sample</td><td class="num">~0 ms</td><td class="mono">memos-stt</td><td>Stream <b>always open</b> into a ring buffer</td></tr>
+      <tr><td class="num">3</td><td>Speech → partial transcript</td><td class="num">streaming</td><td class="mono">memos-stt</td><td>Rolling windows transcribed while the user still speaks</td></tr>
+      <tr><td class="num">4</td><td>Key release → final transcript</td><td class="num">300 ms</td><td class="mono">memos-stt</td><td>Only the ~300 ms tail is left to process</td></tr>
+      <tr><td class="num">5</td><td>Transcript → intent JSON</td><td class="num">5–400 ms</td><td class="mono">memos-agent</td><td>Tier 0 grammar, else Tier 1 with a warm KV cache</td></tr>
+      <tr><td class="num">6</td><td>Intent → executed and acked</td><td class="num">20 ms</td><td class="mono">memos-db</td><td>One SQLite transaction; embedding deferred</td></tr>
+      <tr><td class="num">7</td><td>Embedding and indexing</td><td class="num">async</td><td class="mono">memos-embed</td><td>Background worker, entirely off the critical path</td></tr>
+      <tr><td class="num">8</td><td>Sync to cloud</td><td class="num">async</td><td class="mono">memos-sync</td><td>Outbox; may fail and retry without the user noticing</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note warn">
+    <span class="lbl">The mistake almost everyone makes</span>
+    <p>Stage 2 is where this class of product usually breaks. Opening a WASAPI capture device costs
+    100–300 ms. If that happens when the hotkey is pressed, the first word is clipped and the
+    product feels broken in a way users cannot articulate but immediately dislike. <b>The microphone
+    stream is opened at application start and never closed.</b> The hotkey does not open a device;
+    it records a read offset in a ring buffer that is already full of audio.</p>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 900 350" role="img" aria-label="Timeline showing that the microphone runs continuously, context capture and streaming transcription overlap with the user's speech, and only a short tail plus routing and a database write remain after the key is released.">
+      <defs>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <line x1="140" y1="46" x2="140" y2="300" class="sv-dash"/>
+      <text x="144" y="40" class="sv-ts" fill="var(--local)">key down</text>
+      <line x1="665" y1="46" x2="665" y2="300" class="sv-dash"/>
+      <text x="669" y="40" class="sv-ts" fill="var(--local)">key up</text>
+      <line x1="782" y1="46" x2="782" y2="300" stroke="var(--local)" stroke-width="1.4" stroke-dasharray="4 3"/>
+      <text x="786" y="40" class="sv-ts" fill="var(--local)">result shown</text>
+
+      <text x="132" y="76" class="sv-ts" text-anchor="end">Microphone</text>
+      <rect x="30" y="66" width="810" height="14" rx="4" class="sv-barN" opacity=".55"/>
+      <text x="435" y="77" class="sv-tm" text-anchor="middle" fill="var(--paper)">open continuously — never closed</text>
+
+      <text x="132" y="104" class="sv-ts" text-anchor="end">Overlay</text>
+      <rect x="140" y="94" width="9" height="14" rx="3" class="sv-barL"/>
+      <text x="156" y="105" class="sv-tm">50 ms — pre-warmed window</text>
+
+      <text x="132" y="132" class="sv-ts" text-anchor="end">User speech</text>
+      <rect x="140" y="122" width="525" height="14" rx="4" class="sv-barN"/>
+      <text x="402" y="133" class="sv-tm" text-anchor="middle" fill="var(--paper)">“save this to programming react”</text>
+
+      <text x="132" y="160" class="sv-ts" text-anchor="end">Context capture</text>
+      <rect x="140" y="150" width="27" height="14" rx="4" class="sv-barL"/>
+      <text x="175" y="161" class="sv-tm">window title, URL, selection, clipboard — in parallel</text>
+
+      <text x="132" y="188" class="sv-ts" text-anchor="end">Whisper STT</text>
+      <rect x="158" y="178" width="88" height="14" rx="3" class="sv-barL" opacity=".55"/>
+      <rect x="252" y="178" width="88" height="14" rx="3" class="sv-barL" opacity=".55"/>
+      <rect x="346" y="178" width="88" height="14" rx="3" class="sv-barL" opacity=".55"/>
+      <rect x="440" y="178" width="88" height="14" rx="3" class="sv-barL" opacity=".55"/>
+      <rect x="534" y="178" width="88" height="14" rx="3" class="sv-barL" opacity=".55"/>
+      <rect x="665" y="178" width="53" height="14" rx="3" class="sv-barL"/>
+      <text x="726" y="189" class="sv-tm">tail only — 300 ms</text>
+
+      <text x="132" y="216" class="sv-ts" text-anchor="end">Intent router</text>
+      <rect x="718" y="206" width="57" height="14" rx="3" class="sv-barL"/>
+      <text x="783" y="217" class="sv-tm">Tier 1: 330 ms · Tier 0: 5 ms</text>
+
+      <text x="132" y="244" class="sv-ts" text-anchor="end">SQLite write</text>
+      <rect x="775" y="234" width="7" height="14" rx="2" class="sv-barL"/>
+      <text x="790" y="245" class="sv-tm">20 ms — durable here</text>
+
+      <text x="132" y="272" class="sv-ts" text-anchor="end">Embedding</text>
+      <rect x="782" y="262" width="58" height="14" rx="3" class="sv-barC" opacity=".45"/>
+      <text x="700" y="273" class="sv-tm" text-anchor="end">after the ack — user never waits</text>
+
+      <line x1="140" y1="300" x2="860" y2="300" class="sv-ln"/>
+      <line x1="140" y1="300" x2="140" y2="306" class="sv-ln"/>
+      <line x1="315" y1="300" x2="315" y2="306" class="sv-ln"/>
+      <line x1="490" y1="300" x2="490" y2="306" class="sv-ln"/>
+      <line x1="665" y1="300" x2="665" y2="306" class="sv-ln"/>
+      <line x1="840" y1="300" x2="840" y2="306" class="sv-ln"/>
+      <text x="140" y="320" class="sv-tm" text-anchor="middle">0</text>
+      <text x="315" y="320" class="sv-tm" text-anchor="middle">1 s</text>
+      <text x="490" y="320" class="sv-tm" text-anchor="middle">2 s</text>
+      <text x="665" y="320" class="sv-tm" text-anchor="middle">3 s</text>
+      <text x="840" y="320" class="sv-tm" text-anchor="middle">4 s</text>
+
+      <path d="M665,338 L782,338" class="sv-lnL" marker-start="url(#ahL)" marker-end="url(#ahL)"/>
+      <text x="723" y="333" class="sv-ts" text-anchor="middle" fill="var(--local)">670 ms perceived</text>
+    </svg>
+    <figcaption><b>Figure 3 — Why it is fast is overlap, not raw speed.</b> Transcription and context
+    capture run <em>during</em> the user's speech, so key-release leaves only a short tail. The
+    perceived wait is the 670 ms between releasing the key and seeing the result — and on the Tier 0
+    fast path, which absorbs most commands, it is closer to 340 ms.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ 05 ============ -->
+<section id="s5">
+  <h2><span class="n">05</span> Capture pipeline</h2>
+  <div class="h2t">From key press to a durable row</div>
+
+  <h3>Audio</h3>
+  <p>A <code>cpal</code> stream on the WASAPI backend writes 16 kHz mono samples continuously into a
+  fixed-size ring buffer holding the last 30 seconds. Voice activity detection runs on the live
+  stream so the system knows where speech begins and ends without waiting for the key.</p>
+
+  <p>Because the buffer already contains recent audio, one genuinely useful feature comes free:
+  <strong>retroactive capture</strong>. The user can press the shortcut immediately after saying
+  something aloud and the system can still transcribe it.</p>
+
+  <h3>Transcription</h3>
+  <p>whisper.cpp transcribes rolling windows while the user is still speaking, so partial text
+  appears in the overlay within a few hundred milliseconds of the first word. Model size is chosen
+  by hardware tier. A dual-path arrangement gives us local speed and cloud accuracy at once:</p>
+
+  <ul>
+    <li><strong>Local, synchronous.</strong> Drives the overlay and the intent router. Never blocks.</li>
+    <li><strong>Cloud, asynchronous.</strong> The same audio is re-transcribed by a larger model in
+    the background and the <em>stored</em> text is upgraded in place. The user has already moved on.</li>
+  </ul>
+
+  <p>Local transcription also gets a capability that cloud APIs largely deny us: <strong>decoder
+  biasing</strong>. Whisper accepts an initial prompt, into which we inject the user's real
+  collection names, tags and recently seen entities. So “put this in Flari” transcribes as
+  <em>Flari</em>, not <em>flurry</em>. Proper nouns are simultaneously the tokens the intent router
+  most depends on and the ones a generic model most often gets wrong.</p>
+
+  <h3>Context acquisition</h3>
+  <p>Running in parallel with the speech, not after it, so it costs nothing on the timeline.</p>
+
+<pre><code>{
+  "active_application": "Chrome",
+  "active_window_title": "React — State as a Snapshot",
+  "current_url":        "https://react.dev/learn/state-as-a-snapshot",
+  "selected_text":      "State is a snapshot for each render...",
+  "clipboard_text":     null,
+  "selected_files":     [],
+  "captured_at":        "2026-09-06T20:14:03+03:00"
+}</code></pre>
+
+  <p>On Windows this uses <code>GetForegroundWindow</code> for the application and title, and UI
+  Automation for selected text and the browser URL. Every field is permission-gated and individually
+  disableable in Settings, and the whole object is shown to the user on demand — provenance is a
+  trust feature, not a debug feature.</p>
+
+  <h3>Memory footprint</h3>
+
+  <p><strong>Resident memory</strong> is the RAM the application holds while sitting idle in the
+  tray, doing nothing. It is not zero, and the reason is the latency budget: loading a whisper model
+  from disk takes 300–800 ms, so if models load on demand, every single capture pays that cost. The
+  models have to already be in memory for the numbers in section 4 to hold.</p>
+
+  <p>The question is how much. An earlier draft of this document quoted roughly 1 GB and presented it
+  as the default. That was the worst case, not the default, and it was wrong to present it that
+  way — the real default is about a third of it.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Component</th><th class="num">Naive</th><th class="num">Optimised</th><th>How</th></tr></thead>
+    <tbody>
+      <tr><td>Speech model</td><td class="num">210 MB</td><td class="num">125 MB</td><td><code>tiny.en</code> int8 rather than <code>base.en</code> q5</td></tr>
+      <tr><td><b>Local LLM router</b></td><td class="num">500 MB</td><td class="num"><b>0 MB</b></td><td><b>Removed from the default.</b> Tier 0 grammar plus cloud routing covers it</td></tr>
+      <tr><td>Embedding model</td><td class="num">100 MB</td><td class="num">35 MB</td><td>int8 ONNX; the earlier figure assumed fp32</td></tr>
+      <tr><td>Tauri + WebView2</td><td class="num">250 MB</td><td class="num">150 MB</td><td>The WebView2 runtime is shared with the OS, not charged wholly to us</td></tr>
+      <tr><td>SQLite, buffers, app</td><td class="num">—</td><td class="num">30 MB</td><td>Ring buffer is 30 s of 16 kHz mono — under 1 MB</td></tr>
+      <tr><td><b>Total</b></td><td class="num"><b>~1.0 GB</b></td><td class="num"><b>~340 MB</b></td><td>—</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p><strong>The local LLM was the entire problem, and accounts are what let us drop it.</strong>
+  This is a multi-user product with sign-in and a metered plan, so users are online essentially all
+  the time. Tier 1 routing can therefore run in the cloud for most people, and the local router
+  becomes an <em>optional download</em> for those who want full offline operation — not something
+  every user carries in RAM forever.</p>
+
+  <h3>Loading policy — speculative, not lazy</h3>
+
+  <p>The obvious next question is why anything is preloaded at all. Only the hotkey and the speech
+  need to be instantaneous; routing and storing a memory can afford a second. So why not load models
+  on demand and keep idle memory near zero?</p>
+
+  <p>Because plain lazy loading does not remove the cost, it <em>relocates</em> it — onto the first
+  command after launch, which is precisely the command where the user forms their impression of the
+  product. Waiting two seconds every morning is worse than it sounds.</p>
+
+  <p>There is a better option, and it comes from the same observation that made section 4 work:
+  <strong>the user's speech is two to four seconds of free time.</strong> So models are not loaded
+  when they are needed. They are loaded <strong>on hotkey-down, in parallel with the user
+  speaking</strong> — and by the time the transcript is final, they are warm.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Component</th><th class="num">Size</th><th>Loaded</th><th>Rationale</th></tr></thead>
+    <tbody>
+      <tr><td>Speech model</td><td class="num">125 MB</td><td>App start, or ~10 s after launch during idle</td><td>Transcribes <em>during</em> speech, so it cannot be loaded at hotkey time without losing the streaming head start</td></tr>
+      <tr><td>LLM router <span class="mono" style="font-size:10px">(local mode only)</span></td><td class="num">400 MB</td><td><b>Hotkey-down, speculatively</b></td><td>~400 ms of mmap and warm-up hidden entirely beneath 3 s of speech</td></tr>
+      <tr><td>Embedding model</td><td class="num">35 MB</td><td>Background worker, only when it has queued work</td><td>Already off the critical path; unloaded again when the queue drains</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Two supporting mechanisms make this cheap:</p>
+  <ul>
+    <li><strong>Memory-map rather than read.</strong> llama.cpp mmaps model weights, so pages are
+    file-backed and demand-paged. The OS can reclaim them under pressure, and "loading" is mostly
+    address-space bookkeeping rather than I/O.</li>
+    <li><strong>Unload on idle.</strong> After roughly five minutes of inactivity the router is
+    dropped and the process returns to its idle floor. A speculative reload costs nothing visible.</li>
+  </ul>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>State</th><th class="num">Cloud routing <span style="font-weight:400">(default)</span></th><th class="num">Local routing <span style="font-weight:400">(opt-in)</span></th></tr></thead>
+    <tbody>
+      <tr><td><b>Idle</b> — sitting in the tray</td><td class="num">~310 MB</td><td class="num">~310 MB</td></tr>
+      <tr><td>Idle, main window closed</td><td class="num">~215 MB</td><td class="num">~215 MB</td></tr>
+      <tr><td>During a command</td><td class="num">~345 MB</td><td class="num">~710 MB</td></tr>
+      <tr><td>Five minutes later</td><td class="num">~310 MB</td><td class="num">~310 MB</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>So the answer to "can it be much smaller" is yes, and the mechanism is not sacrificing speed for
+  it. <strong>Idle memory is roughly 310 MB, and the 400 MB router is only resident for the few
+  seconds around a command that actually uses it</strong> — and only at all for users who choose
+  local routing. The default sends routing to the server, exactly as you suggested, which makes the
+  local model a genuine option rather than a tax everyone pays.</p>
+
+  <h3>Hardware profiles</h3>
+  <p>The development machine is not the customer's machine. Profiles are benchmarked once at first
+  run and stored. <strong>Balanced is the development default</strong>, so day-to-day testing
+  reflects the median customer rather than a high-end desktop.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Profile</th><th>Chosen when</th><th>Speech</th><th>Routing</th><th class="num">Resident</th></tr></thead>
+    <tbody>
+      <tr><td><b>Light</b></td><td>Low-RAM machines, or user opts in</td><td>Cloud STT</td><td>Tier 0 + cloud</td><td class="num">~185 MB</td></tr>
+      <tr><td><b>Balanced</b><br><span class="mono" style="font-size:10px">default</span></td><td>Most machines</td><td><code>tiny.en</code> local, cloud upgrade async</td><td>Tier 0 + cloud</td><td class="num">~310 MB</td></tr>
+      <tr><td><b>Offline</b></td><td>User explicitly enables it</td><td><code>base.en</code> local</td><td>Tier 0 + local Qwen3 0.6B, mmap'd, speculative</td><td class="num">~395 MB idle<br><span class="mono" style="font-size:10px">~795 MB in use</span></td></tr>
+      <tr><td><b>Max</b></td><td>CUDA/Vulkan GPU ≥ 6 GB</td><td><code>large-v3-turbo</code>, GPU</td><td>Qwen3 1.7B Q4, GPU</td><td class="num">~400 MB RAM<br><span class="mono" style="font-size:10px">+1.2 GB VRAM</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>The profile is visible and changeable in Settings, with its memory cost stated plainly next to
+  it. Users on constrained machines should be able to see and control this rather than discover it
+  in Task Manager.</p>
+</section>
+
+<!-- ============ 06 ============ -->
+<section id="s6">
+  <h2><span class="n">06</span> Model architecture</h2>
+  <div class="h2t">Three tiers, chosen by how much thinking a command actually needs</div>
+
+  <p>The original specification defined a provider interface but never said which model runs when.
+  Without that policy the natural failure is calling one general-purpose model for everything, which
+  makes trivial commands slow and hard commands unreliable. Routing is by <em>difficulty</em>, not by
+  capability.</p>
+
+  <figure>
+    <svg viewBox="0 0 900 420" role="img" aria-label="Decision flow: a transcript first tries a deterministic grammar; on a match it executes in five milliseconds. Otherwise a local constrained-decoding router runs, and only low-confidence or reasoning intents escalate to the cloud.">
+      <rect x="356" y="20" width="188" height="38" rx="6" class="sv-box"/>
+      <text x="450" y="44" class="sv-t" text-anchor="middle">Final transcript</text>
+      <line x1="450" y1="58" x2="450" y2="76" class="sv-ln" marker-end="url(#ah)"/>
+
+      <rect x="326" y="76" width="248" height="52" rx="6" class="sv-boxL"/>
+      <text x="450" y="97" class="sv-t" text-anchor="middle">Tier 0 — deterministic grammar</text>
+      <text x="450" y="113" class="sv-tm" text-anchor="middle">no model · ~5 ms · 40–60 % of traffic</text>
+
+      <path d="M326,102 L150,102 L150,286" class="sv-lnL" marker-end="url(#ahL)"/>
+      <text x="238" y="94" class="sv-ts" text-anchor="middle" fill="var(--local)">clean parse + unambiguous slot</text>
+
+      <line x1="450" y1="128" x2="450" y2="150" class="sv-ln" marker-end="url(#ah)"/>
+      <text x="462" y="144" class="sv-tm">no match</text>
+
+      <rect x="300" y="150" width="300" height="74" rx="6" class="sv-boxL"/>
+      <text x="450" y="171" class="sv-t" text-anchor="middle">Tier 1 — local router</text>
+      <text x="450" y="187" class="sv-tm" text-anchor="middle">Qwen3 0.6B–1.7B Q4 · llama.cpp · 150–400 ms</text>
+      <text x="450" y="203" class="sv-tm" text-anchor="middle">GBNF-constrained JSON · warm KV cache</text>
+      <text x="450" y="217" class="sv-tm" text-anchor="middle">kNN few-shot from the correction log</text>
+
+      <line x1="450" y1="224" x2="450" y2="248" class="sv-ln" marker-end="url(#ah)"/>
+      <rect x="366" y="248" width="168" height="34" rx="17" class="sv-box"/>
+      <text x="450" y="269" class="sv-t" text-anchor="middle">confidence ≥ threshold?</text>
+
+      <path d="M366,265 L230,265 L230,286" class="sv-lnL" marker-end="url(#ahL)"/>
+      <text x="286" y="258" class="sv-ts" text-anchor="middle" fill="var(--local)">yes</text>
+
+      <rect x="60" y="286" width="290" height="46" rx="6" class="sv-boxL"/>
+      <text x="205" y="305" class="sv-t" text-anchor="middle">Execute tool · write to SQLite · ack</text>
+      <text x="205" y="321" class="sv-tm" text-anchor="middle">under 1 s total · undo always offered</text>
+
+      <path d="M534,265 L700,265 L700,286" class="sv-lnC" marker-end="url(#ahC)"/>
+      <text x="622" y="258" class="sv-ts" text-anchor="middle" fill="var(--cloud)">no, or reasoning intent</text>
+
+      <rect x="580" y="286" width="240" height="60" rx="6" class="sv-boxC"/>
+      <text x="700" y="306" class="sv-t" text-anchor="middle">Tier 2 — cloud reasoning</text>
+      <text x="700" y="321" class="sv-tm" text-anchor="middle">RESEARCH · PLAN · EXPLAIN · LEARN</text>
+      <text x="700" y="336" class="sv-tm" text-anchor="middle">or ask the user a narrow question</text>
+
+      <line x1="16" y1="366" x2="884" y2="366" class="sv-dash"/>
+      <text x="60" y="388" class="sv-tm">Every path writes to the correction log: transcript, context, tier used, prediction, confidence, what the user did next.</text>
+    </svg>
+    <figcaption><b>Figure 4 — Escalation, not selection.</b> A command falls through the tiers only as
+    far as it must. The left branch is the common case and never touches a model; the right branch
+    is the rare case and is allowed to take seconds.</figcaption>
+  </figure>
+
+  <h3>Tier 0 — deterministic, no model</h3>
+  <p>Real voice commands are overwhelmingly formulaic. A hand-written grammar covers the common
+  shapes and resolves them against the live collection list:</p>
+
+<pre><code>save this to &lt;collection&gt;        tag this &lt;tag&gt;
+remind me &lt;temporal&gt;             open &lt;ref&gt;
+find &lt;query&gt;                     move this to &lt;collection&gt;</code></pre>
+
+  <p>Spending 400 ms of GPU time on <em>“save this to React”</em> is waste. Tier 0 is the single
+  largest latency win available, it is deterministic and unit-testable, and it costs nothing per
+  call. Its hit rate is a product metric: if it falls below about 40 %, either users phrase things
+  differently than assumed or the grammar needs extending, and the correction log will say which.</p>
+
+  <h3>Tier 1 — the local router</h3>
+  <p>A sub-2B parameter instruct model via llama.cpp, emitting a small JSON object. Two properties
+  are load-bearing and neither is optional:</p>
+
+  <p><strong>Grammar-constrained decoding.</strong> A GBNF grammar is regenerated whenever the
+  collection set changes and enumerates the valid intents and the user's actual collection paths as
+  literal alternatives. The model therefore <em>cannot</em> emit malformed JSON, an unknown intent,
+  or a collection that does not exist. This is what makes a sub-billion-parameter model safe to
+  trust — the guarantee is structural, not a matter of prompt wording.</p>
+
+  <p><strong>A warm, reused KV cache.</strong> The system prompt plus collection list runs to about
+  800 tokens. Re-prefilling that on every command costs over 100 ms; caching the prefix costs
+  effectively nothing. The model loads once at startup and stays resident for the process lifetime.</p>
+
+<pre><code>{ "intent": "SAVE",
+  "slots":  { "collection": "Study/Programming/React",
+              "title": "State as a Snapshot",
+              "source": "https://react.dev/learn/state-as-a-snapshot" } }</code></pre>
+
+  <h3>Tier 2 — cloud reasoning</h3>
+  <p>Claude or GPT behind the same <code>LlmProvider</code> trait, orchestrated by LangGraph. Handles
+  research, planning, explanation, quiz generation, and any disambiguation the router could not
+  settle. The user has switched mental mode by this point, so a two-second response is entirely
+  acceptable — and this is where the metered free tier applies.</p>
+
+  <h3>Embeddings</h3>
+  <p><code>bge-small-en-v1.5</code>, 384 dimensions, through <strong>ONNX Runtime rather than
+  PyTorch</strong>: roughly 30 MB instead of 800 MB, and 5–15 ms per short text on CPU. Always off
+  the critical path — a save is acknowledged before its embedding exists, and a background worker
+  backfills. Cloud re-embedding with a larger model runs on sync for paid users.</p>
+</section>
+
+<!-- ============ 07 ============ -->
+<section id="s7">
+  <h2><span class="n">07</span> Retrieval</h2>
+  <div class="h2t">Hybrid by default, reranked when it matters</div>
+
+  <p>The system is not a vector database with a chat interface. Vector similarity is one signal
+  among several, and on its own it is notably bad at exact terms — product names, acronyms, URLs,
+  people. Keyword search is bad at meaning. The combination beats either alone, and a cross-encoder
+  reranker beats the combination.</p>
+
+  <figure>
+    <svg viewBox="0 0 900 340" role="img" aria-label="A query is embedded and tokenized in parallel, searched against a vector index and a BM25 index, fused by reciprocal rank fusion, re-scored by metadata signals, and optionally reranked by a cloud cross-encoder before results are returned.">
+      <rect x="30" y="24" width="130" height="38" rx="6" class="sv-box"/>
+      <text x="95" y="48" class="sv-t" text-anchor="middle">Query</text>
+
+      <path d="M160,43 L206,43 L206,86" class="sv-lnL" marker-end="url(#ahL)"/>
+      <path d="M160,43 L206,43 L206,152" class="sv-lnL" marker-end="url(#ahL)"/>
+
+      <rect x="126" y="86" width="180" height="42" rx="6" class="sv-boxL"/>
+      <text x="216" y="103" class="sv-t" text-anchor="middle">sqlite-vec</text>
+      <text x="216" y="118" class="sv-tm" text-anchor="middle">384-dim cosine · meaning</text>
+
+      <rect x="126" y="152" width="180" height="42" rx="6" class="sv-boxL"/>
+      <text x="216" y="169" class="sv-t" text-anchor="middle">FTS5 · BM25</text>
+      <text x="216" y="184" class="sv-tm" text-anchor="middle">exact terms · names · URLs</text>
+
+      <path d="M306,107 L346,107 L346,140" class="sv-lnL" marker-end="url(#ahL)"/>
+      <path d="M306,173 L346,173 L346,140" class="sv-lnL" marker-end="url(#ahL)"/>
+
+      <rect x="346" y="118" width="150" height="44" rx="6" class="sv-boxL"/>
+      <text x="421" y="136" class="sv-t" text-anchor="middle">RRF fusion</text>
+      <text x="421" y="151" class="sv-tm" text-anchor="middle">one SQL query</text>
+
+      <line x1="496" y1="140" x2="530" y2="140" class="sv-lnL" marker-end="url(#ahL)"/>
+
+      <rect x="530" y="106" width="164" height="68" rx="6" class="sv-boxL"/>
+      <text x="612" y="124" class="sv-t" text-anchor="middle">Signal re-score</text>
+      <text x="612" y="139" class="sv-tm" text-anchor="middle">recency · collection</text>
+      <text x="612" y="152" class="sv-tm" text-anchor="middle">source · relationships</text>
+      <text x="612" y="165" class="sv-tm" text-anchor="middle">access frequency</text>
+
+      <path d="M612,174 L612,214" class="sv-lnL" marker-end="url(#ahL)"/>
+      <rect x="516" y="214" width="192" height="40" rx="6" class="sv-boxL"/>
+      <text x="612" y="230" class="sv-t" text-anchor="middle">Local results</text>
+      <text x="612" y="245" class="sv-tm" text-anchor="middle">~40 ms · always available</text>
+
+      <path d="M694,140 L760,140 L760,106" class="sv-lnC" marker-end="url(#ahC)"/>
+      <text x="770" y="126" class="sv-tm">top 50</text>
+
+      <rect x="700" y="46" width="176" height="52" rx="6" class="sv-boxC"/>
+      <text x="788" y="66" class="sv-t" text-anchor="middle">Cross-encoder rerank</text>
+      <text x="788" y="81" class="sv-tm" text-anchor="middle">cloud GPU · +250 ms</text>
+      <text x="788" y="93" class="sv-tm" text-anchor="middle">query and doc scored together</text>
+
+      <path d="M788,98 L788,214" class="sv-lnC" marker-end="url(#ahC)"/>
+      <rect x="722" y="214" width="154" height="40" rx="6" class="sv-boxC"/>
+      <text x="799" y="230" class="sv-t" text-anchor="middle">Reranked results</text>
+      <text x="799" y="245" class="sv-tm" text-anchor="middle">markedly better ordering</text>
+
+      <line x1="30" y1="286" x2="876" y2="286" class="sv-dash"/>
+      <text x="30" y="310" class="sv-tm">Local results render immediately; reranked order replaces them in place when it arrives. Offline, the local order simply stands.</text>
+    </svg>
+    <figcaption><b>Figure 5 — Two indexes, one query, optional enrichment.</b> Because FTS5 and
+    sqlite-vec live in the same engine, fusion is a single in-process SQL statement with no network
+    hop. The cross-encoder is the one retrieval component worth leaving the machine for.</figcaption>
+  </figure>
+
+  <h3>Why the reranker is worth a network hop</h3>
+  <p>Vector search encodes the query and the document <em>separately</em>, so it can only compare
+  two summaries. A cross-encoder reads the query and each candidate <em>together</em> and scores the
+  actual relationship between them. It is far too slow to run over a whole corpus, which is exactly
+  why it belongs at the end of a pipeline that has already narrowed to fifty candidates — and far
+  too slow to run locally, which is why it belongs in the cloud.</p>
+
+  <p>This is the single component that most improves the moment users care most about: <em>“find
+  that thing I half-remember.”</em> It is also not latency-critical, so it costs the product nothing
+  where the product is fragile.</p>
+
+  <h3>Ranking signals</h3>
+<pre><code>score = w1·semantic_similarity      // sqlite-vec cosine
+      + w2·keyword_score           // FTS5 BM25
+      + w3·recency_decay           // exponential, half-life ~30 days
+      + w4·collection_match        // query mentions or implies a collection
+      + w5·source_match            // domain, file type, capture method
+      + w6·relationship_distance   // graph hops from an anchor item
+      + w7·access_frequency        // items reopened are items that matter</code></pre>
+  <p>Weights start hand-set and are later tuned against the correction log, which records which
+  result the user actually opened — a genuine relevance label collected for free.</p>
+</section>
+
+<!-- ============ 08 ============ -->
+<section id="s8">
+  <h2><span class="n">08</span> Confidence and undo</h2>
+  <div class="h2t">No unnecessary questions, no dangerous guesses</div>
+
+  <p>The original specification shows the model emitting its own confidence numbers. That is the one
+  part of it I would reject outright. <strong>Self-reported LLM confidence is badly calibrated</strong>
+  — models produce round, confident-sounding numbers largely independent of whether they are
+  correct, and a quantized sub-billion-parameter router is the worst case for this. Gating actions on
+  a number the model invented gives the appearance of a safety system with none of the substance.</p>
+
+  <p>There is a subtler failure the specification's own example exposes:</p>
+
+<pre><code>"Put this with the house stuff."
+    House / Internet      0.51
+    House / Electricity   0.49</code></pre>
+
+  <p>Neither score is low. What makes this ambiguous is not the absolute score but that
+  <strong>the top two are indistinguishable</strong>. A threshold on the top score alone would miss
+  this case entirely, while needlessly interrupting a confident lone match at 0.55 that has no
+  competitor.</p>
+
+  <h4>Confidence is computed by us, from measurable signals</h4>
+<pre><code>confidence = f(
+    slot_token_logprobs,      // from the constrained decode, per slot
+    retrieval_margin,         // score(top-1) − score(top-2)   ← the important one
+    historical_accept_rate    // this intent, this user, from the correction log
+)</code></pre>
+
+  <ul>
+    <li><strong>Per slot, not per command.</strong> The intent can be certain while the destination
+    is not. Only the uncertain slot is queried, so the question stays narrow — “Internet or
+    Electricity?” rather than “what did you mean?”</li>
+    <li><strong>Margin drives destination choices.</strong> Low margin means ask, whatever the
+    absolute score.</li>
+    <li><strong>Thresholds are calibrated from logged outcomes</strong>, per intent, not hand-tuned
+    global constants. <code>TAG</code> should act freely; <code>FILE_OPERATION</code> should not.</li>
+  </ul>
+
+  <div class="note">
+    <span class="lbl">Two rules that override everything</span>
+    <p><b>1. Irreversible actions always confirm</b>, at any confidence. Deleting or overwriting
+    files is never executed automatically.</p>
+    <p><b>2. Everything else is undoable.</b> Every executed command writes an inverse operation and
+    the confirmation carries an undo affordance. Cheap undo is what allows the thresholds to be
+    aggressive, and aggressive thresholds are what keep the product fast. The two are the same
+    design decision viewed from different ends.</p>
+  </div>
+</section>
+
+<!-- ============ 09 ============ -->
+<section id="s9">
+  <h2><span class="n">09</span> Data model</h2>
+  <div class="h2t">Structured first, embeddings second</div>
+
+  <p>Collections form a hierarchy for display, but the underlying model is a graph: many-to-many
+  tags and typed relationships, so nothing is trapped in one folder. An item can sit in
+  <em>Study / Programming / React</em>, relate to <em>Interview Preparation</em>, and carry the tag
+  <em>job search</em> simultaneously.</p>
+
+<pre><code>knowledge_items    id, title, content, summary, source_id, collection_id,
+                   source_type, captured_at, created_at, updated_at,
+                   last_accessed_at, access_count, metadata (json), sync_state
+
+collections        id, parent_id, name, path, icon, sort_order
+sources            id, kind, url, domain, file_path, title, retrieved_at
+tags               id, name, colour
+knowledge_tags     item_id, tag_id                        -- many-to-many
+relationships      from_id, to_id, kind, weight, created_at
+
+tasks              id, item_id, title, due_at, status, priority, project_id
+reminders          id, item_id, fire_at, recurrence, status
+files              id, item_id, path, hash, size, mime, indexed_at
+
+embeddings         item_id, model, dim, vector            -- sqlite-vec virtual table
+items_fts          title, content, summary                -- FTS5 virtual table
+
+commands           id, transcript, context (json), intent, slots (json),
+                   tier_used, confidence, latency_ms, created_at
+corrections        command_id, corrected_intent, corrected_slots,
+                   accepted, corrected_at                 -- the personalization asset
+
+jobs               id, kind, payload, run_after, attempts, state   -- replaces Redis locally
+outbox             id, entity, entity_id, op, payload, created_at  -- sync queue
+events             id, kind, entity_id, payload, created_at        -- audit and undo</code></pre>
+
+  <div class="note">
+    <span class="lbl">Provenance is a product feature</span>
+    <p>Every item keeps where it came from, when, and by what method — highlighted text plus voice
+    command, a dropped file, a research result the user approved. This is what lets the user reopen
+    the original source and, more importantly, what makes them trust that the system has not
+    silently invented or misfiled something.</p>
+  </div>
+</section>
+
+<!-- ============ 10 ============ -->
+<section id="s10">
+  <h2><span class="n">10</span> Cloud tier</h2>
+  <div class="h2t">Where quality work happens, on AWS</div>
+
+  <p>The cloud tier is a conventional, well-understood service stack. Its defining property is that
+  <strong>nothing in it is required for the client to function</strong> — every capability degrades
+  to a local equivalent or is simply absent until the connection returns.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Service</th><th>Runs on</th><th>Responsibility</th><th>If unavailable</th></tr></thead>
+    <tbody>
+      <tr><td><b>FastAPI</b></td><td>ECS Fargate behind ALB</td><td>Auth, sync endpoints, quota accounting, webhooks</td><td>Client queues to outbox and retries</td></tr>
+      <tr><td><b>LangGraph workers</b></td><td>ECS, Redis-backed queue</td><td>Research agent, planner, quiz generation, multi-step tool use</td><td>Those intents report unavailable; capture unaffected</td></tr>
+      <tr><td><b>Reranker</b></td><td>GPU instance or SageMaker endpoint</td><td>Cross-encoder over top-50 candidates</td><td>Local RRF ordering stands</td></tr>
+      <tr><td><b>Tier 2 LLM</b></td><td>Provider API</td><td>Reasoning, explanation, disambiguation</td><td>Falls back to local model or asks the user</td></tr>
+      <tr><td><b>PostgreSQL + pgvector</b></td><td>RDS, per-user row isolation</td><td>Authoritative store, full-corpus semantic search</td><td>SQLite remains authoritative locally</td></tr>
+      <tr><td><b>Redis</b></td><td>ElastiCache</td><td>Job queue, cache, pub/sub for sync fan-out, rate limiting</td><td>—</td></tr>
+      <tr><td><b>S3</b></td><td>—</td><td>File and attachment storage, model artefact hosting</td><td>Files stay local-only</td></tr>
+      <tr><td><b>Training</b></td><td>Batch / SageMaker</td><td>LoRA fine-tunes, evaluation runs over the correction log</td><td>—</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Why LangGraph lives here and not on the client</h3>
+  <p>LangGraph's real strengths are durable state, branching, retries and human-in-the-loop
+  interrupts. None of those are what a <code>SAVE</code> command needs — a save is classify, resolve,
+  write a row. Putting a Python graph runtime on the capture path would buy nothing and cost a
+  bundled interpreter, a multi-second cold start and cross-process serialization on every command.</p>
+
+  <p>Put it where multi-step work actually happens and it earns its keep immediately. The research
+  agent alone — search, fetch, extract, rank, present, await user selection, save the approved
+  subset — is a genuine graph with a human interrupt in the middle, which is precisely the shape
+  LangGraph exists for.</p>
+</section>
+
+<!-- ============ 11 ============ -->
+<section id="s11">
+  <h2><span class="n">11</span> Sync</h2>
+  <div class="h2t">Write-ahead locally, reconcile in the background</div>
+
+  <p>The non-negotiable property: <strong>a capture never blocks on the network and never fails
+  because of it.</strong> Writes land in SQLite and in an outbox table within the same transaction.
+  A background worker drains the outbox whenever a connection exists. If the machine is offline for
+  a week, nothing is lost and nothing is felt.</p>
+
+  <figure>
+    <svg viewBox="0 0 900 300" role="img" aria-label="A capture writes to SQLite and an outbox table in one transaction and acknowledges immediately; a background worker later drains the outbox to the cloud API and Postgres, with a pull path returning changes from other devices.">
+      <rect x="30" y="40" width="150" height="42" rx="6" class="sv-boxL"/>
+      <text x="105" y="60" class="sv-t" text-anchor="middle">Capture</text>
+      <text x="105" y="74" class="sv-tm" text-anchor="middle">voice command</text>
+
+      <line x1="180" y1="61" x2="216" y2="61" class="sv-lnL" marker-end="url(#ahL)"/>
+
+      <rect x="216" y="26" width="200" height="70" rx="6" class="sv-boxL"/>
+      <text x="316" y="46" class="sv-t" text-anchor="middle">One SQLite transaction</text>
+      <text x="316" y="63" class="sv-tm" text-anchor="middle">knowledge_items  +  outbox</text>
+      <text x="316" y="79" class="sv-tm" text-anchor="middle">commit = durable</text>
+
+      <path d="M316,96 L316,132 L118,132 L118,88" class="sv-lnL" marker-end="url(#ahL)"/>
+      <text x="220" y="148" class="sv-ts" text-anchor="middle" fill="var(--local)">“Saved” — under 1 s, offline-safe, nothing else has happened yet</text>
+
+      <path d="M416,61 L470,61" class="sv-ln" marker-end="url(#ah)"/>
+      <rect x="470" y="40" width="150" height="42" rx="6" class="sv-box"/>
+      <text x="545" y="60" class="sv-t" text-anchor="middle">Sync worker</text>
+      <text x="545" y="74" class="sv-tm" text-anchor="middle">drains outbox, backs off</text>
+
+      <line x1="16" y1="182" x2="884" y2="182" class="sv-dash"/>
+      <text x="884" y="176" class="sv-lbl" text-anchor="end">Network boundary — may be down for days</text>
+
+      <path d="M545,82 L545,212" class="sv-lnC" marker-end="url(#ahC)"/>
+      <text x="556" y="150" class="sv-tm">push, idempotent by id</text>
+
+      <rect x="446" y="212" width="200" height="44" rx="6" class="sv-boxC"/>
+      <text x="546" y="231" class="sv-t" text-anchor="middle">FastAPI → Postgres</text>
+      <text x="546" y="246" class="sv-tm" text-anchor="middle">authoritative, re-embeds</text>
+
+      <path d="M646,234 L760,234 L760,61 L700,61" class="sv-lnC" marker-end="url(#ahC)"/>
+      <text x="772" y="150" class="sv-tm">pull</text>
+      <rect x="656" y="40" width="150" height="42" rx="6" class="sv-boxC"/>
+      <text x="731" y="60" class="sv-t" text-anchor="middle">Other devices</text>
+      <text x="731" y="74" class="sv-tm" text-anchor="middle">last-write-wins + log</text>
+
+      <text x="450" y="286" class="sv-tm" text-anchor="middle">Conflicts are rare by construction: items are append-mostly, edits are field-level, and every change is retained in the event log rather than overwritten.</text>
+    </svg>
+    <figcaption><b>Figure 6 — The outbox pattern.</b> The acknowledgement the user sees is triggered
+    by the local commit, not by the server. Everything to the right of the boundary can be slow,
+    flaky or entirely absent without the user ever perceiving it.</figcaption>
+  </figure>
+
+  <p>Conflict resolution is field-level last-write-wins with the full history retained in the
+  <code>events</code> table, so a losing edit is recoverable rather than destroyed. Items are
+  append-mostly in practice, which keeps genuine conflicts rare.</p>
+</section>
+
+<!-- ============ 12 ============ -->
+<section id="s12">
+  <h2><span class="n">12</span> Identity and security</h2>
+  <div class="h2t">Multi-user from day one, server-readable, stated plainly</div>
+
+  <p>An earlier draft of this document omitted accounts entirely, which was a straightforward gap:
+  this is a multi-user product with a metered plan, so identity is not an optional extra bolted on
+  at billing time. It determines the data model, the sync design, the metering, and what the first
+  screen of the application is.</p>
+
+  <h3>Authentication</h3>
+
+  <p>Three sign-in methods, all landing on the same account record:</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Method</th><th>Mechanism</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><b>Google</b></td><td>OAuth 2.0 + PKCE, system browser</td><td>Expected default for most users. No password to lose</td></tr>
+      <tr><td><b>Apple</b></td><td>Sign in with Apple, OIDC</td><td><b>Required</b> once the macOS/iOS build ships if any other social sign-in is offered — App Store policy</td></tr>
+      <tr><td><b>Email</b></td><td>Magic link, or password + verification</td><td>Magic link preferred: no password storage, no reset flow, fewer support tickets</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p><strong>OAuth runs in the system browser, never in an embedded webview.</strong> Google blocks
+  embedded-webview OAuth outright, and it is the correct security posture regardless: the desktop app
+  opens the default browser, receives the callback on a loopback listener, and exchanges the code
+  with PKCE. The app never sees the user's credentials.</p>
+
+<pre><code>desktop app
+  → opens system browser to the provider
+  → user authenticates with Google / Apple / email
+  → provider redirects to http://127.0.0.1:&lt;ephemeral&gt;/callback
+  → app exchanges code + PKCE verifier at our API
+  → receives access token (short-lived) + refresh token (device-bound)
+  → refresh token stored in Windows Credential Manager, never in SQLite</code></pre>
+
+  <h3>The token model</h3>
+  <p>Access tokens are short-lived and refreshed silently. The refresh token is bound to the device
+  record created at activation, so revoking a device from Settings genuinely revokes it. Crucially,
+  <strong>an expired token does not stop the application from working</strong> — it degrades exactly
+  the way the entitlement grace period does in section 16. A user whose token could not refresh
+  because they were on a plane still captures, still searches, still opens their own data.</p>
+
+  <div class="note warn">
+    <span class="lbl">A consistency fix this forces</span>
+    <p>An earlier draft claimed the free tier required <b>no account</b>. That cannot be true once
+    the free tier is metered — a usage counter needs an identity to attach to. <b>An account is
+    required for everyone.</b></p>
+    <p>What survives is the thing that actually mattered: a <b>Local-only processing</b> setting,
+    where the account exists for identity and billing but content is never synced and never leaves
+    the machine. That is a privacy guarantee about <em>data</em>, which is what users care about —
+    not about whether they had to sign in once.</p>
+  </div>
+
+  <h3>Multi-tenancy</h3>
+  <p>Every row in the cloud Postgres carries a <code>user_id</code> and is protected by row-level
+  security, so tenant isolation is enforced by the database rather than by remembering to add a
+  <code>WHERE</code> clause. The local SQLite file is single-user by construction — it lives in the
+  user's own profile directory and is encrypted with a key held in Windows DPAPI, bound to their
+  Windows account. Two people sharing a PC get two separate databases without any application logic.</p>
+
+  <h3>Onboarding</h3>
+  <p>The first run has to accomplish four things without feeling like a setup wizard, because the
+  product's whole promise is low friction and the first ninety seconds either prove that or refute
+  it:</p>
+  <ol>
+    <li><strong>Sign in</strong> — one tap for Google or Apple.</li>
+    <li><strong>Microphone permission</strong> — with the always-open stream explained honestly, in
+    one sentence, before it is requested.</li>
+    <li><strong>Choose the shortcut</strong> — a default is proposed and can be changed later.</li>
+    <li><strong>First capture</strong> — guided, ending in something actually saved. The user should
+    have used the product before onboarding is over, not merely configured it.</li>
+  </ol>
+
+  <h3>The chosen data model</h3>
+  <p><strong>Server-readable encryption.</strong> Data is encrypted in transit and at rest, but the
+  service can decrypt it in order to embed, rerank and reason over it. This is the standard SaaS
+  posture and it is what makes the cloud tier useful at all.</p>
+
+  <p>The alternative — end-to-end encryption with client-held keys — was considered and rejected
+  for this version, because it is close to <em>incompatible</em> with cloud retrieval. If the server
+  cannot read plaintext it cannot embed, cannot rerank, and cannot feed a reasoning model. The cloud
+  tier would collapse into an encrypted blob store, taking most of the product's quality advantage
+  with it. That trade may be worth revisiting later as a premium "private vault" mode.</p>
+
+  <div class="note warn">
+    <span class="lbl">The obligation this creates</span>
+    <p>Choosing server-readable means the privacy claim must be <b>accurate and prominent</b>, never
+    buried. Users are told, in plain language and before they enable sync, that synced content can
+    be read by the service in order to provide search and reasoning. A product built on trust cannot
+    afford a privacy page that overstates.</p>
+  </div>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Layer</th><th>Control</th></tr></thead>
+    <tbody>
+      <tr><td>At rest, client</td><td>SQLite encrypted with a key held in Windows DPAPI, bound to the user account</td></tr>
+      <tr><td>In transit</td><td>TLS 1.3, certificate pinning, no plaintext fallback</td></tr>
+      <tr><td>At rest, cloud</td><td>KMS-managed keys, per-user envelope encryption, row-level isolation in Postgres</td></tr>
+      <tr><td>Authentication</td><td>Short-lived access tokens, rotating refresh, device-bound</td></tr>
+      <tr><td>Secrets</td><td>API keys in Windows Credential Manager, never in the database or config files</td></tr>
+      <tr><td>Audit</td><td>Every tool execution recorded in <code>events</code>, exportable by the user</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>What never leaves the machine, in any mode</h3>
+  <ul>
+    <li><strong>Raw audio.</strong> Discarded after transcription unless the user explicitly enables
+    cloud STT, and even then it is sent for transcription and not retained.</li>
+    <li><strong>Clipboard contents and screenshots</strong> that were not part of an explicit save.</li>
+    <li><strong>The correction log</strong>, by default. It is a record of what the user said and
+    did. Syncing it is opt-in, and it must be exportable and deletable from Settings.</li>
+    <li><strong>Anything at all, in Local-only processing mode</strong> — a first-class setting, not
+    a degraded state. The account still exists for identity and billing, but no content is ever
+    synced or sent for cloud enrichment. Capture, search and organization are unaffected.</li>
+  </ul>
+
+  <div class="note">
+    <span class="lbl">The always-open microphone</span>
+    <p>Section 5 keeps an audio stream open permanently. This is a real privacy surface and must be
+    communicated honestly: a persistent tray indicator whenever the stream is live, a hard mute
+    control, and a plain guarantee that buffered audio is discarded continuously and never written
+    to disk unless the user presses the shortcut. Getting this wrong is not a bug, it is a
+    trust catastrophe — so it is stated in the interface, not only in a policy document.</p>
+  </div>
+</section>
+
+<!-- ============ 13 ============ -->
+<section id="s13">
+  <h2><span class="n">13</span> Interface</h2>
+  <div class="h2t">The overlay is the product; the hub is where everything else lives</div>
+
+  <p>Roughly ninety percent of interactions happen in a small overlay that appears for two seconds
+  and disappears. The main window — the <strong>Hub</strong> — exists for browsing, correcting,
+  reviewing and configuring. Designing the Hub first would be designing the wrong product, but
+  omitting it, as an earlier draft of this document did, leaves the application without a shape.</p>
+
+  <h3>Visual direction</h3>
+
+  <p>Two references, taken deliberately rather than reinvented, and each contributing a different
+  layer:</p>
+
+  <ul>
+    <li><strong>Wispr Flow supplies the structure.</strong> A left navigation rail with a usage meter
+    pinned to its base, a single large content panel, a right rail for figures, and a two-column
+    settings layout. Serif for headings and numerals against a geometric sans for interface text.</li>
+    <li><strong>Polaris supplies the palette.</strong> A cool blue-grey ground with pure white
+    panels, near-black cool ink, generous radii and soft diffuse shadows.</li>
+  </ul>
+
+  <p>Two details from Polaris are worth naming because they do real work:</p>
+
+  <p><strong>Selection is elevation, not colour.</strong> The active navigation item is a white pill
+  lifted off the blue-grey rail with a soft shadow — no accent fill, no coloured text. This keeps
+  the entire chrome monochrome, which means the few places we <em>do</em> use colour carry actual
+  meaning rather than competing with decoration.</p>
+
+  <p><strong>Icons have dimension.</strong> Soft gradient tiles with an inner highlight rather than
+  flat monochrome glyphs. It is a small thing that separates a considered interface from a
+  templated one, and it costs nothing at runtime.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Token</th><th>Value</th><th>Used for</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">ground</td><td class="mono">#F1F4F8</td><td>Window and navigation rail</td></tr>
+      <tr><td class="mono">panel</td><td class="mono">#FFFFFF</td><td>Content surfaces, selected nav pill</td></tr>
+      <tr><td class="mono">nested</td><td class="mono">#F7F9FC</td><td>Rows and cards inside a panel</td></tr>
+      <tr><td class="mono">ink</td><td class="mono">#1F2328</td><td>Text, primary buttons</td></tr>
+      <tr><td class="mono">ink-2</td><td class="mono">#5A6673</td><td>Secondary text, inactive nav</td></tr>
+      <tr><td class="mono">hairline</td><td class="mono">#E4EAF0</td><td>Borders and dividers</td></tr>
+      <tr><td class="mono">accent</td><td class="mono">#E8850C</td><td>Brand mark, usage meter, upgrade — used sparingly</td></tr>
+      <tr><td class="mono">success</td><td class="mono">#0F8A6A</td><td>Confirmation only</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>The single warm accent against a cool ground is what gives the reference its character: the
+  temperature contrast makes one small orange mark carry more weight than a whole palette would.
+  It appears on the brand mark, the usage meter and the upgrade action, and essentially nowhere else.</p>
+
+  <p>Type: <strong>Source Serif 4</strong> for headings and figures, <strong>Figtree</strong> for
+  interface text, <strong>JetBrains Mono</strong> for keys, paths and timings. A dark theme uses the
+  same tokens inverted; the mockups below show the light theme.</p>
+
+  <div class="note">
+    <span class="lbl">Note on the diagram colours in this document</span>
+    <p>The teal and plum used throughout the figures above are the <em>document's</em> encoding for
+    local and cloud. They are a reading aid for this brief, not the application's palette, and the
+    two systems are deliberately independent.</p>
+  </div>
+
+  <h3>Application map</h3>
+
+  <p>Every screen in the product, and what each is for.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Section</th><th>Screen</th><th>Purpose</th><th>Ships</th></tr></thead>
+    <tbody>
+      <tr><td rowspan="4"><b>Hub</b></td><td><b>Home</b></td><td>Recent captures grouped by day, usage meter, streak and totals. The landing screen</td><td class="mono">M2</td></tr>
+      <tr><td><b>Library</b></td><td>Every knowledge item, filterable by type, source, date, tag. Search lives here</td><td class="mono">M2</td></tr>
+      <tr><td><b>Collections</b></td><td>The hierarchy. Drag to refile; every move feeds the correction log</td><td class="mono">M2</td></tr>
+      <tr><td><b>Tasks &amp; Reminders</b></td><td>Everything with a due date, linked back to the item it came from</td><td class="mono">M3</td></tr>
+      <tr><td rowspan="3"><b>Tools</b></td><td><b>Dictionary</b></td><td>Custom vocabulary — names, jargon, project names. Feeds whisper's decoder biasing directly, so it measurably improves accuracy</td><td class="mono">M3</td></tr>
+      <tr><td><b>Rules</b></td><td>User-defined routing: “anything from arxiv.org goes to Research”. Deterministic, runs before the model</td><td class="mono">M3</td></tr>
+      <tr><td><b>History</b></td><td>Every command with its transcript, chosen intent, confidence and latency. The correction surface, and the trust surface</td><td class="mono">M3</td></tr>
+      <tr><td rowspan="2"><b>Agents</b></td><td><b>Research</b></td><td>Findings awaiting approval. Nothing is saved until the user says so</td><td class="mono">M6</td></tr>
+      <tr><td><b>Plan</b></td><td>Proposed schedule from tasks, deadlines and recent work</td><td class="mono">M6</td></tr>
+      <tr><td><b>Learn</b></td><td><b>Review</b></td><td>Spaced-repetition queue over items explicitly marked worth remembering</td><td class="mono">M8</td></tr>
+      <tr><td rowspan="7"><b>Settings</b></td><td><b>General</b></td><td>Shortcut, microphone, capture languages, interface language, launch at login</td><td class="mono">M1</td></tr>
+      <tr><td><b>Capture</b></td><td>Push-to-talk or toggle, per-source context permissions, overlay position</td><td class="mono">M1</td></tr>
+      <tr><td><b>Models</b></td><td>Performance profile with its memory cost stated, model downloads, local-vs-cloud routing</td><td class="mono">M3</td></tr>
+      <tr><td><b>Account</b></td><td>Profile, connected sign-in method, devices, sign out, delete account</td><td class="mono">M4</td></tr>
+      <tr><td><b>Plans &amp; Billing</b></td><td>Current plan, captures used this week, upgrade, invoices, cancel</td><td class="mono">M4</td></tr>
+      <tr><td><b>Data &amp; Privacy</b></td><td>Local-only processing toggle, what syncs, export everything, delete everything</td><td class="mono">M4</td></tr>
+      <tr><td><b>About</b></td><td>Version, update channel, licences, diagnostics</td><td class="mono">M1</td></tr>
+      <tr><td rowspan="3"><b>Auth</b></td><td><b>Sign in / Sign up</b></td><td>Google, Apple, email magic link</td><td class="mono">M4</td></tr>
+      <tr><td><b>Onboarding</b></td><td>Permissions, shortcut choice, guided first capture</td><td class="mono">M4</td></tr>
+      <tr><td><b>Account menu</b></td><td>Title-bar dropdown: plan, usage, upgrade, manage account</td><td class="mono">M4</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>The three overlay states below are not screens — they are transient surfaces that appear over
+  whatever the user is doing and never take focus from it.</p>
+
+  <h3>Capture overlay</h3>
+  <p>Appears at the caret or screen-bottom on hotkey press. Pre-created and hidden at boot, so
+  showing it is one call. Live waveform, streaming partial transcript, recording indicator — enough
+  feedback to feel responsive, not enough to demand attention.</p>
+
+  <div class="mock">
+    <div class="pill">
+      <span class="dot"></span>
+      <span class="wave" aria-hidden="true">
+        <i style="height:7px"></i><i style="height:14px"></i><i style="height:20px"></i>
+        <i style="height:11px"></i><i style="height:17px"></i><i style="height:22px"></i>
+        <i style="height:9px"></i><i style="height:16px"></i><i style="height:12px"></i>
+        <i style="height:19px"></i><i style="height:8px"></i><i style="height:14px"></i>
+      </span>
+      <span class="txt">save this to programming react<em>, the important part is</em></span>
+      <span class="kbd">hold ⌃⊞</span>
+    </div>
+    <p class="cap">Listening. The partial transcript streams in as the user speaks — the greyed tail
+    is the still-uncertain portion the model may revise.</p>
+  </div>
+
+  <h3>Confirmation</h3>
+  <p>The overlay collapses into a receipt that states exactly what happened and offers undo. Not a
+  spinner and not a chat reply — the user has already moved on.</p>
+
+  <div class="mock">
+    <div class="toast">
+      <span class="ok" aria-hidden="true">✓</span>
+      <span class="body">
+        <span class="t1">Saved to Study / Programming / React</span>
+        <span class="t2">react.dev · highlighted text + voice · 640 ms</span>
+      </span>
+      <span class="undo">Undo ⌃Z</span>
+    </div>
+    <p class="cap">Every action reports its destination and its provenance. Undo is always present —
+    it is what makes confident automatic execution safe.</p>
+  </div>
+
+  <h3>Disambiguation</h3>
+  <p>When the retrieval margin is low, the system asks one narrow question rather than restating the
+  whole command. The answer goes to the correction log and changes behaviour on the next command.</p>
+
+  <div class="mock">
+    <div class="ask">
+      <div class="q">Which one did you mean?</div>
+      <div class="opts">
+        <div class="opt sel"><span class="k">1</span> House / Internet <span class="pct">0.51</span></div>
+        <div class="opt"><span class="k">2</span> House / Electricity <span class="pct">0.49</span></div>
+        <div class="opt"><span class="k">3</span> House / Automation <span class="pct">0.31</span></div>
+        <div class="opt"><span class="k">N</span> New collection under House…</div>
+      </div>
+    </div>
+    <p class="cap">Asked only because the top two are indistinguishable — not because the top score
+    was low. Intent, source and content were all certain, so none of them are re-litigated.</p>
+  </div>
+
+  <h3>Hub — Home</h3>
+  <p>Recent captures grouped by day, with the usage meter in the sidebar and totals on the right.
+  This is the screen that answers “what have I been saving?”</p>
+
+  <div class="mock">
+    <div class="app">
+      <div class="a-title">
+        <span class="ic"></span><span class="ic" style="border-radius:50%"></span>
+        <span class="sp"><span>⌄</span><span>—</span><span>▫</span><span>✕</span></span>
+      </div>
+      <div class="a-body">
+        <div class="a-side">
+          <div class="a-brand">
+            <span class="bars" aria-hidden="true"><i style="height:6px"></i><i style="height:12px"></i><i style="height:9px"></i><i style="height:14px"></i></span>
+            Recall
+          </div>
+          <ul class="a-nav">
+            <li class="on"><span class="g">◈</span> Home</li>
+            <li><span class="g">▤</span> Library</li>
+            <li><span class="g">◱</span> Collections</li>
+            <li><span class="g">◷</span> Tasks</li>
+          </ul>
+          <div class="a-navh">Tools</div>
+          <ul class="a-nav">
+            <li><span class="g">Aa</span> Dictionary</li>
+            <li><span class="g">⇋</span> Rules</li>
+            <li><span class="g">↺</span> History</li>
+          </ul>
+          <div class="a-meter">
+            <div class="n">32 of 50 captures</div>
+            <div class="s">Free plan · resets Monday</div>
+            <div class="bar"><i style="width:64%"></i></div>
+            <span class="a-btn">Upgrade to Pro</span>
+          </div>
+        </div>
+        <div class="a-main">
+          <div class="a-panel">
+            <div class="a-h1">Welcome back, Tymofii</div>
+            <div class="a-cols">
+              <div>
+                <div class="a-banner">
+                  <div class="t">Teach it <em>your</em> vocabulary</div>
+                  <div class="s">Add project names and jargon so they transcribe correctly every time.</div>
+                  <span class="b">Open Dictionary</span>
+                </div>
+                <div class="a-daylbl">Yesterday</div>
+                <div class="a-row">
+                  <span class="tm">9:30 pm</span>
+                  <span class="bd">
+                    <span class="tx">Save this to programming react — the important part is the explanation of state as a snapshot.</span>
+                    <span class="mt"><span class="a-pill">Study / Programming / React</span><span class="a-pill n">react.dev</span><span>640 ms</span></span>
+                  </span>
+                  <span class="acts">▷ ⧉ ⋯</span>
+                </div>
+                <div class="a-row">
+                  <span class="tm">6:12 pm</span>
+                  <span class="bd">
+                    <span class="tx">Remind me about this job posting on Tuesday at ten.</span>
+                    <span class="mt"><span class="a-pill">Career / Job Applications</span><span class="a-pill n">reminder</span><span>310 ms</span></span>
+                  </span>
+                  <span class="acts">▷ ⧉ ⋯</span>
+                </div>
+                <div class="a-row">
+                  <span class="tm">2:48 pm</span>
+                  <span class="bd">
+                    <span class="tx">Remember that the router config is taped inside the cabinet door.</span>
+                    <span class="mt"><span class="a-pill">Life / House</span><span class="a-pill n">voice note</span><span>295 ms</span></span>
+                  </span>
+                  <span class="acts">▷ ⧉ ⋯</span>
+                </div>
+              </div>
+              <div class="a-rail">
+                <div class="a-stat"><div class="v">418 <small>items saved</small></div></div>
+                <div class="a-stat"><div class="v">32 <small>this week</small></div></div>
+                <div class="a-stat"><div class="v">11 <small>day streak</small></div></div>
+                <div class="a-promo">
+                  <div class="t">6 items unfiled</div>
+                  <div class="s">Low confidence — a quick review teaches it where these belong.</div>
+                  <span class="a-btn acc">Review now</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="cap">The sidebar meter counts <b>captures, not words</b> — one voice input is one
+    capture. The right rail's “unfiled” card is the correction loop surfacing itself: reviewing
+    those six items is what makes the router better.</p>
+  </div>
+
+  <h3>Settings</h3>
+  <p>Two-column, with settings grouped by what the user is trying to change rather than by which
+  subsystem owns it. The performance profile from section 5 states its memory cost inline, so the
+  trade-off is visible at the point of decision.</p>
+
+  <div class="mock">
+    <div class="app">
+      <div class="a-body a-set">
+        <div class="a-side">
+          <div class="a-navh" style="padding-top:4px">Settings</div>
+          <ul class="a-nav">
+            <li class="on"><span class="g">⚙</span> General</li>
+            <li><span class="g">◉</span> Capture</li>
+            <li><span class="g">◧</span> Models</li>
+          </ul>
+          <div class="a-navh">Account</div>
+          <ul class="a-nav">
+            <li><span class="g">◍</span> Account</li>
+            <li><span class="g">▤</span> Plans &amp; Billing</li>
+            <li><span class="g">⛨</span> Data &amp; Privacy</li>
+            <li><span class="g">ⓘ</span> About</li>
+          </ul>
+        </div>
+        <div>
+          <div class="a-main">
+            <div class="a-panel">
+              <div class="a-h1">General</div>
+              <div class="a-setrow">
+                <span class="bd">
+                  <span class="k">Shortcut</span>
+                  <span class="v">Hold <span class="a-kbd">Ctrl</span> + <span class="a-kbd">Win</span> and speak</span>
+                </span>
+                <span class="a-btn ghost">Change</span>
+              </div>
+              <div class="a-setrow">
+                <span class="bd">
+                  <span class="k">Microphone</span>
+                  <span class="v">Auto-detect · always listening, discarded unless you press the shortcut</span>
+                </span>
+                <span class="a-btn ghost">Change</span>
+              </div>
+              <div class="a-setrow">
+                <span class="bd">
+                  <span class="k">Capture languages</span>
+                  <span class="v">English · Ukrainian (Українська)</span>
+                </span>
+                <span class="a-btn ghost">Change</span>
+              </div>
+              <div class="a-setrow">
+                <span class="bd">
+                  <span class="k">Performance profile</span>
+                  <span class="v">Balanced — about 340 MB of memory while running</span>
+                </span>
+                <span class="a-btn ghost">Change</span>
+              </div>
+            </div>
+          </div>
+          <div class="a-ver">Recall v0.1.0 · up to date</div>
+        </div>
+      </div>
+    </div>
+    <p class="cap">The microphone row states the always-open stream in plain language rather than
+    burying it in a policy document. Section 12 argues this is a trust requirement, not a nicety.</p>
+  </div>
+
+  <h3>Account menu and sign-in</h3>
+  <p>The account dropdown carries the usage meter, so the upgrade prompt appears where the user is
+  already thinking about their plan rather than interrupting a capture.</p>
+
+  <div class="mock">
+    <div class="a-menu app" style="border-radius:12px">
+      <div class="sec">
+        <span class="av">TH</span>
+        <span class="bd"><span class="n">Tymofii Hrynchuk</span><span class="e">tim.20049090@gmail.com</span></span>
+      </div>
+      <div class="sec">
+        <span class="bd"><span class="k">You are on Free</span><span class="s">32 of 50 captures used this week</span></span>
+        <span class="a-btn">Get Pro</span>
+      </div>
+      <div class="sec">
+        <span class="bd"><span class="k">Invite a friend</span><span class="s">Both of you get a free month</span></span>
+        <span class="a-btn ghost">Invite</span>
+      </div>
+      <div class="sec"><span class="bd"><span class="k">Manage account</span></span><span class="s">→</span></div>
+    </div>
+    <p class="cap">Usage is stated as a count of captures, matching how the plan is actually
+    metered — never as an abstract credit balance the user has to translate.</p>
+  </div>
+
+  <div class="mock">
+    <div class="app" style="max-width:430px">
+      <div class="a-auth">
+        <span class="lg">
+          <span class="bars" aria-hidden="true" style="display:inline-flex;align-items:flex-end;gap:2px;height:15px">
+            <i style="height:7px;width:3px;background:#1F2328;border-radius:1px;display:block"></i>
+            <i style="height:13px;width:3px;background:#1F2328;border-radius:1px;display:block"></i>
+            <i style="height:10px;width:3px;background:#1F2328;border-radius:1px;display:block"></i>
+            <i style="height:15px;width:3px;background:#E8850C;border-radius:1px;display:block"></i>
+          </span>
+          Recall
+        </span>
+        <h4>Tell your computer what to remember</h4>
+        <div class="sub">50 free captures every week.</div>
+        <div class="btns">
+          <span class="a-oauth"><span class="g" style="background:#EA4335;color:#fff">G</span> Continue with Google</span>
+          <span class="a-oauth"><span class="g" style="background:#1F2328;color:#fff">✿</span> Continue with Apple</span>
+          <div class="a-or">OR</div>
+          <span class="a-field">you@example.com</span>
+          <span class="a-btn" style="padding:10px">Email me a sign-in link</span>
+        </div>
+        <div class="fine">No password to remember. We send a link that signs you in.</div>
+      </div>
+    </div>
+    <p class="cap">OAuth opens the system browser, never an embedded webview — Google blocks embedded
+    OAuth, and the loopback + PKCE exchange means the application never handles credentials.</p>
+  </div>
+</section>
+
+<section id="s14">
+  <h2><span class="n">14</span> Feature catalogue</h2>
+  <div class="h2t">Every command, what it does, and which tier serves it</div>
+
+  <h3>Version 1 — the core loop</h3>
+  <div class="feat">
+    <div class="fc"><h5>Save</h5>
+      <div class="say">“Save this to Programming, React.”</div>
+      <p>Captures the active context — page, selection, URL, title — and files it. The most-used command by a wide margin.</p>
+      <span class="tier">Tier 0 · local · ~340 ms</span></div>
+
+    <div class="fc"><h5>Save + reminder</h5>
+      <div class="say">“Save this and remind me Sunday.”</div>
+      <p>One command, two writes. Temporal expressions are parsed deterministically, never by a model.</p>
+      <span class="tier">Tier 0 · local</span></div>
+
+    <div class="fc"><h5>Note</h5>
+      <div class="say">“Remember that my router config is on the fridge.”</div>
+      <p>A standalone voice note with no source attached. Still gets embedded, tagged and filed.</p>
+      <span class="tier">Tier 0 · local</span></div>
+
+    <div class="fc"><h5>Search</h5>
+      <div class="say">“Find the article about React state I read last week.”</div>
+      <p>Hybrid retrieval with a temporal filter. Reranked in the cloud when available.</p>
+      <span class="tier">Tier 1 · local + cloud rerank</span></div>
+
+    <div class="fc"><h5>Show</h5>
+      <div class="say">“Show everything I saved about fertilizers.”</div>
+      <p>Collection and tag browsing by voice, opening the main window filtered.</p>
+      <span class="tier">Tier 0 · local</span></div>
+
+    <div class="fc"><h5>Open</h5>
+      <div class="say">“Open the React article I saved yesterday.”</div>
+      <p>Resolves a reference and reopens the original source in the browser or file it came from.</p>
+      <span class="tier">Tier 0 · local</span></div>
+
+    <div class="fc"><h5>Move</h5>
+      <div class="say">“Move this to Business, Metrics.”</div>
+      <p>Refiling. Every move is logged as a correction, which improves future filing.</p>
+      <span class="tier">Tier 0 · local</span></div>
+
+    <div class="fc"><h5>Tag</h5>
+      <div class="say">“Tag this as job search.”</div>
+      <p>Many-to-many, so tagging never removes an item from its collection.</p>
+      <span class="tier">Tier 0 · local</span></div>
+
+    <div class="fc"><h5>Task</h5>
+      <div class="say">“Create a task to apply for this job tomorrow.”</div>
+      <p>A task linked to the captured item, so the context is one click away when it comes due.</p>
+      <span class="tier">Tier 0/1 · local</span></div>
+
+    <div class="fc"><h5>Reminder</h5>
+      <div class="say">“Remind me about this next Tuesday at ten.”</div>
+      <p>Fires as a native notification that reopens the source, not a bare text alert.</p>
+      <span class="tier">Tier 0 · local</span></div>
+  </div>
+
+  <h3>Version 2 — actions and reasoning</h3>
+  <div class="feat">
+    <div class="fc"><h5>Research</h5>
+      <div class="say">“Find good resources on local LLM inference and save the useful ones.”</div>
+      <p>Search, fetch, extract, rank, present. <b>Nothing is saved without approval</b> — the user stays the authority over durable memory.</p>
+      <span class="tier">Tier 2 · LangGraph · metered</span></div>
+
+    <div class="fc"><h5>Explain</h5>
+      <div class="say">“Explain this using what I already saved about React.”</div>
+      <p>Retrieval-augmented answer grounded in the user's own material, with citations back to their items.</p>
+      <span class="tier">Tier 2 · cloud · metered</span></div>
+
+    <div class="fc"><h5>Files</h5>
+      <div class="say">“Download these, make a folder called Demo Day 2026, keep the filenames.”</div>
+      <p>Folder creation, moving, renaming, de-duplication. Destructive steps always confirm first.</p>
+      <span class="tier">Tier 1/2 · local execution</span></div>
+
+    <div class="fc"><h5>Plan</h5>
+      <div class="say">“What should I work on this afternoon?”</div>
+      <p>Combines tasks, deadlines, calendar and recent work into a proposal the user can amend by voice.</p>
+      <span class="tier">Tier 2 · LangGraph · metered</span></div>
+  </div>
+
+  <h3>Version 3 — the learning layer</h3>
+  <div class="feat">
+    <div class="fc"><h5>Quiz</h5>
+      <div class="say">“Quiz me on the business metrics I saved this week.”</div>
+      <p>Generates definitions, multiple choice and short answers from items the user explicitly marked as worth remembering.</p>
+      <span class="tier">Tier 2 · cloud · metered</span></div>
+
+    <div class="fc"><h5>Review</h5>
+      <div class="say">“Schedule this for review.”</div>
+      <p>FSRS spaced repetition over marked concepts. Deliberately not the default — the product is not a flashcard app.</p>
+      <span class="tier">Local scheduling</span></div>
+
+    <div class="fc"><h5>Photo memory</h5>
+      <div class="say">“Find the photos from the accelerator where I was presenting.”</div>
+      <p>Metadata plus visual embeddings plus event context. The most speculative feature here.</p>
+      <span class="tier">Tier 2 · cloud · metered</span></div>
+  </div>
+
+  <div class="note">
+    <span class="lbl">Boundaries — what this is deliberately not</span>
+    <p>Not a Notion clone, not a full calendar, not a project manager, not a passive screen recorder,
+    not a general autonomous computer agent, not a photo platform, not a learning management system.
+    Each of those can be an integration. The core stays <b>capture, remember, retrieve, act</b>.</p>
+  </div>
+</section>
+
+<!-- ============ 15 ============ -->
+<section id="s15">
+  <h2><span class="n">15</span> Personalization</h2>
+  <div class="h2t">The correction log is the asset; LoRA is deferred</div>
+
+  <p>The specification proposes fine-tuning a small model on the user's own command history. The
+  direction is right; the sequencing is not. LoRA needs thousands of examples to beat a good prompt,
+  and a new user has none. Worse, retraining is a batch job — so a correction made today would not
+  change behaviour until the next training run, and a system that repeats a mistake it was
+  <em>just</em> corrected on reads as broken.</p>
+
+  <h4>Phase 1 — nearest-neighbour few-shot, ships in V1</h4>
+  <p>Embed the incoming transcript, retrieve the most similar past commands together with their
+  <em>corrected</em> outcomes, and inject them as examples in the router prompt.</p>
+  <ul>
+    <li>Works from roughly the tenth example.</li>
+    <li>A correction takes effect on the very next command, with no training step.</li>
+    <li>Fully inspectable — “I filed it there because you filed a similar thing there last Tuesday”
+    is an explanation. Weights are not.</li>
+  </ul>
+
+  <h4>Phase 2 — LoRA, later and on evidence</h4>
+  <p>Once the log holds thousands of corrections <em>and</em> Phase 1 is demonstrably the bottleneck,
+  train an adapter in the cloud tier and ship it as a per-user artefact. The log schema is designed
+  now precisely so this needs no migration.</p>
+
+  <p>The same log does quadruple duty: it is the evaluation set for router changes, the calibration
+  data for the confidence thresholds in section 8, the coverage metric for the Tier 0 grammar, and
+  the relevance labels for tuning retrieval weights in section 7. It is the most valuable table in
+  the system, and it costs nothing to collect.</p>
+</section>
+
+<!-- ============ 16 ============ -->
+<section id="s16">
+  <h2><span class="n">16</span> Business model</h2>
+  <div class="h2t">Meter what costs money, give away what does not</div>
+
+  <p>The meter counts <strong>voice inputs</strong>. One press of the shortcut, one thing spoken, one
+  action performed — that is one capture, whatever it turned into. Fifty per week free, then the
+  user upgrades.</p>
+
+  <p>This is the unit the user actually experiences, which is what makes it a good meter: nobody has
+  to reason about which of their actions was expensive or what a "credit" buys. The counter in the
+  sidebar reads <em>32 of 50 captures</em>, and that sentence needs no explanation.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>&nbsp;</th><th>Free</th><th>Pro</th></tr></thead>
+    <tbody>
+      <tr><td><b>Voice captures</b> — one shortcut press, one command</td><td class="num"><b>50 / week</b></td><td><span class="tagC">unlimited, fair use</span></td></tr>
+      <tr><td>Browsing, searching and opening what you already saved</td><td><span class="tagL">always unlimited</span></td><td><span class="tagL">always unlimited</span></td></tr>
+      <tr><td>Collections, tags, tasks, reminders, editing</td><td><span class="tagL">always unlimited</span></td><td><span class="tagL">always unlimited</span></td></tr>
+      <tr><td>Research agent, planner, explain, quiz</td><td>—</td><td>yes</td></tr>
+      <tr><td>Multi-device sync</td><td>—</td><td>yes</td></tr>
+      <tr><td>Cloud STT accuracy upgrade</td><td>—</td><td>yes</td></tr>
+      <tr><td>Cloud re-embedding with larger models</td><td>—</td><td>yes</td></tr>
+      <tr><td>Account required</td><td>yes</td><td>yes</td></tr>
+      <tr><td><b>Price</b></td><td class="num">$0</td><td class="num">$12 / mo · $108 / yr</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <span class="lbl">The one line that must not be crossed</span>
+    <p>Running out of captures must <b>never</b> restrict access to memories the user has already
+    saved. Browsing, searching, opening and exporting stay unlimited on the free plan forever. The
+    meter gates <em>new</em> capture, not the archive. A product that locks people out of their own
+    notes to extract a payment has stopped being a memory system.</p>
+  </div>
+
+  <h4>Two consequences worth designing for now</h4>
+
+  <p><strong>The counter has to work offline.</strong> Capture is local and must succeed without a
+  network, so the count is incremented locally and reconciled on sync. This permits a small amount
+  of over-run if someone is offline for a long stretch — which is the correct way to be wrong. The
+  alternative, refusing to capture because the server is unreachable, would break the product's
+  central promise to protect a few cents of revenue.</p>
+
+  <p><strong>The reset window matters as much as the number.</strong> Fifty per month is roughly
+  seven a week, which a moderately active user exhausts in two days and then spends twenty-eight
+  days locked out. That is long enough for the habit to die, and a dead habit does not convert — it
+  uninstalls. Fifty per week is about seven a day, and more importantly the wall is never more than
+  a few days from lifting, so the behaviour survives the gap.</p>
+
+  <p>This is why the reference product also resets weekly rather than monthly. The allowance is a
+  throttle on heavy use, not a cliff.</p>
+
+  <p><strong>Fifty is still a hypothesis.</strong> A capture is roughly a thought, and a genuinely
+  heavy user may produce fifteen a day. Wispr Flow meters <em>words per week</em> instead, which
+  scales with intensity rather than counting events — defensible, and harder to explain. Ours is
+  simpler: the counter reads <em>32 of 50 captures</em> and needs no footnote. Instrument the real
+  distribution from the first week of use and treat the number as tunable; the reset cadence is the
+  part worth keeping fixed.</p>
+
+  <h3>Payments</h3>
+  <p>Stripe does not offer merchant accounts to Ukrainian entities, so <strong>Paddle</strong> is the
+  chosen merchant of record: it is the legal seller, so it handles EU VAT, sales tax and invoicing
+  across every jurisdiction, and it is the most established option of the group — a long track record
+  with desktop software specifically, mature subscription handling, and proper dunning for failed
+  renewals. Polar and Creem are the newer alternatives; Lemon Squeezy inherits the original problem
+  now that it is Stripe-owned.</p>
+
+  <p>The one thing Paddle does not provide is licensing. Polar ships license keys and entitlement
+  checks as first-class primitives; Paddle leaves that to the integrator. In practice this costs
+  little here, because the offline entitlement design below is something we would build regardless —
+  Paddle handles the transaction and the subscription state, and <code>memos-license</code> owns key
+  issuance, device activation and offline verification. It is worth knowing the boundary sits there
+  rather than discovering it during M4.</p>
+
+  <div class="note warn">
+    <span class="lbl">Open items — must be resolved before launch</span>
+    <p><b>Payout eligibility.</b> Support for a specific Ukrainian entity has <b>not</b> been confirmed
+    with Paddle. Verify directly before building M4.</p>
+    <p><b>Onboarding review.</b> Paddle vets sellers before approving an account, and review can be
+    slow and occasionally strict for new AI products. Start the application early — it is a lead-time
+    risk, not a technical one.</p>
+    <p>Both are why the integration sits behind a <code>BillingProvider</code> trait: swapping to
+    Polar or Creem must be a one-file change, not a refactor.</p>
+  </div>
+
+  <h3>Licensing must not break the local-first promise</h3>
+<pre><code>purchase (Paddle)                 ← Paddle owns the transaction
+   → webhook to our API           ← and the subscription state
+   → license key issued by us     ← memos-license owns everything below
+   → device activation, N seats
+   → signed entitlement token (Ed25519, short-lived)
+   → cached locally, verified offline against an embedded public key
+   → refreshed opportunistically · ~14-day offline grace period</code></pre>
+
+  <p>The client holds only a public key, so no network call is needed to validate an unexpired
+  token. After the grace period an expired entitlement <strong>degrades rather than bricks</strong>:
+  Pro features switch off, and the user retains full access to everything they have already
+  captured. Holding a user's own memory hostage would be both wrong and the fastest possible route
+  to a chargeback.</p>
+</section>
+
+<!-- ============ 17 ============ -->
+<section id="s17">
+  <h2><span class="n">17</span> Changes from the original specification</h2>
+  <div class="h2t">What changed, and the reasoning in each case</div>
+
+  <p>The original document is strong on product. Principle 5 (“fast before clever”), Principle 6
+  (“structured data first, RAG second”) and the confidence system are the three ideas that most
+  shape what is built here, and they survive intact. The changes below are all in the technical
+  layer, and most of them come from one observation: the specification's stack was written for a
+  server, and the product is a desktop application sold to strangers.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Section</th><th>Specification said</th><th>Now</th><th>Reasoning</th></tr></thead>
+    <tbody>
+      <tr><td class="num">13</td><td>Postgres + pgvector as the client's primary database</td>
+        <td>SQLite + FTS5 + sqlite-vec on the client; Postgres authoritative in the cloud</td>
+        <td>An installer, a Windows service, a port and a migration on every update — before the user has seen the product work. Also genuinely faster: hybrid search becomes one in-process SQL query.</td></tr>
+      <tr><td class="num">14</td><td>Redis on the client</td>
+        <td>SQLite <code>jobs</code> table, Tokio tasks, Tauri events; Redis in the cloud</td>
+        <td>No official Redis build for Windows. All three of its client-side roles have in-process equivalents.</td></tr>
+      <tr><td class="num">15</td><td>LangGraph in the main command flow</td>
+        <td>Rust state machine on the capture path; LangGraph for Tier 2 in the cloud</td>
+        <td>A save is “classify, resolve, write a row” — not a workflow graph. A bundled Python runtime would cost a multi-second cold start and per-command serialization for no benefit.</td></tr>
+      <tr><td class="num">17</td><td>Model reports its own confidence</td>
+        <td>Confidence derived from logprobs, retrieval margin and history</td>
+        <td>Self-reported confidence is badly calibrated. The specification's own “house stuff” example is a <em>margin</em> problem that a top-score threshold would miss.</td></tr>
+      <tr><td class="num">18</td><td>whisper.cpp, local</td>
+        <td>Kept, plus an always-open ring buffer and asynchronous cloud re-transcription</td>
+        <td>Opening the audio device on hotkey press costs 100–300 ms and clips the first word. Dual-path gives local speed and cloud accuracy in the same interaction.</td></tr>
+      <tr><td class="num">19</td><td>Fish Speech for local TTS</td>
+        <td>Dropped. OS built-in TTS behind a trait; cloud TTS optional later</td>
+        <td>Not because it is too large — it is about 0.5B parameters and runs fine — but because it drags PyTorch into a Rust app, and because speaking a response makes the interaction <em>longer</em> in a product whose promise is that the overlay disappears.</td></tr>
+      <tr><td class="num">20</td><td>Provider interface, model unspecified</td>
+        <td>Three explicit tiers with a routing policy</td>
+        <td>A provider interface without a routing policy leads to calling one model for everything, which is slow for easy commands and unreliable for hard ones.</td></tr>
+      <tr><td class="num">21</td><td>LoRA as the personalization plan</td>
+        <td>Correction log and kNN few-shot first; LoRA on evidence</td>
+        <td>LoRA needs thousands of examples; new users have none, and batch retraining cannot deliver the immediate correction feedback users expect.</td></tr>
+      <tr><td class="num">11</td><td>Hybrid retrieval — keyword, semantic, metadata</td>
+        <td>Kept, plus a cloud cross-encoder reranking stage</td>
+        <td>The largest available quality gain for “find that thing I half-remember,” and it is not latency-critical, so it costs nothing where the product is fragile.</td></tr>
+      <tr><td class="num">33</td><td>Everything local, cloud optional</td>
+        <td>Capture strictly local; retrieval and reasoning cloud-enhanced</td>
+        <td>The split now follows the failure consequence: a failed capture loses a thought, a failed query loses 400 ms.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <span class="lbl">What did not change</span>
+    <p>All eight product principles. The command taxonomy in section 6. The knowledge model and its
+    graph structure. Provenance. Hybrid retrieval. The staged product evolution. The decision to keep
+    the learning layer out of V1. These are the parts of the original document that were right, and
+    they are the parts that determine whether the product succeeds.</p>
+  </div>
+</section>
+
+<!-- ============ 18 ============ -->
+<section id="s18">
+  <h2><span class="n">18</span> Roadmap</h2>
+  <div class="h2t">Ordered so that each stage is usable on its own</div>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Stage</th><th>Deliverable</th><th>Proves</th></tr></thead>
+    <tbody>
+      <tr><td><b>M0</b><br><span class="num">skeleton</span></td>
+        <td>Rust workspace, SQLite schema and migrations, Tauri shell, tray, global hotkey, pre-warmed overlay</td>
+        <td>The 50 ms overlay ceiling is real</td></tr>
+      <tr><td><b>M1</b><br><span class="num">capture</span></td>
+        <td>Ring buffer, VAD, streaming whisper.cpp, Windows context acquisition, Tier 0 grammar, SAVE and NOTE end to end with undo</td>
+        <td><b>The core loop. First moment the product is worth using.</b></td></tr>
+      <tr><td><b>M2</b><br><span class="num">retrieval</span></td>
+        <td>ONNX embeddings, background embed worker, FTS5 + sqlite-vec + RRF, SEARCH, SHOW, OPEN, the main window</td>
+        <td>Capture has a payoff; the loop closes</td></tr>
+      <tr><td><b>M3</b><br><span class="num">intelligence</span></td>
+        <td>Tier 1 router with GBNF and warm KV cache, correction log, kNN few-shot, derived confidence, disambiguation UI, MOVE, TAG, TASK, REMINDER</td>
+        <td>It handles commands it was not explicitly taught</td></tr>
+      <tr><td><b>M4</b><br><span class="num">commercial</span></td>
+        <td>Paddle integration, license issuance, entitlements, offline tokens, installer, code signing, auto-update, crash reporting</td>
+        <td><b>Sellable.</b> Can take money</td></tr>
+      <tr><td><b>M5</b><br><span class="num">cloud</span></td>
+        <td>FastAPI, Postgres + pgvector, Redis, sync outbox, cross-encoder reranker, multi-device</td>
+        <td>Pro tier has substance; sync works</td></tr>
+      <tr><td><b>M6</b><br><span class="num">agents</span></td>
+        <td>LangGraph workers: research agent, planner, EXPLAIN, file agent</td>
+        <td>Layer B of the product — action, not just memory</td></tr>
+      <tr><td><b>M7</b><br><span class="num">macOS</span></td>
+        <td>macOS build; only <code>memos-context</code> needs a new implementation (Accessibility APIs, permissions)</td>
+        <td>The crate boundaries were drawn correctly</td></tr>
+      <tr><td><b>M8</b><br><span class="num">learning</span></td>
+        <td>Concept extraction, question generation, FSRS scheduling, LoRA training on the correction log</td>
+        <td>Layer C, on the same memory engine</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>M1 is the milestone that matters. Everything before it is scaffolding and everything after it
+  is leverage — but at M1 the product already does the thing it exists to do, and it can be put in
+  front of real users to find out whether the interaction model works.</p>
+</section>
+
+<!-- ============ 19 ============ -->
+<section id="s19">
+  <h2><span class="n">19</span> Risks and open questions</h2>
+  <div class="h2t">The things most likely to be wrong</div>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Risk</th><th>Why it matters</th><th>Response</th></tr></thead>
+    <tbody>
+      <tr><td><b>Tier 0 coverage is lower than 40 %</b></td>
+        <td>The latency story leans on most commands avoiding a model entirely</td>
+        <td>Measured from the first week of real use. If low, extend the grammar from the actual transcript distribution rather than guessing</td></tr>
+      <tr><td><b>The always-open microphone alarms users</b></td>
+        <td>Could be a trust problem regardless of the technical reality</td>
+        <td>Persistent tray indicator, hard mute, plain-language guarantee in the interface. Test wording with early users specifically</td></tr>
+      <tr><td><b>sqlite-vec brute-force scan degrades</b></td>
+        <td>Linear scan is fine to roughly 100k items and not beyond</td>
+        <td>Revisit at 50k: IVF partitioning, or shard the vector table by collection</td></tr>
+      <tr><td><b>Windows UI Automation is unreliable per-app</b></td>
+        <td>Selected text and browser URL capture is core context</td>
+        <td>Per-application adapters with clipboard fallback; degrade gracefully and never block a capture on missing context</td></tr>
+      <tr><td><b>Paddle cannot pay out to a Ukrainian entity</b></td>
+        <td>Blocks revenue entirely</td>
+        <td><b>Verify before M4.</b> Adapter interface makes Polar or Creem a one-file swap</td></tr>
+      <tr><td><b>Paddle onboarding review is slow or refused</b></td>
+        <td>Sellers are vetted before approval, and new AI products draw scrutiny. Pure lead time, but it gates revenue</td>
+        <td>Apply early — well before M4 is code-complete. Keep Polar warm as the fallback application</td></tr>
+      <tr><td><b>Two schemas drift apart</b></td>
+        <td>SQLite client and Postgres cloud must stay compatible</td>
+        <td>Generate both from a single schema definition; contract-test the sync boundary in CI</td></tr>
+      <tr><td><b>Resident memory footprint is rejected</b></td>
+        <td>Idle is ~310 MB after the loading policy in section 5, but the Offline profile still peaks near 800 MB</td>
+        <td>Speculative load on hotkey-down plus idle unload; surface the cost next to the profile setting so it is never a surprise</td></tr>
+      <tr><td><b>A shortcut that silently never fires</b></td>
+        <td>Keyboard hooks are a chain and other always-on voice tools claim modifier chords. A conflicting binding produces no error at all — the app simply does nothing, and the user concludes it is broken</td>
+        <td>Detect a chord that never engages and say so in the interface. Ship bare-key bindings (<code>f9</code>) as a first-class option, not a fallback. Surface live hook state in Settings</td></tr>
+      <tr><td><b>Silent configuration fallback</b></td>
+        <td>A UTF-8 BOM — which Notepad writes by default — makes the config unparseable, and reverting to defaults without complaint means an edited setting never takes effect for reasons the user cannot see</td>
+        <td>Fixed in M0: strip the BOM, and report an invalid config to the diagnostic log rather than failing quietly. The general rule: never fall back silently on user-authored input</td></tr>
+      <tr><td><b>Users want E2EE</b></td>
+        <td>Server-readable was chosen for capability; some users will not accept it</td>
+        <td>Local-only processing mode already serves them fully. A premium encrypted vault with local-only retrieval is a later option</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>Still to decide</h4>
+  <ul>
+    <li>Default hotkey. <code>Ctrl + Space</code> collides with IME switching on several systems;
+    the reference product uses <code>Ctrl + Win</code>, which is cleaner on Windows.</li>
+    <li>Push-to-talk versus toggle as the default interaction.</li>
+    <li>Whether 50 captures per week is the right free allowance, or whether a usage-scaled meter
+    (words, or minutes of speech) converts better. The weekly cadence is settled; the number is not.</li>
+    <li>Whether unused captures accrue week to week or simply reset.</li>
+    <li>Product name. <em>Recall</em> is a placeholder in the mockups, and it collides with an
+    existing product in this category — needs replacing before any public material.</li>
+  </ul>
+</section>
+
+<!-- ============ 20 ============ -->
+<section id="s20">
+  <h2><span class="n">20</span> Skills exercised</h2>
+  <div class="h2t">Mapping the build to the learning goals in specification section 40</div>
+
+  <p>A concern behind the original stack choices was learning coverage. This architecture exercises
+  more of that list than the original design did, not less — and does so under real conditions
+  rather than single-user local ones.</p>
+
+  <div class="tw">
+  <table>
+    <thead><tr><th>Area</th><th>Where it lives</th><th>What makes it real</th></tr></thead>
+    <tbody>
+      <tr><td>FastAPI, Pydantic</td><td>Cloud tier</td><td>Real auth, quota accounting, webhook handling under load</td></tr>
+      <tr><td>PostgreSQL, SQL, pgvector</td><td>Cloud tier</td><td>Authoritative multi-tenant store with genuine indexing and scaling decisions</td></tr>
+      <tr><td>Redis</td><td>Cloud tier</td><td>All four roles: queue, cache, pub/sub fan-out, rate limiting</td></tr>
+      <tr><td><b>LangGraph</b></td><td>Research, planner, learning agents</td><td>Multi-step, branching, retries, human-in-the-loop interrupts — the shape it exists for</td></tr>
+      <tr><td>LangChain</td><td>Ingestion pipeline</td><td>Loaders, splitters, retrievers over fetched documents</td></tr>
+      <tr><td>Embeddings, RAG, hybrid retrieval</td><td>Both tiers</td><td>Local ONNX and cloud models with a measurable comparison between them</td></tr>
+      <tr><td><b>Reranking</b></td><td>Cloud GPU</td><td>Cross-encoder — the stage most portfolio projects skip</td></tr>
+      <tr><td><b>Small LLMs</b></td><td>Local router</td><td>Quantization, GBNF constrained decoding, KV-cache reuse — deeper than calling an inference server</td></tr>
+      <tr><td>llama.cpp, whisper.cpp, quantization</td><td>Client</td><td>Real latency engineering against a hard budget on varied hardware</td></tr>
+      <tr><td>LoRA, PEFT, dataset construction</td><td>Cloud training</td><td>Trained on genuine user corrections, evaluated against a held-out replay set</td></tr>
+      <tr><td>Evaluation</td><td>Cloud + experiments</td><td>Replaying the correction log against router versions; calibrating confidence thresholds</td></tr>
+      <tr><td>Docker, AWS</td><td>Cloud tier</td><td>Compose locally, ECS and RDS in production</td></tr>
+      <tr><td>Tauri, Rust, OS integration</td><td>Client</td><td>Global hotkeys, WASAPI audio, UI Automation, tray, permissions, signing</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>The one item that moves is LangGraph, from the capture path to the cloud tier. That is a
+  strictly better place for it: on the capture path it would orchestrate a three-step function call,
+  while in the research agent it orchestrates a genuine branching workflow with a human interrupt in
+  the middle.</p>
+</section>
+
+<div class="end">
+  <p><b>Personal Memory OS — Technical Architecture, Revision A.</b> Supersedes
+  <code>personal_memory_os_spec.md</code> where the two conflict. Decision records live in
+  <code>docs/adr/</code>. Next action: start the Paddle seller application, then build M0.</p>
+</div>
+
+</main>
+</div>
