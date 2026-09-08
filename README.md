@@ -18,9 +18,9 @@ grammar has never seen.
 | ✅ **M0** skeleton | workspace, SQLite + FTS5, tray, global hotkey, pre-warmed overlay |
 | ✅ **M1** capture | ring buffer, VAD, whisper.cpp, Windows context, Tier 0 grammar, `SAVE`/`NOTE` |
 | ✅ **M2** retrieval | ONNX embeddings, background embed worker, FTS5 + vectors + RRF, `SEARCH`/`SHOW`/`OPEN`, page capture, the Hub |
-| 🔨 **M3** intelligence | ✅ Tier 1 router, in a supervised sidecar · ⬜ correction log · ⬜ derived confidence · ⬜ `MOVE`/`TAG`/`TASK` |
+| 🔨 **M3** intelligence | ✅ Tier 1 router, in a supervised sidecar · ✅ correction log · ⬜ derived confidence · ⬜ `MOVE`/`TAG`/`TASK` |
 
-177 tests, clippy clean, `tsc --noEmit` clean.
+183 tests, clippy clean, `tsc --noEmit` clean.
 
 ## Prerequisites
 
@@ -231,6 +231,40 @@ The escalation is narrow by design. Tier 0 answers the formulaic majority in
 microseconds and never consults this; ~600 ms is affordable exactly once per
 command that would otherwise have failed outright or interrupted you with a
 question, and not at all on the ones that already worked.
+
+### What it learns from being wrong
+
+Every command is written to a log, whichever tier routed it — including the ones
+neither tier could. That last group is the useful one: a transcript nobody could
+route is the grammar's to-do list, and until now the system heard those and
+forgot them.
+
+A **correction** is narrower, and deliberately so. It means the user gave a
+verdict, and there is exactly one place today where they do: the destination
+question. They see candidates, ranked, and pick one.
+
+| | |
+|---|---|
+| picked the top option | the ranking was already right — the question was the mistake |
+| picked anything else | the ranking was wrong, and the choice is the correction |
+
+Silence is not a verdict. A command that ran without a question records no
+correction, and neither does a question that expired. Counting either as
+agreement would fill the table with consent nobody gave — and then calibrate the
+confidence thresholds against it, which is the one thing this log exists to stop.
+
+Settings → Routing shows what it adds up to: how much the grammar handled alone
+(ADR-0003 puts the line at 40%), how much the router rescued, how much is still
+not understood, and how often a question turned out to be unnecessary. The same
+panel exports the log as JSON and erases it — a record of what you said is only
+worth keeping if you can read it and delete it, which is the deal
+[ADR-0006](docs/adr/0006-correction-log-before-lora.md) makes.
+
+What it never stores is the content. The situation is kept as a digest — which
+app, which window, which URL, and whether there *was* a selection or a page —
+not a second copy of the article. A memory you deliberately saved keeps its text
+in the library, where you can see it. A command you merely spoke does not
+quietly acquire one too.
 
 ## What M2 proves
 

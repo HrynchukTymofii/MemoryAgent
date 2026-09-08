@@ -7,6 +7,7 @@ import {
   type LatencyReport,
   type MicStatus,
   type RouterStatus,
+  type RoutingStats,
   type Settings as SettingsData,
   type SttStatus,
 } from "../../lib/api";
@@ -21,6 +22,8 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
   const [embed, setEmbed] = useState<EmbedStatus | null>(null);
   const [router, setRouter] = useState<RouterStatus | null>(null);
   const [latency, setLatency] = useState<LatencyReport | null>(null);
+  const [routing, setRouting] = useState<RoutingStats | null>(null);
+  const [logNote, setLogNote] = useState<string | null>(null);
 
   useEffect(() => {
     void api.settings().then(setSettings).catch(() => {});
@@ -46,11 +49,40 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
     };
     void tick();
     const t = window.setInterval(tick, 250);
+
+    // Slower than the rest: this one is a group-by over the command log, and
+    // the numbers it reports move once per spoken command, not four times a
+    // second.
+    const refreshRouting = () => {
+      api.routingStats().then(setRouting).catch(() => {});
+    };
+    refreshRouting();
+    const r = window.setInterval(refreshRouting, 2000);
+
     return () => {
       live = false;
       window.clearInterval(t);
+      window.clearInterval(r);
     };
   }, []);
+
+  const exportLog = async () => {
+    try {
+      setLogNote(`Written to ${await api.exportCommandLog()}`);
+    } catch (e) {
+      setLogNote(String(e));
+    }
+  };
+
+  const forgetLog = async () => {
+    try {
+      const n = await api.forgetCommandLog();
+      setRouting(await api.routingStats());
+      setLogNote(n === 1 ? "Erased 1 command." : `Erased ${n} commands.`);
+    } catch (e) {
+      setLogNote(String(e));
+    }
+  };
 
   return (
     <div className="panel">
@@ -177,6 +209,74 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
             <b>Semantic search is off.</b> {embed.detail}
           </div>
         )}
+      </div>
+
+      <div className="card">
+        <h2>Routing</h2>
+        <p>
+          Every command is recorded here — what was said, which tier routed it, and what you
+          picked when it had to ask. It is how the grammar learns which phrasings it is missing,
+          and the only evidence available for whether a question was worth asking. It stays on
+          this machine.
+        </p>
+        <div className="grid">
+          <div className="stat">
+            <div className="k">Commands</div>
+            <div className="v">{routing?.total ?? 0}</div>
+          </div>
+          <div className="stat">
+            <div className="k">Grammar alone</div>
+            <div className="v">
+              {routing?.total ? Math.round((routing.tier0 / routing.total) * 100) : "—"}
+              {routing?.total ? <small>%</small> : null}
+            </div>
+            {routing?.total ? (
+              // ADR-0003 names ~40% as the line. Below it, either people are
+              // phrasing things differently than the grammar assumes or it
+              // needs extending — and this is the only number that says so.
+              <div className={`verdict ${routing.tier0 / routing.total >= 0.4 ? "ok" : "bad"}`}>
+                {routing.tier0 / routing.total >= 0.4
+                  ? "no model needed"
+                  : "below the 40% the grammar aims for"}
+              </div>
+            ) : null}
+          </div>
+          <div className="stat">
+            <div className="k">Router rescued</div>
+            <div className="v">{routing?.tier1 ?? 0}</div>
+            <div className="verdict">{routing?.unrouted ?? 0} still not understood</div>
+          </div>
+          <div className="stat">
+            <div className="k">Questions answered</div>
+            <div className="v">{routing?.answered ?? 0}</div>
+            {routing?.answered ? (
+              // Picking the first option means the ranking was already right
+              // and the question was the mistake. Worth showing plainly: it is
+              // the cost side of asking.
+              <div className="verdict">
+                {Math.round((routing.accepted / routing.answered) * 100)}% picked the top suggestion
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <div className="row last">
+          <span className="bd">
+            <span className="k">Your command history</span>
+            <span className="v">
+              Export writes it as JSON beside the database. Erase removes every command and every
+              answer with it — routing keeps working, it just starts learning again from nothing.
+            </span>
+          </span>
+          <span className="seg">
+            <button type="button" onClick={() => void exportLog()}>
+              Export
+            </button>
+            <button type="button" onClick={() => void forgetLog()}>
+              Erase
+            </button>
+          </span>
+        </div>
+        {logNote && <div className="banner">{logNote}</div>}
       </div>
 
       <div className="card">

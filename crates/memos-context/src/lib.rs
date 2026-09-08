@@ -75,6 +75,33 @@ impl Context {
             .or(self.current_url.as_deref())
     }
 
+    /// What the correction log is allowed to remember about this situation.
+    ///
+    /// ADR-0006 calls that log the most valuable table in the system and, in
+    /// the same breath, the most sensitive: it is a record of what the user
+    /// said and did. The router needs to know *what kind* of thing was on
+    /// screen when a command was spoken — that is what makes a past command
+    /// comparable to the present one — and it never needs a second copy of the
+    /// article, the selection or the clipboard.
+    ///
+    /// So the text fields become booleans and nothing else changes. A memory
+    /// the user deliberately saved keeps its content, in `knowledge_items`,
+    /// where they can see and delete it. A command they merely spoke does not
+    /// quietly acquire one too.
+    pub fn digest(&self) -> ContextDigest {
+        fn present(s: &Option<String>) -> bool {
+            s.as_deref().is_some_and(|v| !v.trim().is_empty())
+        }
+        ContextDigest {
+            active_application: self.active_application.clone(),
+            active_window_title: self.active_window_title.clone(),
+            current_url: self.current_url.clone(),
+            had_selection: present(&self.selected_text),
+            had_page: present(&self.page_text),
+            had_clipboard: present(&self.clipboard_text),
+        }
+    }
+
     /// The best available title for a memory captured from here.
     pub fn suggested_title(&self) -> Option<String> {
         // Browser titles carry the site name as a suffix; strip it so a saved
@@ -91,6 +118,17 @@ impl Context {
         }
         None
     }
+}
+
+/// A situation, without its contents. See [`Context::digest`].
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ContextDigest {
+    pub active_application: Option<String>,
+    pub active_window_title: Option<String>,
+    pub current_url: Option<String>,
+    pub had_selection: bool,
+    pub had_page: bool,
+    pub had_clipboard: bool,
 }
 
 /// Which fields the user has allowed. Spec section 7 requires context

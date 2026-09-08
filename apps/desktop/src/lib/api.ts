@@ -56,6 +56,21 @@ export interface RouterStatus {
   detail: string;
 }
 
+/** How routing is going, from the correction log. */
+export interface RoutingStats {
+  total: number;
+  /** Routed by the grammar alone, with no model. */
+  tier0: number;
+  /** Escalated to the local router and routed there. */
+  tier1: number;
+  /** Neither tier could route it. */
+  unrouted: number;
+  /** Questions answered, either way. */
+  answered: number;
+  /** ...of which the top suggestion was already right. */
+  accepted: number;
+}
+
 export interface Settings {
   hotkey: string;
   hold_threshold_ms: number;
@@ -97,6 +112,11 @@ export const api = {
   stt: () => invoke<SttStatus>("stt_status"),
   embed: () => invoke<EmbedStatus>("embed_status"),
   router: () => invoke<RouterStatus>("router_status"),
+  routingStats: () => invoke<RoutingStats>("routing_stats"),
+  /** Resolves to the path the log was written to. */
+  exportCommandLog: () => invoke<string>("export_command_log"),
+  /** Resolves to how many commands were erased. */
+  forgetCommandLog: () => invoke<number>("forget_command_log"),
   settings: () => invoke<Settings>("get_settings"),
   setHotkey: (spec: string, holdThresholdMs: number) =>
     invoke<Settings>("set_hotkey", { spec, holdThresholdMs }),

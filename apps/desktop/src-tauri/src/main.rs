@@ -267,19 +267,36 @@ fn answer_question(
     index: usize,
 ) -> Result<(), String> {
     // Taking the question consumes it, so a double click cannot save twice.
-    let Some((cmd, ctx)) = state.questions.answer(index) else {
+    let Some(answered) = state.questions.answer(index) else {
         // Expired, already answered, or superseded by a newer capture. Not an
         // error worth showing: the overlay is on its way out either way.
         tracing::debug!(index, "no question to answer");
         return Ok(());
     };
+    let question::Answered {
+        command_id,
+        accepted,
+        command: cmd,
+        context: ctx,
+    } = answered;
+
+    // The verdict, before the work. This is the only place in the system where
+    // the user says in so many words which answer was right, and it is what
+    // ADR-0005 needs to stop hand-tuning the threshold that produced the
+    // question in the first place.
+    if let Err(e) = state
+        .db
+        .record_correction(command_id, accepted, None, &cmd.slots)
+    {
+        tracing::warn!(?e, "could not record the correction");
+    }
 
     let out = memos_agent::execute(&state.db, &cmd, &ctx).map_err(|e| e.to_string())?;
     if matches!(out.kind, "save" | "note") {
         let _ = state.db.record_capture(&week_start());
         state.embeddings.nudge();
     }
-    tracing::info!(summary = %out.summary, "answered");
+    tracing::info!(summary = %out.summary, accepted, "answered");
 
     // Same receipt the spoken path produces, so an answered command and a
     // command that never needed asking look identical once done.
@@ -391,6 +408,45 @@ fn collections(state: tauri::State<'_, AppState>) -> Vec<CollectionRow> {
             items,
         })
         .collect()
+}
+
+/// How routing is actually going, from the correction log.
+///
+/// ADR-0003 makes Tier 0 coverage a product metric rather than an assumption:
+/// if the grammar stops absorbing the majority, either people are phrasing
+/// things differently than assumed or the grammar needs extending, and only
+/// this table can tell you which. ADR-0006 makes showing it part of the deal
+/// for keeping the table at all.
+#[tauri::command]
+fn routing_stats(state: tauri::State<'_, AppState>) -> memos_db::RoutingStats {
+    state.db.routing_stats().unwrap_or_default()
+}
+
+/// Write the command log out where the user can read it.
+///
+/// Into the data directory rather than through a save dialog: it is one file,
+/// it belongs beside the database it came from, and returning the path means
+/// the UI can show exactly where it went instead of implying it went nowhere.
+#[tauri::command]
+fn export_command_log(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let rows = state.db.export_commands(100_000).map_err(|e| e.to_string())?;
+    let path = data_dir().join("command-log.json");
+    let json = serde_json::to_string_pretty(&rows).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    tracing::info!(rows = rows.len(), path = %path.display(), "exported the command log");
+    Ok(path.display().to_string())
+}
+
+/// Erase it. The other half of ADR-0006's bargain.
+///
+/// A log that records what the user said, with no way to delete it, is one they
+/// were never really asked about. The corrections cascade with the commands, so
+/// nothing is left behind holding what they asked to have forgotten.
+#[tauri::command]
+fn forget_command_log(state: tauri::State<'_, AppState>) -> Result<u32, String> {
+    let n = state.db.forget_commands().map_err(|e| e.to_string())?;
+    tracing::info!(commands = n, "erased the command log");
+    Ok(n)
 }
 
 #[derive(serde::Serialize)]
@@ -731,6 +787,9 @@ fn main() {
             capture_level,
             embed_status,
             router_status,
+            routing_stats,
+            export_command_log,
+            forget_command_log,
             answer_question,
             size_overlay,
             search,

@@ -288,6 +288,7 @@ impl Stt {
                     tier = ?cmd.tier,
                     "routed"
                 );
+                log_command(&db, &cmd, context);
                 self.execute(&db, &cmd, context, text)
             }
             Tier0::Ambiguous {
@@ -304,16 +305,36 @@ impl Stt {
                 // interrupting somebody for a question a model can answer is
                 // the worst of both.
                 if let Some(cmd) = self.escalate(text, &paths) {
+                    log_command(&db, &cmd, context);
                     return self.execute(&db, &cmd, context, text);
                 }
 
                 tracing::info!(slot, margin = resolution.margin, "ambiguous; asking");
+                // Logged before it is asked, because what is being recorded is
+                // the *prediction* — the intent Tier 0 was sure about and the
+                // destination it was not. The user's answer becomes a verdict
+                // on this row rather than a second command (ADR-0006).
+                let prediction = memos_core::RoutedCommand {
+                    transcript: transcript.clone(),
+                    intent,
+                    slots: memos_core::Slots::default(),
+                    confidence: memos_core::Confidence {
+                        logprob: 1.0,
+                        margin: resolution.margin,
+                        prior: 1.0,
+                    },
+                    tier: memos_core::Tier::Grammar,
+                    routing_ms: 0,
+                };
+                let command_id = log_command(&db, &prediction, context);
+
                 // Hold the decision that was already made, minus the one slot
                 // nobody could settle. Re-routing the transcript when the answer
                 // arrives would run the grammar again and could land somewhere
                 // else entirely.
-                if let Some(q) = self.questions.read().as_ref() {
+                if let (Some(q), Some(command_id)) = (self.questions.read().as_ref(), command_id) {
                     q.ask(
+                        command_id,
                         intent,
                         transcript,
                         memos_core::Slots::default(),
@@ -331,12 +352,40 @@ impl Stt {
             }
             Tier0::Unrecognised => {
                 if let Some(cmd) = self.escalate(text, &paths) {
+                    log_command(&db, &cmd, context);
                     return self.execute(&db, &cmd, context, text);
                 }
                 // Both tiers passed. The transcript is still shown, so the user
                 // learns they were heard correctly and the phrasing was the
                 // problem — which is all that was ever on offer here.
+                //
+                // And it is logged, which matters more than it looks: a row
+                // nobody could route is the grammar's to-do list, and the only
+                // place the system records that it heard something it does not
+                // yet handle (ADR-0006).
                 tracing::debug!(text, "no shape matched and Tier 1 did not route it");
+                log_command(
+                    &db,
+                    &memos_core::RoutedCommand {
+                        transcript: text.to_string(),
+                        intent: memos_core::Intent::Unknown,
+                        slots: memos_core::Slots::default(),
+                        confidence: memos_core::Confidence {
+                            logprob: 0.0,
+                            margin: 0.0,
+                            prior: 0.0,
+                        },
+                        // Whichever tier looked at it last. The intent, not the
+                        // tier, is what marks this as a refusal rather than a
+                        // decision — see `routing_stats`.
+                        tier: match self.router.read().as_ref() {
+                            Some(_) => memos_core::Tier::LocalRouter,
+                            None => memos_core::Tier::Grammar,
+                        },
+                        routing_ms: 0,
+                    },
+                    context,
+                );
                 (None, None)
             }
         }
@@ -473,5 +522,24 @@ fn open_target(target: &memos_agent::OpenTarget) {
         tracing::warn!(%url, error = %e, "could not open the source");
     } else {
         tracing::info!(%url, title = %target.title, "opened");
+    }
+}
+
+/// Write one routing decision to the correction log.
+///
+/// Never allowed to fail the command it describes. The log is the most valuable
+/// table in the system (ADR-0006) and it is still only a record: a user whose
+/// disk is full should lose the note about the save, not the save.
+fn log_command(
+    db: &Db,
+    cmd: &memos_core::RoutedCommand,
+    context: &Context,
+) -> Option<memos_core::Id> {
+    match db.log_command(cmd, &context.digest(), cmd.routing_ms) {
+        Ok(id) => Some(id),
+        Err(e) => {
+            tracing::warn!(?e, "could not log the command");
+            None
+        }
     }
 }
