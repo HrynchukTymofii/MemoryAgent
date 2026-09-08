@@ -284,9 +284,8 @@ fn save(
     // memory, and storing it as the body puts the command vocabulary into the
     // search index, where it matches every future query containing "this".
     let content = ctx
-        .selected_text
-        .clone()
-        .or_else(|| ctx.current_url.clone())
+        .referent()
+        .map(str::to_string)
         .or_else(|| cmd.slots.title.clone())
         .or_else(|| ctx.suggested_title())
         .unwrap_or_default();
@@ -407,9 +406,17 @@ fn provenance_line(ctx: &Context) -> Option<String> {
     } else if let Some(app) = &ctx.active_application {
         parts.push(app.trim_end_matches(".exe").to_string());
     }
+    // Say which kind of capture this was. "Page + voice" and "voice" look the
+    // same in the library but mean very different things about what will be
+    // findable later, and the moment to learn that is now rather than in three
+    // months when a search comes up empty.
     parts.push(
         if ctx.selected_text.is_some() {
             "highlighted text + voice"
+        } else if ctx.page_text.is_some() {
+            "page + voice"
+        } else if ctx.current_url.is_some() {
+            "link only + voice"
         } else {
             "voice"
         }
@@ -781,6 +788,45 @@ mod tests {
             !item.content.contains("save this"),
             "content was {:?}",
             item.content
+        );
+    }
+    #[test]
+    fn the_article_is_saved_rather_than_a_link_to_it() {
+        // The difference between a memory and a bookmark. Before page capture
+        // the body of an unhighlighted save was the URL, so the item was
+        // findable only by words in its title.
+        let db = Db::open_in_memory().unwrap();
+        let ctx = Context {
+            active_window_title: Some("State as a Snapshot - React".into()),
+            current_url: Some("https://react.dev/learn/state-as-a-snapshot".into()),
+            page_text: Some("State is a snapshot for each render.".into()),
+            ..Default::default()
+        };
+        let out = execute(&db, &cmd(Intent::Save, Slots::default(), "save this"), &ctx).unwrap();
+
+        let id = Id::parse(out.item_id.as_ref().unwrap()).unwrap();
+        let item = db.get_item(id).unwrap().unwrap();
+        assert_eq!(item.content, "State is a snapshot for each render.");
+        assert!(out.provenance.unwrap().contains("page + voice"));
+    }
+
+    #[test]
+    fn a_selection_still_beats_the_page_it_sits_in() {
+        // Highlighting is an explicit choice about what matters; the page is
+        // only what happened to be on screen.
+        let db = Db::open_in_memory().unwrap();
+        let ctx = Context {
+            selected_text: Some("the one paragraph that mattered".into()),
+            page_text: Some("the whole article, most of which did not".into()),
+            current_url: Some("https://react.dev/learn".into()),
+            ..Default::default()
+        };
+        let out = execute(&db, &cmd(Intent::Save, Slots::default(), "save this"), &ctx).unwrap();
+
+        let id = Id::parse(out.item_id.as_ref().unwrap()).unwrap();
+        assert_eq!(
+            db.get_item(id).unwrap().unwrap().content,
+            "the one paragraph that mattered"
         );
     }
 }
