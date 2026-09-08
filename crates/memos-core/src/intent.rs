@@ -179,6 +179,13 @@ impl Confidence {
     ///
     /// The margin gate is separate and stricter on purpose: a confident-looking
     /// score with two indistinguishable destinations must still ask.
+    ///
+    /// **Not yet consulted on any path.** The constants below were picked
+    /// before there was anything to pick them from, and the first real
+    /// measurements say they are wrong — see
+    /// `the_threshold_has_not_earned_its_constants`. ADR-0005 is explicit that
+    /// thresholds come from logged outcomes rather than hand-tuning, so this
+    /// waits for the correction log to hold enough of them.
     pub fn should_execute(&self, intent: Intent) -> bool {
         if intent.is_irreversible() {
             return false;
@@ -202,6 +209,69 @@ pub struct RoutedCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Measured, not invented: these are what the Tier 1 constrained decode
+    /// reported for nine ordinary commands, all of which it routed **correctly**
+    /// (`cargo run -p memos-llm --features local --example route_check`).
+    ///
+    /// They are here because they say something the code cannot say for itself:
+    /// the 0.70 gate in `should_execute` would refuse one of the nine, and that
+    /// one was right. A second scrapes through at 0.72. That is not a case for
+    /// nudging the constant — nine correct answers say nothing about where the
+    /// wrong ones sit — it is the reason
+    /// ADR-0005 insists the thresholds be calibrated from the correction log
+    /// instead of chosen. This test is what will notice if someone changes them
+    /// before that data exists.
+    const MEASURED: &[(&str, f32, f32)] = &[
+        ("save this page to the react programming database", 1.00, 0.99),
+        ("add this to my react notes", 1.00, 0.98),
+        ("stick this in with the python stuff", 1.00, 1.00),
+        ("file this under job applications", 1.00, 1.00),
+        ("keep this for the garden", 0.90, 0.21),
+        ("I want to remember this for my interviews", 0.99, 0.94),
+        ("what did I read about hooks last week", 1.00, 1.00),
+        ("pull up that typescript thing", 0.99, 0.98),
+        ("jot down that the bins go out on tuesday", 0.96, 0.34),
+    ];
+
+    #[test]
+    fn the_threshold_has_not_earned_its_constants() {
+        let refused: Vec<&str> = MEASURED
+            .iter()
+            .filter(|(_, logprob, margin)| {
+                !Confidence {
+                    logprob: *logprob,
+                    margin: *margin,
+                    prior: 1.0,
+                }
+                .should_execute(Intent::Save)
+            })
+            .map(|(phrase, _, _)| *phrase)
+            .collect();
+
+        assert_eq!(
+            refused,
+            vec!["keep this for the garden"],
+            "the measured distribution moved; recheck the gate against it"
+        );
+    }
+
+    /// The same numbers, read the other way: free text is not a choice between
+    /// alternatives, so its margins are narrow by construction. "the bins go out
+    /// on tuesday" has many plausible continuations at every token and no wrong
+    /// one; a collection path has a handful and exactly one right one.
+    ///
+    /// A single global margin threshold therefore cannot be right for both —
+    /// which is why ADR-0005 asks for per-intent thresholds, and why this stays
+    /// an observation in a test rather than a constant somewhere.
+    #[test]
+    fn free_text_margins_are_narrower_than_a_choice_between_collections() {
+        let note = MEASURED.iter().find(|(p, ..)| p.starts_with("jot down")).unwrap();
+        let filed = MEASURED.iter().find(|(p, ..)| p.starts_with("file this")).unwrap();
+        assert!(note.2 < filed.2, "a title should be a narrower call than a destination");
+        // ...and yet the model was confident about the tokens themselves.
+        assert!(note.1 > 0.9);
+    }
 
     #[test]
     fn every_intent_survives_a_round_trip_through_its_name() {

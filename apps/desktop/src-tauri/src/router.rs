@@ -35,7 +35,8 @@ use std::sync::Arc;
 use parking_lot::{Mutex, RwLock};
 
 use memos_core::RoutedCommand;
-use memos_llm::protocol::{Request, Response};
+use memos_llm::protocol::{Request, Response, PROTOCOL};
+use memos_llm::Decode;
 
 pub use memos_llm::protocol::ModelState;
 
@@ -100,6 +101,10 @@ fn find_sidecar() -> Option<PathBuf> {
     candidates.into_iter().find(|p| p.exists())
 }
 
+/// One reply, as the thread waiting for it sees it: the model's JSON and what
+/// the decode measured about it, or why there is neither.
+type Answer = Result<(String, Decode), String>;
+
 /// The live end of the pipe.
 ///
 /// `Child` is kept rather than detached so a crashed router can be reaped
@@ -119,7 +124,7 @@ pub struct Tier1 {
     detail: RwLock<String>,
 
     /// Replies land on a different thread than the one waiting for them.
-    waiting: Mutex<HashMap<u64, SyncSender<Result<String, String>>>>,
+    waiting: Mutex<HashMap<u64, SyncSender<Answer>>>,
     next_id: AtomicU64,
 
     /// Everything needed to bring the router back after a crash. The collection
@@ -206,8 +211,8 @@ impl Tier1 {
         };
         self.waiting.lock().remove(&id);
 
-        let json = match result {
-            Ok(Ok(json)) => json,
+        let (json, decode) = match result {
+            Ok(Ok(answer)) => answer,
             Ok(Err(why)) => {
                 tracing::warn!(why, "router declined");
                 return None;
@@ -219,11 +224,13 @@ impl Tier1 {
         };
 
         let took = started.elapsed().as_millis() as u32;
-        match memos_llm::parse(transcript, &json, collections, took) {
+        match memos_llm::parse(transcript, &json, collections, decode, took) {
             Ok(cmd) => {
                 tracing::info!(
                     intent = cmd.intent.as_str(),
                     collection = ?cmd.slots.collection,
+                    logprob = cmd.confidence.logprob,
+                    margin = cmd.confidence.margin,
                     routing_ms = took,
                     "escalated to Tier 1"
                 );
@@ -326,7 +333,18 @@ impl Tier1 {
     /// One line from the sidecar.
     fn deliver(&self, line: &str) {
         match serde_json::from_str::<Response>(line) {
-            Ok(Response::State { state, detail }) => {
+            // A router built against a different protocol is worse than no
+            // router: it loads, reports itself ready, and then declines every
+            // command for a reason nothing on screen explains. Said plainly
+            // instead, in the one place the user looks for it.
+            Ok(Response::State { protocol, .. }) if protocol != PROTOCOL => self.down(
+                ModelState::Failed,
+                format!(
+                    "The router binary is out of date (protocol {protocol}, expected \
+                     {PROTOCOL}). Rebuild it: scripts/build-router.ps1"
+                ),
+            ),
+            Ok(Response::State { state, detail, .. }) => {
                 *self.state.write() = state;
                 *self.detail.write() = detail.clone();
                 if state == ModelState::Ready {
@@ -339,16 +357,22 @@ impl Tier1 {
                     tracing::warn!(detail, "router unavailable");
                 }
             }
-            Ok(Response::Routed { id, json }) => self.answer(id, Ok(json)),
+            Ok(Response::Routed { id, json, decode }) => self.answer(id, Ok((json, decode))),
             Ok(Response::Declined { id, error }) => self.answer(id, Err(error)),
             // The sidecar writes nothing but protocol to stdout, so this means
-            // the two ends disagree about the protocol — worth saying loudly,
-            // not worth killing the tier over.
-            Err(e) => tracing::error!(error = %e, line, "unreadable router reply"),
+            // the two ends disagree about the protocol. By far the likeliest
+            // cause is a router binary older than the app — they are built by
+            // separate commands, so it is possible to update one and not the
+            // other. Worth saying loudly; not worth killing the tier over.
+            Err(e) => tracing::error!(
+                error = %e,
+                line,
+                "unreadable router reply — rebuild the router: scripts/build-router.ps1"
+            ),
         }
     }
 
-    fn answer(&self, id: u64, result: Result<String, String>) {
+    fn answer(&self, id: u64, result: Answer) {
         match self.waiting.lock().remove(&id) {
             Some(tx) => {
                 let _ = tx.send(result);
@@ -449,8 +473,13 @@ mod tests {
         t.waiting.lock().insert(1, tx_a);
         t.waiting.lock().insert(2, tx_b);
 
-        t.deliver(r#"{"event":"routed","id":2,"json":"{\"intent\":\"save\"}"}"#);
-        assert_eq!(b.try_recv().unwrap(), Ok(r#"{"intent":"save"}"#.to_string()));
+        t.deliver(
+            r#"{"event":"routed","id":2,"json":"{\"intent\":\"save\"}",
+                "decode":{"logprob":0.93,"margin":0.61}}"#,
+        );
+        let (json, decode) = b.try_recv().unwrap().expect("routed");
+        assert_eq!(json, r#"{"intent":"save"}"#);
+        assert_eq!(decode.margin, 0.61);
         // The other waiter is untouched, and its slot is still registered.
         assert!(a.try_recv().is_err());
         assert!(t.waiting.lock().contains_key(&1));
@@ -470,7 +499,7 @@ mod tests {
     #[test]
     fn a_stray_or_unreadable_reply_is_survivable() {
         let t = Tier1::new();
-        t.deliver(r#"{"event":"routed","id":99,"json":"{}"}"#);
+        t.deliver(r#"{"event":"routed","id":99,"json":"{}","decode":{"logprob":1.0,"margin":1.0}}"#);
         t.deliver("not json at all");
         t.deliver(r#"{"event":"nonsense"}"#);
         assert_eq!(t.state(), ModelState::Missing);
@@ -483,15 +512,31 @@ mod tests {
     fn coming_up_ready_restores_the_restart_budget() {
         let t = Tier1::new();
         t.restarts.store(MAX_RESTARTS, Ordering::Relaxed);
-        t.deliver(r#"{"event":"state","state":"ready","detail":"269 tokens prefilled"}"#);
+        t.deliver(
+            r#"{"event":"state","state":"ready","detail":"269 tokens prefilled","protocol":1}"#,
+        );
         assert_eq!(t.state(), ModelState::Ready);
         assert_eq!(t.detail(), "269 tokens prefilled");
         assert_eq!(t.restarts.load(Ordering::Relaxed), 0);
 
         // A failure does not, so a model that cannot load still stops.
-        t.deliver(r#"{"event":"state","state":"failed","detail":"context: out of memory"}"#);
+        t.deliver(
+            r#"{"event":"state","state":"failed","detail":"context: out of memory","protocol":1}"#,
+        );
         assert_eq!(t.state(), ModelState::Failed);
         assert_eq!(t.restarts.load(Ordering::Relaxed), 0);
+    }
+
+    /// The two binaries are built by separate commands, so one can be older
+    /// than the other. That has to be a sentence the user can act on, not a
+    /// router that says "ready" and then silently answers nothing.
+    #[test]
+    fn a_router_older_than_the_app_says_so() {
+        let t = Tier1::new();
+        t.deliver(r#"{"event":"state","state":"ready","detail":"loaded"}"#);
+        assert_eq!(t.state(), ModelState::Failed);
+        assert!(t.detail().contains("out of date"), "{}", t.detail());
+        assert!(t.detail().contains("build-router"), "{}", t.detail());
     }
 
     /// With no process there is nothing to route to, and every caller has to

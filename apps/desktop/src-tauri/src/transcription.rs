@@ -288,6 +288,7 @@ impl Stt {
                     tier = ?cmd.tier,
                     "routed"
                 );
+                let cmd = with_history(&db, cmd);
                 log_command(&db, &cmd, context);
                 self.execute(&db, &cmd, context, text)
             }
@@ -305,6 +306,7 @@ impl Stt {
                 // interrupting somebody for a question a model can answer is
                 // the worst of both.
                 if let Some(cmd) = self.escalate(text, &paths) {
+                    let cmd = with_history(&db, cmd);
                     log_command(&db, &cmd, context);
                     return self.execute(&db, &cmd, context, text);
                 }
@@ -326,7 +328,7 @@ impl Stt {
                     tier: memos_core::Tier::Grammar,
                     routing_ms: 0,
                 };
-                let command_id = log_command(&db, &prediction, context);
+                let command_id = log_command(&db, &with_history(&db, prediction), context);
 
                 // Hold the decision that was already made, minus the one slot
                 // nobody could settle. Re-routing the transcript when the answer
@@ -352,6 +354,7 @@ impl Stt {
             }
             Tier0::Unrecognised => {
                 if let Some(cmd) = self.escalate(text, &paths) {
+                    let cmd = with_history(&db, cmd);
                     log_command(&db, &cmd, context);
                     return self.execute(&db, &cmd, context, text);
                 }
@@ -524,6 +527,34 @@ fn open_target(target: &memos_agent::OpenTarget) {
         tracing::info!(%url, title = %target.title, "opened");
     }
 }
+
+/// Fill in the one confidence field no router can measure for itself.
+///
+/// ADR-0005 defines confidence over three signals: the decode's own token
+/// probabilities, the margin between candidate resolutions, and **the
+/// historical acceptance rate for this intent, for this user**. The first two
+/// are produced where the routing happens. The third only exists here, because
+/// it is a question about the past rather than about this command.
+///
+/// A rate is used only once it is one — a single answered question is not
+/// evidence, and a threshold that moves on one click would make the system feel
+/// arbitrary in exactly the week the user is deciding whether to trust it.
+/// Until then the default stands and behaviour is unchanged, which is what
+/// ADR-0005 means by conservative cold-start defaults.
+fn with_history(db: &Db, mut cmd: memos_core::RoutedCommand) -> memos_core::RoutedCommand {
+    if let Ok(Some(rate)) = db.accept_rate(cmd.intent, MIN_CORRECTIONS_FOR_A_RATE) {
+        cmd.confidence.prior = rate;
+    }
+    cmd
+}
+
+/// How many verdicts an intent needs before its acceptance rate is believed.
+///
+/// Five, which is small enough to become real within a week of ordinary use and
+/// large enough that no single click moves it far. ADR-0006 puts the comparable
+/// figure for kNN few-shot at around ten; a single ratio needs less than a
+/// nearest-neighbour search does.
+const MIN_CORRECTIONS_FOR_A_RATE: u32 = 5;
 
 /// Write one routing decision to the correction log.
 ///

@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use memos_core::{Confidence, Intent, RoutedCommand, Slots, Tier};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// How long a caller will wait for a route before giving up on it.
 ///
@@ -150,6 +150,105 @@ pub fn prefix(collections: &[String]) -> String {
     out
 }
 
+/// What the constrained decode measured about its own answer.
+///
+/// Measured, not asserted. ADR-0005 refuses self-reported confidence, and a
+/// 0.6B router is the worst case for it — so these come from the token
+/// distribution the sampler actually saw, over the tokens that carried the
+/// decision (see [`ValueScanner`]).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Decode {
+    /// Mean probability of the value tokens, among the tokens the grammar
+    /// allowed. One number rather than one per slot: Tier 1 either routes or
+    /// declines today, so there is no per-slot question for it to inform yet.
+    pub logprob: f32,
+    /// The narrowest gap between the best and second-best legal token, across
+    /// those same tokens — the closest call the decode had to make. ADR-0005
+    /// makes margin the load-bearing signal for exactly this reason: two
+    /// candidates at 0.51 and 0.49 are ambiguous because they are
+    /// indistinguishable, not because either is low.
+    pub margin: f32,
+}
+
+impl Decode {
+    /// What to report when nothing was measured — a decode with no value
+    /// tokens at all, which is a bare `{"intent":"save"}`.
+    ///
+    /// Deliberately not 1.0. Nothing was measured, and a number that says
+    /// "certain" because there was nothing to be uncertain about is the same
+    /// mistake as asking the model to score itself.
+    pub const UNMEASURED: Decode = Decode {
+        logprob: 0.7,
+        margin: 0.7,
+    };
+}
+
+/// Which bytes of the model's output are a decision, and which are punctuation.
+///
+/// ADR-0005 asks for **slot** token logprobs, and that qualifier is the whole
+/// point. The router emits `{"intent":"save","collection":"Study/..."}`; the
+/// braces, the quotes and the key names are what the grammar forces, so the
+/// model's probability on them says nothing about whether it understood the
+/// command. Averaging them in would drag every score toward "confident"
+/// regardless of the answer — a confidence number that is high because the
+/// syntax was easy is exactly the self-reported comfort ADR-0005 rejects.
+///
+/// So this tracks one thing: are we inside a quoted **value** right now. The
+/// grammar guarantees well-formed JSON, so it can be a scanner rather than a
+/// parser.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ValueScanner {
+    in_string: bool,
+    /// The current (or next) string is a value rather than a key.
+    after_colon: bool,
+    escaped: bool,
+}
+
+impl ValueScanner {
+    /// Whether the *next* byte would be part of a value.
+    ///
+    /// Asked before a token is decoded, which is what makes it possible to pay
+    /// for the expensive measurement only on the tokens that carry meaning.
+    pub fn in_value(&self) -> bool {
+        self.in_string && self.after_colon
+    }
+
+    /// Feed the bytes a token produced, and say how many were value content.
+    ///
+    /// Zero means the token was punctuation however promising it looked
+    /// beforehand — the closing quote of a value is the case that matters,
+    /// because it usually arrives as `","` or `"}`, a token the grammar had no
+    /// choice about. Counting it would mix a forced token into a measurement
+    /// of what the model actually decided.
+    pub fn push(&mut self, bytes: &[u8]) -> usize {
+        let mut content = 0;
+        for &b in bytes {
+            if self.in_string {
+                let value = self.after_colon;
+                if self.escaped {
+                    self.escaped = false;
+                    content += usize::from(value);
+                } else if b == b'\\' {
+                    self.escaped = true;
+                    content += usize::from(value);
+                } else if b == b'"' {
+                    self.in_string = false;
+                } else {
+                    content += usize::from(value);
+                }
+            } else {
+                match b {
+                    b'"' => self.in_string = true,
+                    b':' => self.after_colon = true,
+                    b',' | b'{' => self.after_colon = false,
+                    _ => {}
+                }
+            }
+        }
+        content
+    }
+}
+
 /// Turn the model's JSON into a command.
 ///
 /// `collections` is passed so a destination can be verified rather than
@@ -160,6 +259,7 @@ pub fn parse(
     transcript: &str,
     json: &str,
     collections: &[String],
+    decode: Decode,
     routing_ms: u32,
 ) -> Result<RoutedCommand, LlmError> {
     let out: RouterOutput =
@@ -203,14 +303,14 @@ pub fn parse(
         transcript: transcript.to_string(),
         intent,
         slots,
-        // Not CERTAIN. Tier 0 matching is a proof; this is a small model's
-        // opinion, and section 8 requires confidence to be computed from
-        // measurable signals rather than asserted. The decode logprobs fill
-        // this in once the local runner lands; until then it is honestly
-        // middling rather than dishonestly high.
+        // Not CERTAIN, and not a guess either. Tier 0 matching is a proof;
+        // this is what the constrained decode measured about its own answer
+        // (ADR-0005). `prior` is the one field a decode cannot know — it is
+        // the user's history with this intent, filled in by the caller that
+        // has the correction log.
         confidence: Confidence {
-            logprob: 0.7,
-            margin: 0.7,
+            logprob: decode.logprob,
+            margin: decode.margin,
             prior: 1.0,
         },
         tier: Tier::LocalRouter,
@@ -229,12 +329,53 @@ mod tests {
             .collect()
     }
 
+    /// The scanner decides which tokens the confidence number is computed from,
+    /// so getting it wrong does not fail loudly — it quietly measures the
+    /// wrong thing and reports a number that looks fine.
+    #[test]
+    fn only_the_values_count_as_a_decision() {
+        let json = r#"{"intent":"save","collection":"Study/React"}"#;
+        let mut scanner = ValueScanner::default();
+        let mut counted = String::new();
+        for b in json.bytes() {
+            if scanner.push(&[b]) > 0 {
+                counted.push(b as char);
+            }
+        }
+        // Braces, quotes, commas and key names are what the grammar forces.
+        // What is left is the answer.
+        assert_eq!(counted, "saveStudy/React");
+    }
+
+    #[test]
+    fn a_quote_inside_a_value_does_not_end_it_early() {
+        let mut scanner = ValueScanner::default();
+        scanner.push(br#"{"title":"the \"bins\" go"#);
+        // Still inside the title. A naive scanner would have closed the string
+        // at the first escaped quote and read `go` as structure.
+        assert!(scanner.in_value());
+        scanner.push(br#"" out"#);
+        assert!(!scanner.in_value());
+    }
+
+    #[test]
+    fn a_key_is_not_a_value() {
+        let mut scanner = ValueScanner::default();
+        scanner.push(b"{\"inte");
+        assert!(!scanner.in_value(), "still in the key");
+        scanner.push(b"nt\":\"sa");
+        assert!(scanner.in_value(), "now in the value");
+        scanner.push(b"ve\",\"quer");
+        assert!(!scanner.in_value(), "the comma started a new key");
+    }
+
     #[test]
     fn a_save_with_a_destination_routes() {
         let cmd = parse(
             "put this with my react notes",
             r#"{"intent":"save","collection":"Study/Programming/React"}"#,
             &paths(),
+            Decode::UNMEASURED,
             120,
         )
         .unwrap();
@@ -247,7 +388,7 @@ mod tests {
     fn tier_one_never_reports_certainty() {
         // Tier 0 matching is a proof; this is a small model's opinion, and the
         // disambiguation gate downstream depends on the difference.
-        let cmd = parse("save this", r#"{"intent":"save"}"#, &paths(), 90).unwrap();
+        let cmd = parse("save this", r#"{"intent":"save"}"#, &paths(), Decode::UNMEASURED, 90).unwrap();
         assert!(cmd.confidence.score() < Confidence::CERTAIN.score());
     }
 
@@ -260,6 +401,7 @@ mod tests {
             "save this to work stuff",
             r#"{"intent":"save","collection":"Work Stuff"}"#,
             &paths(),
+            Decode::UNMEASURED,
             100,
         );
         assert!(matches!(err, Err(LlmError::Malformed(_))));
@@ -269,19 +411,19 @@ mod tests {
     fn an_intent_outside_tier_one_is_refused() {
         // RESEARCH belongs to Tier 2. A router that can route to reasoning can
         // route away from the fast path for anything it finds hard.
-        let err = parse("explain this", r#"{"intent":"research"}"#, &paths(), 100);
+        let err = parse("explain this", r#"{"intent":"research"}"#, &paths(), Decode::UNMEASURED, 100);
         assert!(matches!(err, Err(LlmError::Malformed(_))));
     }
 
     #[test]
     fn malformed_json_is_an_error_not_a_guess() {
-        assert!(parse("x", "not json", &paths(), 1).is_err());
-        assert!(parse("x", r#"{"intent":}"#, &paths(), 1).is_err());
+        assert!(parse("x", "not json", &paths(), Decode::UNMEASURED, 1).is_err());
+        assert!(parse("x", r#"{"intent":}"#, &paths(), Decode::UNMEASURED, 1).is_err());
     }
 
     #[test]
     fn a_retrieval_with_nothing_to_retrieve_is_refused() {
-        let err = parse("find", r#"{"intent":"search"}"#, &paths(), 100);
+        let err = parse("find", r#"{"intent":"search"}"#, &paths(), Decode::UNMEASURED, 100);
         assert!(matches!(err, Err(LlmError::Malformed(_))));
     }
 
@@ -289,7 +431,7 @@ mod tests {
     fn an_empty_slot_is_the_same_as_no_slot() {
         // A model that emits "" has filled nothing, and the grammar permits it:
         // the text rule allows zero characters.
-        let err = parse("find", r#"{"intent":"search","query":"  "}"#, &paths(), 100);
+        let err = parse("find", r#"{"intent":"search","query":"  "}"#, &paths(), Decode::UNMEASURED, 100);
         assert!(matches!(err, Err(LlmError::Malformed(_))));
     }
 
@@ -297,7 +439,7 @@ mod tests {
     fn a_bare_save_is_complete_on_its_own() {
         // "save this" with nowhere named is a real command, unlike a search
         // with nothing to search for.
-        let cmd = parse("save this", r#"{"intent":"save"}"#, &paths(), 80).unwrap();
+        let cmd = parse("save this", r#"{"intent":"save"}"#, &paths(), Decode::UNMEASURED, 80).unwrap();
         assert!(cmd.slots.collection.is_none());
     }
 
@@ -310,6 +452,6 @@ mod tests {
             assert!(g.contains(field), "grammar cannot emit {field:?}");
         }
         let all = r#"{"intent":"save","collection":"Study"}"#;
-        assert!(parse("x", all, &paths(), 1).is_ok());
+        assert!(parse("x", all, &paths(), Decode::UNMEASURED, 1).is_ok());
     }
 }

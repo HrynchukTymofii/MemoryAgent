@@ -82,3 +82,20 @@ Two hard rules on top:
 
 - Cold-start uses conservative per-intent defaults and tightens as the
   correction log fills. Early users will be asked slightly more often.
+
+## Status, 2026-09-08
+
+All three signals are now measured rather than asserted:
+`logprob` and `margin` come from the Tier 1 constrained decode, over the value
+tokens only and among the tokens the grammar allowed; `prior` comes from the
+correction log (ADR-0006) once an intent has five verdicts behind it.
+
+**The thresholds are not switched on.** The first nine measurements — all of
+them correct routings — put one answer below the 0.70 gate and a second at 0.72,
+and showed that free-text slots have structurally narrower margins than a choice
+among collections. Both findings argue against the constants and neither
+supplies a replacement: correct answers say nothing about where wrong ones sit.
+So `should_execute` stays unconsulted, the numbers keep accumulating, and the
+gate is chosen when there is something to choose it from — which is what this
+ADR asked for in the first place. The measurements are pinned in
+`memos-core/src/intent.rs` so a change to the constants has to argue with them.

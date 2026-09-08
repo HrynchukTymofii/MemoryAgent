@@ -74,14 +74,14 @@ fn main() {
     let mut total_ms = 0u128;
     for (transcript, expected) in CASES {
         let t = Instant::now();
-        let json = router.route(transcript);
+        let answer = router.route(transcript);
         let took = t.elapsed().as_millis();
         total_ms += took;
 
         print!("  {transcript:<50}");
-        match json {
+        match answer {
             None => println!("(no answer)                      want {expected}"),
-            Some(json) => match memos_llm::parse(transcript, &json, &collections, took as u32) {
+            Some((json, decode)) => match memos_llm::parse(transcript, &json, &collections, decode, took as u32) {
                 Ok(cmd) => {
                     ok += 1;
                     let slot = cmd
@@ -92,9 +92,12 @@ fn main() {
                         .or(cmd.slots.title.clone())
                         .unwrap_or_else(|| "-".into());
                     println!(
-                        "{:<7} {:<32} {took:>4} ms   want {expected}",
+                        "{:<7} {:<30} p{:.2} m{:.2} s{:.2} {took:>4} ms   want {expected}",
                         cmd.intent.as_str(),
-                        slot
+                        slot,
+                        cmd.confidence.logprob,
+                        cmd.confidence.margin,
+                        cmd.confidence.score(),
                     );
                 }
                 // The grammar is supposed to make this impossible. If it shows

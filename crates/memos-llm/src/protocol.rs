@@ -20,6 +20,20 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::Decode;
+
+/// What the two ends have to agree on.
+///
+/// The app and the router are separate binaries built by separate commands
+/// (ADR-0008), so it is entirely possible to update one and not the other — and
+/// the symptom would otherwise be a router that reports itself ready and then
+/// declines every command, which is the least debuggable failure this design
+/// can produce. Bump this whenever a message changes shape.
+///
+/// A router too old to know about this field deserialises it as 0, which is
+/// exactly the answer wanted: not this version.
+pub const PROTOCOL: u32 = 1;
+
 /// Where the router model is in its life.
 ///
 /// Lives here rather than beside the runner because the app needs to render it
@@ -52,15 +66,29 @@ pub enum Request {
 }
 
 /// Router to app.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Not `Eq`: a reply carries measured floats.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
     /// Unsolicited: the model finished loading, or failed to.
-    State { state: ModelState, detail: String },
-    /// The model's JSON for request `id`. Still unvalidated — `parse` decides
-    /// whether it means anything, on the app's side, where the collection list
-    /// it has to be checked against actually lives.
-    Routed { id: u64, json: String },
+    State {
+        state: ModelState,
+        detail: String,
+        /// The protocol the router was built against. Absent from a router
+        /// older than this field, which reads back as 0 — see [`PROTOCOL`].
+        #[serde(default)]
+        protocol: u32,
+    },
+    /// The model's JSON for request `id`, and what the decode measured about
+    /// it. Still unvalidated — `parse` decides whether it means anything, on
+    /// the app's side, where the collection list it has to be checked against
+    /// actually lives.
+    Routed {
+        id: u64,
+        json: String,
+        decode: Decode,
+    },
     /// Request `id` produced no answer, and why.
     Declined { id: u64, error: String },
 }
@@ -113,10 +141,15 @@ mod tests {
             Response::State {
                 state: ModelState::Ready,
                 detail: "812 tokens prefilled".into(),
+                protocol: PROTOCOL,
             },
             Response::Routed {
                 id: 7,
                 json: r#"{"intent":"save"}"#.into(),
+                decode: Decode {
+                    logprob: 0.93,
+                    margin: 0.61,
+                },
             },
             Response::Declined {
                 id: 7,
@@ -142,6 +175,20 @@ mod tests {
         let line = m.line();
         assert_eq!(line.matches('\n').count(), 1);
         assert_eq!(serde_json::from_str::<Request>(line.trim()).unwrap(), m);
+    }
+
+    /// A router built before the version field existed has to be recognisable
+    /// as old rather than as broken — that is the whole reason the field is
+    /// defaulted rather than required.
+    #[test]
+    fn a_router_from_before_the_handshake_reads_as_version_zero() {
+        let old = r#"{"event":"state","state":"ready","detail":"loaded"}"#;
+        let Response::State { protocol, state, .. } = serde_json::from_str(old).unwrap() else {
+            panic!("not a state message");
+        };
+        assert_eq!(state, ModelState::Ready);
+        assert_eq!(protocol, 0);
+        assert_ne!(protocol, PROTOCOL);
     }
 
     /// The frontend renders these four strings (`api.ts`). Renaming a variant

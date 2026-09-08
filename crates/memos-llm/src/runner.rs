@@ -26,9 +26,11 @@ use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::{AddBos, LlamaModel};
 use llama_cpp_2::sampling::LlamaSampler;
+use llama_cpp_2::token::data_array::LlamaTokenDataArray;
+use llama_cpp_2::token::LlamaToken;
 use parking_lot::RwLock;
 
-use crate::{grammar, LlmError, ModelState, ROUTE_TIMEOUT};
+use crate::{grammar, Decode, LlmError, ModelState, ValueScanner, ROUTE_TIMEOUT};
 
 /// Longest JSON the router may produce, in tokens.
 ///
@@ -45,7 +47,7 @@ const CONTEXT_TOKENS: u32 = 2048;
 enum Job {
     Route {
         transcript: String,
-        reply: SyncSender<Result<String, LlmError>>,
+        reply: SyncSender<Result<(String, Decode), LlmError>>,
     },
     /// The collection set changed, so the grammar that constrains destinations
     /// is stale. ADR-0003 calls a stale grammar out specifically: it silently
@@ -189,7 +191,7 @@ impl Router {
     /// is the same thing to the caller: Tier 1 did not resolve this, so it
     /// stays unrecognised — which is exactly what happened before Tier 1
     /// existed, rather than a new failure mode.
-    pub fn route(&self, transcript: &str) -> Option<String> {
+    pub fn route(&self, transcript: &str) -> Option<(String, Decode)> {
         if self.state() != ModelState::Ready {
             return None;
         }
@@ -204,7 +206,7 @@ impl Router {
                 .ok()?;
         }
         match answers.recv_timeout(ROUTE_TIMEOUT) {
-            Ok(Ok(json)) => Some(json),
+            Ok(Ok(answer)) => Some(answer),
             Ok(Err(e)) => {
                 tracing::warn!(error = %e, "router declined");
                 None
@@ -267,7 +269,7 @@ fn route_once(
     grammar_text: &str,
     prefix_len: i32,
     transcript: &str,
-) -> Result<String, LlmError> {
+) -> Result<(String, Decode), LlmError> {
     let started = Instant::now();
 
     // Drop whatever the previous command left behind, keeping the prefilled
@@ -311,20 +313,54 @@ fn route_once(
     // decoding per token would turn that into a replacement character or an
     // error, in exactly the text the user cares most about.
     let mut bytes: Vec<u8> = Vec::new();
+    // What the decode is measured on. Only the tokens inside a value are worth
+    // measuring (ADR-0005, and `ValueScanner`), and the expensive path is taken
+    // only for those — over a 151k vocabulary that is the difference between
+    // measuring four tokens and measuring twenty.
+    let mut scanner = ValueScanner::default();
+    let mut probabilities: Vec<f32> = Vec::new();
+    let mut narrowest = 1.0_f32;
+
     for _ in 0..MAX_TOKENS {
-        // `sample` accepts the token itself — its own documentation says so,
-        // and accepting again here advanced the grammar twice per token, which
-        // walked it into a state where nothing was legal and llama.cpp aborted
-        // the process on an assertion rather than returning an error.
-        let token = sampler.sample(ctx, batch.n_tokens() - 1);
+        let idx = batch.n_tokens() - 1;
+
+        // Two ways to take one token, and they have to stay equivalent:
+        // llama.cpp `sample` is apply-select-accept, so the manual path does
+        // exactly that and no more. Accepting twice is what advanced the
+        // grammar past the end of its own state machine during development and
+        // aborted the process on an assertion.
+        let (token, measured) = if scanner.in_value() {
+            let mut candidates = LlamaTokenDataArray::from_iter(ctx.candidates_ith(idx), false);
+            sampler.apply(&mut candidates);
+            let token = candidates
+                .selected_token()
+                .ok_or_else(|| LlmError::Run("the sampler selected nothing".into()))?;
+            let stats = measure_choice(&candidates, token);
+            sampler.accept(token);
+            (token, stats)
+        } else {
+            // `sample` accepts the token itself — its own documentation says
+            // so, and accepting again here would be the double-accept above.
+            (sampler.sample(ctx, idx), None)
+        };
+
         if model.is_eog_token(token) {
             break;
         }
-        bytes.extend(
-            model
-                .token_to_piece_bytes(token, 16, false, None)
-                .map_err(|e| LlmError::Run(format!("detokenise: {e}")))?,
-        );
+        let piece = model
+            .token_to_piece_bytes(token, 16, false, None)
+            .map_err(|e| LlmError::Run(format!("detokenise: {e}")))?;
+
+        // Decided after the fact, not before: a token that *starts* inside a
+        // value can still be the quote that closes it, and the grammar had no
+        // choice about that one.
+        if scanner.push(&piece) > 0 {
+            if let Some((probability, gap)) = measured {
+                probabilities.push(probability);
+                narrowest = narrowest.min(gap);
+            }
+        }
+        bytes.extend(piece);
 
         batch.clear();
         batch
@@ -335,12 +371,77 @@ fn route_once(
             .map_err(|e| LlmError::Run(format!("decode: {e}")))?;
     }
 
+    let decode = if probabilities.is_empty() {
+        Decode::UNMEASURED
+    } else {
+        Decode {
+            logprob: probabilities.iter().sum::<f32>() / probabilities.len() as f32,
+            margin: narrowest,
+        }
+    };
+
     let json = String::from_utf8(bytes)
         .map_err(|e| LlmError::Run(format!("router emitted invalid UTF-8: {e}")))?;
     tracing::debug!(
         took_ms = started.elapsed().as_millis() as u64,
         json = %json,
+        logprob = decode.logprob,
+        margin = decode.margin,
         "routed"
     );
-    Ok(json)
+    Ok((json, decode))
+}
+
+/// How sure the model was about one token, among the ones it was allowed.
+///
+/// Returns the probability of the chosen token and the gap to the runner-up,
+/// both over the **grammar-filtered** distribution. That qualifier is the whole
+/// point: a raw softmax over 151k tokens would mostly measure how badly the
+/// model wanted to say something the grammar forbids, which says nothing about
+/// whether it picked the right collection out of the ones that exist.
+///
+/// `None` when the grammar left one legal token, or none. Nothing was chosen,
+/// so there is nothing to be confident about, and folding a structurally forced
+/// 1.0 into the average would report certainty the model never expressed.
+fn measure_choice(candidates: &LlamaTokenDataArray, chosen: LlamaToken) -> Option<(f32, f32)> {
+    // Softmax over the legal tokens only. The grammar sets the rest to -inf,
+    // so they drop out of the sum without having to be filtered first.
+    let max = candidates
+        .data
+        .iter()
+        .map(|d| d.logit())
+        .fold(f32::NEG_INFINITY, f32::max);
+    if !max.is_finite() {
+        return None;
+    }
+
+    let mut total = 0.0_f32;
+    let mut chosen_weight = 0.0_f32;
+    let mut best = 0.0_f32;
+    let mut second = 0.0_f32;
+    let mut legal = 0_u32;
+
+    for d in &candidates.data {
+        let logit = d.logit();
+        if !logit.is_finite() {
+            continue;
+        }
+        legal += 1;
+        let w = (logit - max).exp();
+        total += w;
+        if d.id() == chosen {
+            chosen_weight = w;
+        }
+        if w > best {
+            second = best;
+            best = w;
+        } else if w > second {
+            second = w;
+        }
+    }
+
+    if legal < 2 || total <= 0.0 {
+        return None;
+    }
+    Some((chosen_weight / total, (best - second) / total))
 }

@@ -25,7 +25,7 @@ use std::io::{BufRead, Write};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
 
-use memos_llm::protocol::{ModelState, Request, Response};
+use memos_llm::protocol::{ModelState, Request, Response, PROTOCOL};
 use memos_llm::runner::Router;
 
 fn main() {
@@ -89,7 +89,7 @@ fn main() {
                 // concurrency here would only queue somewhere less visible. The
                 // app sends one command at a time and gives up after 1.5 s.
                 let reply = match router.route(&transcript) {
-                    Some(json) => Response::Routed { id, json },
+                    Some((json, decode)) => Response::Routed { id, json, decode },
                     None => Response::Declined {
                         id,
                         error: match router.state() {
@@ -147,6 +147,7 @@ fn watch_loading(router: &Arc<Router>, out: Sender<Response>) {
             let _ = out.send(Response::State {
                 state: router.state(),
                 detail: router.detail(),
+                protocol: PROTOCOL,
             });
         })
         .expect("spawn loading thread");

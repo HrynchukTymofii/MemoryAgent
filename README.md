@@ -18,9 +18,9 @@ grammar has never seen.
 | ✅ **M0** skeleton | workspace, SQLite + FTS5, tray, global hotkey, pre-warmed overlay |
 | ✅ **M1** capture | ring buffer, VAD, whisper.cpp, Windows context, Tier 0 grammar, `SAVE`/`NOTE` |
 | ✅ **M2** retrieval | ONNX embeddings, background embed worker, FTS5 + vectors + RRF, `SEARCH`/`SHOW`/`OPEN`, page capture, the Hub |
-| 🔨 **M3** intelligence | ✅ Tier 1 router, in a supervised sidecar · ✅ correction log · ⬜ derived confidence · ⬜ `MOVE`/`TAG`/`TASK` |
+| 🔨 **M3** intelligence | ✅ Tier 1 router, in a supervised sidecar · ✅ correction log · 🔨 derived confidence · ⬜ `MOVE`/`TAG`/`TASK` |
 
-183 tests, clippy clean, `tsc --noEmit` clean.
+190 tests, clippy clean, `tsc --noEmit` clean.
 
 ## Prerequisites
 
@@ -231,6 +231,50 @@ The escalation is narrow by design. Tier 0 answers the formulaic majority in
 microseconds and never consults this; ~600 ms is affordable exactly once per
 command that would otherwise have failed outright or interrupted you with a
 question, and not at all on the ones that already worked.
+
+### How sure it is, and how we know
+
+Confidence is measured, never asked for. A model that scores itself produces
+round, confident-sounding numbers largely unrelated to whether it is right, and
+a quantized 0.6B router is the worst case for that — so the numbers come from
+the token distribution the sampler actually saw, over the tokens that carried
+the decision.
+
+That last qualifier does the work. The router emits
+`{"intent":"save","collection":"Study/Programming/React"}`; the braces, the
+quotes and the key names are what the grammar forces, and the model's certainty
+about *those* says nothing. Only the values are measured, and only among the
+tokens the grammar allowed — a raw softmax over 151k tokens would mostly measure
+how badly the model wanted to say something it was not permitted to.
+
+```
+  save this page to the react programming database  SAVE   Study/Programming/React   p1.00 m0.99
+  stick this in with the python stuff               SAVE   Study/Programming/Python  p1.00 m1.00
+  keep this for the garden                          SAVE   Life/Garden               p0.90 m0.21
+  what did I read about hooks last week             SEARCH hooks                     p1.00 m1.00
+  jot down that the bins go out on tuesday          NOTE   the bins go out tuesday   p0.96 m0.34
+```
+
+`p` is the mean probability of those value tokens; `m` is the narrowest gap
+between the best and second-best legal token — the closest call the decode had
+to make. Measuring costs nothing measurable, because only value tokens take the
+expensive path: 578 ms median, the same as before.
+
+Two things fall out of those numbers, and both are why the thresholds are still
+**not switched on**:
+
+- The one hesitant answer — `keep this for the garden` at m0.21 — was *correct*.
+  The hand-picked 0.70 gate in `should_execute` would have refused it.
+- Free text is not a choice between alternatives, so its margins are narrow by
+  construction. A title has many plausible continuations and no wrong one; a
+  collection path has a handful and exactly one right one. No single global
+  threshold can be right for both.
+
+Nine correct answers say nothing about where the wrong ones sit, so the gate
+stays where ADR-0005 puts it: calibrated from logged outcomes, not chosen. What
+ships now is the measurement, recorded on every command, plus the third signal
+the decode cannot know — the acceptance rate for that intent, from the
+correction log, once there are five verdicts to compute it from.
 
 ### What it learns from being wrong
 
