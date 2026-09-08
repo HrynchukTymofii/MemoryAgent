@@ -8,6 +8,7 @@ members = [
     "crates/memos-agent",
     "crates/memos-embed",
     "crates/memos-retrieval",
+    "crates/memos-llm",
     "apps/desktop/src-tauri",
 ]
 
@@ -27,6 +28,7 @@ memos-context = { path = "crates/memos-context" }
 memos-agent   = { path = "crates/memos-agent" }
 memos-embed   = { path = "crates/memos-embed" }
 memos-retrieval = { path = "crates/memos-retrieval" }
+memos-llm       = { path = "crates/memos-llm" }
 
 anyhow             = "1"
 thiserror          = "1"

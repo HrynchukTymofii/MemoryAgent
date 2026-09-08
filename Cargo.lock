@@ -2559,6 +2559,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "memos-llm"
+version = "0.1.0"
+dependencies = [
+ "memos-core",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
 name = "memos-retrieval"
 version = "0.1.0"
 dependencies = [

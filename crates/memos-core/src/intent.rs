@@ -79,6 +79,29 @@ impl Intent {
         }
     }
 
+    /// The inverse of [`Intent::as_str`], case-insensitively.
+    ///
+    /// Named `from_name` rather than `from_str` so it cannot be mistaken for
+    /// the standard trait method, which returns a `Result` and is reached
+    /// through an import.
+    ///
+    /// Liberal about case on purpose. `as_str` shouts (`SAVE`) because that is
+    /// how intents read in a log, while anything JSON-shaped writes them
+    /// lowercase — the router's grammar among them. Accepting both means the
+    /// two conventions can never drift into a silent parse failure.
+    pub fn from_name(s: &str) -> Option<Intent> {
+        let s = s.trim();
+        Intent::ALL
+            .iter()
+            .copied()
+            .find(|i| i.as_str().eq_ignore_ascii_case(s))
+    }
+
+    /// The lowercase form, as it appears in JSON and in the router grammar.
+    pub fn token(&self) -> String {
+        self.as_str().to_ascii_lowercase()
+    }
+
     /// Whether executing this intent can destroy or overwrite user data.
     ///
     /// ADR-0005: irreversible actions confirm at *any* confidence. This is the
@@ -179,6 +202,20 @@ pub struct RoutedCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_intent_survives_a_round_trip_through_its_name() {
+        // The router parses an intent back out of JSON. A variant whose name
+        // does not round-trip would be routable by the grammar and rejected by
+        // the parser - visible only as commands that mysteriously never run.
+        for intent in Intent::ALL {
+            assert_eq!(Intent::from_name(intent.as_str()), Some(*intent));
+            assert_eq!(Intent::from_name(&intent.token()), Some(*intent));
+        }
+        assert_eq!(Intent::from_name("  save  "), Some(Intent::Save));
+        assert_eq!(Intent::from_name("file_operation"), Some(Intent::FileOperation));
+        assert_eq!(Intent::from_name("nonsense"), None);
+    }
 
     #[test]
     fn irreversible_intents_never_auto_execute() {

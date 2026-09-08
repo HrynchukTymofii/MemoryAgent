@@ -1,0 +1,18 @@
+[package]
+name         = "memos-llm"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+
+[dependencies]
+memos-core = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+thiserror  = { workspace = true }
+tracing    = { workspace = true }
+
+# llama.cpp arrives with the next piece. Everything that decides whether a small
+# model is *safe* to trust - the grammar, the prompt, the parsing - lives here
+# and is testable with no model present, which is deliberately the half that
+# came first.
