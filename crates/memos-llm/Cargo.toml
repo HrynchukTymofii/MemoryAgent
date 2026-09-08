@@ -11,8 +11,19 @@ serde      = { workspace = true }
 serde_json = { workspace = true }
 thiserror  = { workspace = true }
 tracing    = { workspace = true }
+parking_lot = { workspace = true }
 
-# llama.cpp arrives with the next piece. Everything that decides whether a small
-# model is *safe* to trust - the grammar, the prompt, the parsing - lives here
-# and is testable with no model present, which is deliberately the half that
-# came first.
+# llama.cpp, compiled from source like whisper.cpp. Optional for the same
+# reason: everything that decides whether a small model is *safe* to trust - the
+# grammar, the prompt, the parsing - is testable with no model and no native
+# toolchain present, and a broken toolchain must not be able to stop the rest of
+# the workspace building.
+llama-cpp-2 = { version = "0.1.156", optional = true }
+
+[features]
+default = []
+local = ["dep:llama-cpp-2"]
+
+[[example]]
+name = "route_check"
+required-features = ["local"]

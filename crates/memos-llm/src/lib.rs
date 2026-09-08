@@ -15,6 +15,9 @@
 
 pub mod grammar;
 
+#[cfg(feature = "local")]
+pub mod runner;
+
 use memos_core::{Confidence, Intent, RoutedCommand, Slots, Tier};
 use serde::Deserialize;
 
@@ -63,12 +66,53 @@ looking at. Choose the single intent that matches what they asked for, and fill 
 only the field that intent needs. Answer with the JSON object and nothing else.";
 
 /// Build the user-turn text for one transcript.
-///
-/// The collection list is *not* repeated here: it is in the grammar, which is
-/// where it does actual work. Putting it in the prompt as well would double the
-/// prefill for a constraint that is already structural.
 pub fn user_turn(transcript: &str) -> String {
     format!("Command: {transcript}")
+}
+
+/// Everything the model should know before it sees a command.
+///
+/// **The collection list belongs here, not only in the grammar.** That
+/// distinction cost a rewrite: the grammar constrains what the model may
+/// *emit*, but a model choosing a destination has to know the options exist
+/// while it is deciding — it meets the constraint one token at a time, long
+/// after the decision is made. Left out, the first run of the router scored 2
+/// of 9 on ordinary phrasings and put "file this under job applications" into
+/// `Study`.
+///
+/// It is free per command because it is prefilled once into the KV cache and
+/// reused (ADR-0003). That is the entire reason the cache exists — ~800 tokens
+/// of prefix that would otherwise be re-read on every single utterance.
+pub fn prefix(collections: &[String]) -> String {
+    let mut out = String::from(SYSTEM_PROMPT);
+
+    if !collections.is_empty() {
+        out.push_str("\n\nThe user's collections, and the only destinations that exist:\n");
+        for path in collections {
+            out.push_str("- ");
+            out.push_str(path);
+            out.push('\n');
+        }
+        out.push_str(
+            "\nChoose the most specific one that fits. If none of them clearly fits, \
+             leave the collection out rather than picking a vague one.",
+        );
+    }
+
+    // Worked examples, not rules. A 0.6B model generalises from a handful of
+    // these far better than from any amount of instruction — and they are the
+    // cheapest tokens in the system, paid for once at startup.
+    out.push_str(
+        "\n\nExamples:\n\
+         \"save this\" -> {\"intent\":\"save\"}\n\
+         \"put this with the react stuff\" -> {\"intent\":\"save\",\"collection\":\"<the react collection>\"}\n\
+         \"what did I read about hooks\" -> {\"intent\":\"search\",\"query\":\"hooks\"}\n\
+         \"open that pgbouncer page\" -> {\"intent\":\"open\",\"query\":\"pgbouncer\"}\n\
+         \"pull up that typescript thing\" -> {\"intent\":\"search\",\"query\":\"typescript\"}\n\
+         \"note that the bins go out tuesday\" -> {\"intent\":\"note\",\"title\":\"the bins go out tuesday\"}\n\
+         A command about putting something somewhere is a save, not a search.",
+    );
+    out
 }
 
 /// Turn the model's JSON into a command.
