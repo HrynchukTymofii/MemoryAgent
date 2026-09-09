@@ -47,7 +47,13 @@ if ($Print -or -not $psql -or -not $url) {
 
 foreach ($m in $migrations) {
     Write-Host "applying $($m.Name)..." -ForegroundColor Cyan
-    & $psql.Source $url -v ON_ERROR_STOP=1 -f $m.FullName
+    # Every argument as a single `--key=value` token, quoted.
+    #
+    # PowerShell splits a bare `-v ON_ERROR_STOP=1` into two arguments, and a
+    # connection string passed positionally collides with psql's own parsing of
+    # the rest — psql then reports the real arguments as "extra" and ignores
+    # them, so the script announced success having run no SQL at all.
+    & $psql.Source "--dbname=$url" "--set=ON_ERROR_STOP=1" "--file=$($m.FullName)"
     if ($LASTEXITCODE -ne 0) { Write-Error "failed on $($m.Name)"; exit 1 }
 }
 Write-Host 'done.' -ForegroundColor Green
