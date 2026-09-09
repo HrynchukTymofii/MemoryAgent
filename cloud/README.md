@@ -52,6 +52,15 @@ Apply the schema first:
 .\scripts\migrate-cloud.ps1
 ```
 
+## When sign-in returns 401
+
+The server logs the real reason — audience mismatch, expired, bad signature.
+Look there first.
+
+`--reload` watches `.py` files, not `.env`. After editing credentials, restart
+the server: the running process keeps the settings it read at startup and will
+keep rejecting tokens against a configuration you have already fixed.
+
 ## Tests
 
 ```

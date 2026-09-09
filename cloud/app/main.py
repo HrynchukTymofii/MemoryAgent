@@ -14,6 +14,7 @@ and later the Apple and GitHub client secrets and whatever sends email — lives
 here, on a machine we control.
 """
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -23,6 +24,8 @@ from pydantic import BaseModel
 from . import codes, google, mail, tokens
 from .config import settings
 from .db import Database, User
+
+log = logging.getLogger("memos")
 
 db: Database | None = None
 
@@ -96,9 +99,11 @@ async def sign_in_with_google(
     try:
         user = google.verify(body.id_token, audience=config.google_client_id)
     except google.InvalidToken as e:
-        # The specific failure goes to the log, not to the caller: which check
-        # failed is useful to someone probing this endpoint and useless to a
-        # person who simply needs to sign in again.
+        # To the log, not to the caller. Which check failed is useful to
+        # someone probing this endpoint and useless to a person who simply
+        # needs to sign in again — but it has to be written down *somewhere*,
+        # or the 401 is undiagnosable by the person running the service.
+        log.warning("rejected an identity token: %s", e)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid identity token") from e
 
     account = await store.upsert_user(sub=user.sub, email=user.email, display_name=user.name)

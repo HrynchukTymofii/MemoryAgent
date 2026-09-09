@@ -60,5 +60,11 @@ class Settings(BaseSettings):
 
 @lru_cache
 def settings() -> Settings:
-    """Read once. Cached so a request never touches the environment."""
+    """Read once, at startup. Cached so a request never touches the environment.
+
+    Worth knowing while developing: `uvicorn --reload` watches `.py` files, not
+    `.env`. Editing credentials leaves the running process holding the old ones
+    and answering 401 with a configuration that has since been fixed on disk —
+    restart the server after changing `.env`.
+    """
     return Settings()  # type: ignore[call-arg]

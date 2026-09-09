@@ -65,7 +65,11 @@ def verify(id_token: str, *, audience: str, _client: PyJWKClient | None = None) 
             options={"verify_iss": False, "require": ["exp", "iat", "sub", "aud"]},
         )
     except Exception as e:  # noqa: BLE001 - every failure is the same answer
-        raise InvalidToken(str(e)) from e
+        # The class name matters as much as the message: PyJWT's
+        # `InvalidAudienceError` and `ExpiredSignatureError` are two very
+        # different setup problems and their messages alone do not distinguish
+        # them clearly.
+        raise InvalidToken(f"{type(e).__name__}: {e}") from e
 
     if claims.get("iss") not in ISSUERS:
         raise InvalidToken(f"unexpected issuer {claims.get('iss')!r}")

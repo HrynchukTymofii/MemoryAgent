@@ -1,6 +1,6 @@
-# Fix: API cannot find .env
+# Fix: 401 from /v1/auth/google says nothing
 
-pydantic-settings looks relative to the working directory (`cloud/`).
-The file is at the repository root.
+The reason is discarded, so the failure is undiagnosable.
 
-- `cloud/app/config.py` — resolve `.env` from the repo root, absolutely
+- `cloud/app/main.py` — log the real verification failure
+- `cloud/app/google.py` — carry the specific reason on the exception
