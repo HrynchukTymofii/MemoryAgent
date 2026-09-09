@@ -661,13 +661,28 @@ fn week_start() -> String {
 }
 
 pub fn data_dir() -> std::path::PathBuf {
-    // %APPDATA%\PersonalMemoryOS — beside the user's other application data,
-    // inside their Windows profile, so two accounts on one PC get separate
-    // databases with no application logic (§12).
-    let base = std::env::var("APPDATA")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::path::PathBuf::from("."));
-    base.join("PersonalMemoryOS")
+    // Per-user application data, so two accounts on one machine get separate
+    // databases with no application logic (§12). The platforms disagree only
+    // about where that lives.
+    //
+    // The fallback is deliberately not `.`: a relative path resolves against
+    // the working directory, and an app launched from Finder has `/` for a
+    // working directory — so the database open failed with `CannotOpen` and the
+    // app panicked before it drew anything. A home-relative path is wrong in
+    // the same way on every platform, which is to say visible immediately.
+    let base = if cfg!(windows) {
+        std::env::var("APPDATA").map(std::path::PathBuf::from)
+    } else {
+        // ~/Library/Application Support — where a macOS user expects to find
+        // an app's data, and where a Time Machine backup includes it.
+        std::env::var("HOME").map(|h| {
+            std::path::PathBuf::from(h)
+                .join("Library")
+                .join("Application Support")
+        })
+    };
+    base.unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("PersonalMemoryOS")
 }
 
 
