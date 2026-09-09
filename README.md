@@ -94,6 +94,46 @@ There is no such thing as an "accessibility identifier" to register. macOS
 identifies the app by bundle id and signature, and the user grants the
 permission in System Settings — no API can request it.
 
+## Shipping a macOS build to other people
+
+Three things from Apple, in this order. Only needed to distribute — not to
+build or run.
+
+1. **Developer ID Application certificate.** Xcode → Settings → Accounts →
+   Manage Certificates → **+** → Developer ID Application. It lands in your
+   keychain; `security find-identity -v -p codesigning` prints its exact name,
+   which is what `APPLE_SIGNING_IDENTITY` wants.
+2. **Notarisation credentials.** Either an App Store Connect API key
+   (App Store Connect → Users and Access → Integrations → Keys) or your Apple ID
+   with an app-specific password from appleid.apple.com. Prefer the API key: an
+   app-specific password is tied to a person and gets revoked when they change
+   their Apple ID password.
+3. **Your Team ID**, from the top right of developer.apple.com.
+
+Put them in `.env` and run:
+
+```
+./scripts/build-macos.sh
+```
+
+It refuses early if a credential is missing — a notarisation that fails after a
+fifteen-minute compile is fifteen minutes spent learning a variable was unset —
+and it verifies afterwards that the ticket is **stapled**. An unstapled build
+installs perfectly on the machine that made it and is refused on every other
+one, which is the worst possible way to discover the problem.
+
+Both signing and notarisation are required. Signing alone still gets "Apple
+could not verify this app is free of malware" on any Mac that did not build it.
+
+### Before the first real release
+
+The app needs ~820 MB of models (whisper 148 MB, embeddings 34 MB, router
+640 MB) and currently expects `scripts/fetch-models.ps1` to have been run — a
+developer script. Shipping needs a decision: bundle them in the installer, or
+download on first run with progress and resumption. The router is optional (the
+app falls back to Tier 0 without it), so first-run download of the other two is
+182 MB, which is the smaller problem.
+
 ## Run
 
 ```
