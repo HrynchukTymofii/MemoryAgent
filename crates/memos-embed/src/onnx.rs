@@ -33,7 +33,34 @@ impl OnnxEmbedder {
 
         // Before the first session: `ort` resolves the DLL lazily, so this has
         // to happen ahead of the builder, not at start-up somewhere else.
+        //
+        // `dir` is the *model* directory, so the data-directory candidate inside
+        // this call cannot match; what it resolves here are the exe-relative and
+        // development layouts. The application sets ORT_DYLIB_PATH from its real
+        // data directory at start-up, and that takes precedence.
         crate::use_bundled_runtime(dir);
+
+        // Refuse rather than let `ort` panic.
+        //
+        // With no library located, `ort` falls back to loading by bare name and
+        // panics when that fails — and under the hardened runtime it always
+        // fails, because a relative path is not allowed. The release profile
+        // sets `panic = "abort"`, so that panic takes the whole application
+        // down, on a background thread, for a feature this module's own
+        // documentation promises is optional. An error keeps that promise:
+        // search falls back to keywords and capture is untouched.
+        match std::env::var("ORT_DYLIB_PATH") {
+            Ok(p) if Path::new(&p).exists() => {}
+            _ => {
+                return Err(EmbedError::Load(format!(
+                    "no ONNX Runtime library found (looked beside the executable \
+                     and under the data directory). Fetch it with \
+                     `scripts/fetch-models.sh onnxruntime`, then `install`. \
+                     Model directory: {}",
+                    dir.display()
+                )))
+            }
+        }
 
         let started = std::time::Instant::now();
         // No explicit graph optimisation level: ONNX Runtime 1.20 rejects the

@@ -126,10 +126,20 @@ impl Embeddings {
 impl Embeddings {
     fn load(&self) {
         let data = crate::data_dir();
+
+        // Point `ort` at the runtime we ship before anything tries to load it.
+        // Done from here because this is the only place that knows the real data
+        // directory — the embedder itself is handed the model directory, which
+        // is somewhere else entirely.
+        memos_embed::use_bundled_runtime(&data);
+
         let Some(dir) = memos_embed::find_model_dir(None, &data) else {
             *self.state.write() = ModelState::Missing;
             *self.detail.write() =
-                "No embedding model found. Run scripts/fetch-models.ps1 embedding".into();
+                format!(
+                    "No embedding model found. Run {} embedding",
+                    memos_core::scripts::FETCH_MODELS
+                );
             tracing::warn!("no embedding model; search falls back to keywords only");
             crate::hotkey::diag("embedding model MISSING (keyword search still works)");
             return;
