@@ -961,6 +961,202 @@ mod tests {
         assert!(out.provenance.unwrap().contains("page + voice"));
     }
 
+    // ------------------------------------------------ acting on what exists
+
+    /// The whole referent story for MOVE and TAG: "this" is the memory you
+    /// just made, not the one you last looked at.
+    #[test]
+    fn move_refiles_the_memory_that_was_just_captured() {
+        let db = Db::open_in_memory().unwrap();
+        let study = db.create_collection("Study", None).unwrap();
+        execute(
+            &db,
+            &cmd(Intent::Save, Slots::default(), "save this"),
+            &Context {
+                selected_text: Some("state is a snapshot".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let out = execute(
+            &db,
+            &cmd(
+                Intent::Move,
+                Slots { collection: Some("Study".into()), ..Default::default() },
+                "move this to study",
+            ),
+            &Context::default(),
+        )
+        .unwrap();
+
+        assert_eq!(out.kind, "move");
+        assert_eq!(out.summary, "Moved to Study");
+        let item = db.recent_items(1).unwrap().remove(0);
+        assert_eq!(item.collection_id, Some(study.id));
+    }
+
+    /// A destination that does not exist must not be created by saying it.
+    /// Collections are made deliberately; a typo or a mishearing that invented
+    /// one would fill the sidebar with folders nobody chose.
+    #[test]
+    fn moving_to_a_collection_that_does_not_exist_says_so() {
+        let db = Db::open_in_memory().unwrap();
+        db.capture(&KnowledgeItem::capture("Hooks", "body"), None).unwrap();
+
+        let out = execute(
+            &db,
+            &cmd(
+                Intent::Move,
+                Slots { collection: Some("Nowhere".into()), ..Default::default() },
+                "move this to nowhere",
+            ),
+            &Context::default(),
+        )
+        .unwrap();
+
+        assert_eq!(out.kind, "nothing");
+        assert!(out.summary.contains("Nowhere"), "{}", out.summary);
+        assert_eq!(db.collections_with_counts().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn a_tag_is_added_once_and_reported_honestly_the_second_time() {
+        let db = Db::open_in_memory().unwrap();
+        let item = KnowledgeItem::capture("Hooks", "body");
+        db.capture(&item, None).unwrap();
+        let c = cmd(
+            Intent::Tag,
+            Slots { tags: vec!["react".into()], ..Default::default() },
+            "tag this react",
+        );
+
+        let first = execute(&db, &c, &Context::default()).unwrap();
+        assert_eq!(first.kind, "tag");
+        assert_eq!(first.summary, "Tagged \u{201c}react\u{201d}");
+
+        // The receipt must not claim a second success for a tag that was
+        // already there — that is a receipt that lies about what happened.
+        let again = execute(&db, &c, &Context::default()).unwrap();
+        assert_eq!(again.kind, "nothing");
+        assert_eq!(again.summary, "Already tagged \u{201c}react\u{201d}");
+        assert_eq!(db.tags_for_item(item.id).unwrap(), vec!["react"]);
+    }
+
+    #[test]
+    fn a_task_is_created_and_linked_to_what_was_on_screen() {
+        let db = Db::open_in_memory().unwrap();
+        let item = KnowledgeItem::capture("Hooks", "body");
+        db.capture(&item, None).unwrap();
+
+        let out = execute(
+            &db,
+            &cmd(
+                Intent::Task,
+                Slots { title: Some("call the bank".into()), ..Default::default() },
+                "add a task to call the bank",
+            ),
+            &Context::default(),
+        )
+        .unwrap();
+
+        assert_eq!(out.kind, "task");
+        assert_eq!(out.summary, "Task: call the bank");
+        assert_eq!(out.provenance.as_deref(), Some("about Hooks"));
+        let tasks = db.tasks(10).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].item_id, Some(item.id));
+    }
+
+    /// A task stands on its own. This is what separates it from a reminder,
+    /// and it must not require a memory to hang off.
+    #[test]
+    fn a_task_with_nothing_captured_yet_still_works() {
+        let db = Db::open_in_memory().unwrap();
+        let out = execute(
+            &db,
+            &cmd(
+                Intent::Task,
+                Slots { title: Some("call the bank".into()), ..Default::default() },
+                "add a task to call the bank",
+            ),
+            &Context::default(),
+        )
+        .unwrap();
+
+        assert_eq!(out.kind, "task");
+        assert_eq!(out.provenance, None);
+        assert_eq!(db.tasks(10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn undo_reverses_the_save_and_names_what_it_removed() {
+        let db = Db::open_in_memory().unwrap();
+        execute(
+            &db,
+            &cmd(Intent::Save, Slots::default(), "save this"),
+            &Context {
+                selected_text: Some("state is a snapshot".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let out = execute(
+            &db,
+            &cmd(Intent::Undo, Slots::default(), "undo"),
+            &Context::default(),
+        )
+        .unwrap();
+
+        assert_eq!(out.kind, "undo");
+        assert!(out.summary.starts_with("Undid the memory"), "{}", out.summary);
+        assert!(db.recent_items(10).unwrap().is_empty());
+    }
+
+    /// The reason undo is worth more than a repair: it is the verdict that
+    /// derived confidence calibrates on (ADR-0006). Losing this link would
+    /// leave the correction log reading as if every command was accepted.
+    #[test]
+    fn undo_records_a_verdict_against_the_command_it_reversed() {
+        let db = Db::open_in_memory().unwrap();
+        let save = cmd(Intent::Save, Slots::default(), "save this");
+        let command_id = save.id;
+        db.log_command(&save, &Context::default(), 1).unwrap();
+        execute(
+            &db,
+            &save,
+            &Context {
+                selected_text: Some("state is a snapshot".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        execute(&db, &cmd(Intent::Undo, Slots::default(), "undo"), &Context::default()).unwrap();
+
+        let logged = db.export_commands(10).unwrap();
+        let row = logged
+            .iter()
+            .find(|c| c.id == command_id)
+            .expect("the save is in the log");
+        let verdict = row.correction.as_ref().expect("undo left a verdict");
+        assert!(!verdict.accepted, "an undone save is a rejection");
+    }
+
+    #[test]
+    fn undo_with_nothing_to_reverse_says_so_rather_than_failing() {
+        let db = Db::open_in_memory().unwrap();
+        let out = execute(
+            &db,
+            &cmd(Intent::Undo, Slots::default(), "undo"),
+            &Context::default(),
+        )
+        .unwrap();
+        assert_eq!(out.kind, "nothing");
+        assert_eq!(out.summary, "Nothing recent to undo");
+    }
+
     #[test]
     fn a_selection_still_beats_the_page_it_sits_in() {
         // Highlighting is an explicit choice about what matters; the page is
