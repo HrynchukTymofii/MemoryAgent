@@ -17,11 +17,17 @@ venv/
 .pytest_cache/
 .ruff_cache/
 
-# Model weights — never commit, fetched by scripts/fetch-models.ps1
+# Model weights — never commit, fetched by scripts/fetch-models.ps1 (Windows)
+# or scripts/fetch-models.sh (macOS, Linux)
 /models/**/*.bin
 /models/**/*.gguf
 /models/**/*.onnx
 /models/**/*.safetensors
+
+# The ONNX Runtime is fetched by the same script. The Windows DLLs beside it
+# predate that script and stay tracked; nothing new joins them.
+/runtime/*.dylib
+/runtime/*.so
 
 # Local data & secrets
 *.db

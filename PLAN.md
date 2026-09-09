@@ -1,9 +1,11 @@
-# Get the macOS bundle building and installed on this Mac
+# Make the macOS build do the things it currently only pretends to do
 
-- (toolchain) — install rustup + stable, add `aarch64-apple-darwin`; `brew install cmake` for whisper.cpp
-- rust-toolchain.toml — add the two Apple targets alongside the Windows one
-- apps/desktop/src-tauri/tauri.conf.json — bundle targets per platform; add `icon.icns`
-- apps/desktop/src-tauri/icons/icon.icns — generate from `icon.png`
-- apps/desktop/src-tauri/src/main.rs — `data_dir()` was `%APPDATA%` or `.`; give it `~/Library/Application Support`
-- scripts/build-macos.sh — allow an unsigned/development build when no Developer ID is in the keychain
-- (verify) — `cargo build`, then `npm run tauri build`, install the `.app`, launch it, check the log
+- apps/desktop/src-tauri/src/hotkey.rs — CGEventTap `imp`, keycodes translated
+  into the Windows VK numbering `Chord` already speaks
+- crates/memos-context/src/macos_impl.rs — app, title, selection, URL, clipboard
+  via the Accessibility API; `page_text` deliberately left out
+- crates/memos-context/src/url.rs — the URL helpers, now shared not Windows-only
+- crates/memos-embed/src/onnx.rs — refuse without a runtime instead of panicking
+- scripts/fetch-models.sh — models, ONNX Runtime, and `install` into the app
+- scripts/build-router.sh — llama.cpp sidecar, into the bundle, re-signed
+- crates/memos-core/src/lib.rs — name the script the reader can actually run

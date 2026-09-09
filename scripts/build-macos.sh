@@ -19,6 +19,16 @@ note() { printf '\033[36m%s\033[0m\n' "$1"; }
 
 [ "$(uname)" = "Darwin" ] || fail "This builds a macOS bundle; run it on the Mac."
 
+# rustup writes its PATH line into the shell profile, and a profile is only read
+# by a login shell — so the first build after installing Rust, and every build
+# from a non-interactive shell or a CI step, finds no cargo at all. Sourcing the
+# env file directly costs nothing when the PATH is already right.
+if ! command -v cargo >/dev/null && [ -f "$HOME/.cargo/env" ]; then
+    # shellcheck disable=SC1091
+    . "$HOME/.cargo/env"
+fi
+command -v cargo >/dev/null || fail "cargo is not on PATH. Install Rust: https://rustup.rs"
+
 # The local build exists because the distribution build cannot be run at all
 # without a Developer ID, and "I want to see it on my own Mac" is the first
 # thing anybody needs — including on the day the Apple account is still being
@@ -41,7 +51,7 @@ if [ "${1:-}" = "--local" ]; then
   unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
   unset APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
 
-  note "Local build for $target — unsigned, and it will not run on another Mac."
+  note "Local build for $target — not notarised, so it stays on this Mac."
   cd apps/desktop
   npm ci
   npm run tauri build -- --target "$target" --bundles app
@@ -50,9 +60,10 @@ if [ "${1:-}" = "--local" ]; then
 
   # Tauri leaves the bundle with only the linker's ad-hoc signature on the
   # executable, which fails `codesign --verify` and carries no entitlements —
-  # so the microphone is denied under the hardened runtime. Signing it here
-  # ad-hoc is what makes the local build behave like the shipped one.
-  # Prefer a real Apple Development certificate over an ad-hoc signature, and
+  # so the microphone is denied under the hardened runtime. Signing it here is
+  # what makes the local build behave like the shipped one.
+  #
+  # An Apple Development certificate is preferred over an ad-hoc signature, and
   # not for Gatekeeper's sake — it makes no difference there.
   #
   # It is about TCC. Accessibility and Input Monitoring are remembered against

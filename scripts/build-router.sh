@@ -24,6 +24,15 @@ ok()   { printf '\033[32m%s\033[0m\n' "$1"; }
 profile="release"
 [ "${1:-}" = "--debug" ] && profile="debug"
 
+# rustup writes its PATH line into the shell profile, and a profile is only read
+# by a login shell — so the first build after installing Rust, and every build
+# from a non-interactive shell or a CI step, finds no cargo at all. Sourcing the
+# env file directly costs nothing when the PATH is already right.
+if ! command -v cargo >/dev/null && [ -f "$HOME/.cargo/env" ]; then
+    # shellcheck disable=SC1091
+    . "$HOME/.cargo/env"
+fi
+command -v cargo >/dev/null || fail "cargo is not on PATH. Install Rust: https://rustup.rs"
 command -v cmake >/dev/null || fail "llama.cpp needs CMake. brew install cmake"
 
 # Built for the same target the app is, so the sidecar that ends up beside the
