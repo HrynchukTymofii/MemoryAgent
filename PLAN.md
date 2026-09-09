@@ -1,7 +1,10 @@
-# Fix: ImmatureSignatureError (iat in the future)
+# macOS prep (compiles on Windows, port finishes on the Mac)
 
-Local clock is seconds behind Google's, so a fresh token looks not-yet-valid.
-JWT validation needs a clock-skew leeway.
+Put the Windows-only code behind traits so only one file is missing on macOS.
 
-- `cloud/app/google.py` — 120s leeway on decode
-- `cloud/tests/test_google.py` — a token issued slightly in the future is accepted
+- `crates/memos-context/src/lib.rs` — platform trait, pick impl by cfg
+- `crates/memos-context/src/macos_impl.rs` — new: stub returning empty context
+- `apps/desktop/src-tauri/src/hotkey.rs` — split: shared state vs Windows hook
+- `apps/desktop/src-tauri/src/hotkey_macos.rs` — new: stub, no-op hook
+- `apps/desktop/src-tauri/tauri.conf.json` — macOS bundle + entitlements
+- `docs/adr/0009-macos-port.md` — what is left to write on the Mac

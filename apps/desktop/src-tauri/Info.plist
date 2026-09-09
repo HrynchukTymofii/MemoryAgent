@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- macOS refuses to even show the microphone prompt without a reason
+       string, and the process is killed the moment it touches the device. The
+       wording is the whole prompt the user sees, so it says what is actually
+       true rather than "for functionality". -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Memory OS listens only while you hold the capture shortcut. Audio is transcribed on this Mac and never leaves it.</string>
+
+  <!-- Reading the focused window and its selection goes through the
+       Accessibility API. macOS prompts once, in System Settings, and this is
+       the sentence shown alongside it. -->
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Memory OS reads the title and selected text of the window you are in, so a saved memory knows what it was about.</string>
+
+  <!-- Menu-bar app: no Dock icon, no window on launch. The overlay and the Hub
+       are opened deliberately, and a Dock icon for a tray application is
+       clutter the user cannot remove. -->
+  <key>LSUIElement</key>
+  <true/>
+</dict>
+</plist>

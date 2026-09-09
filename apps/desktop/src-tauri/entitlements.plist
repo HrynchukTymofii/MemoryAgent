@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Notarisation requires the hardened runtime, and the hardened runtime
+       denies the microphone unless it is asked for here. Without this the app
+       is notarised, launches, and silently records nothing. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+
+  <!-- Sign-in opens the user's browser and the API is reached over HTTPS.
+       Under the hardened runtime an app makes no outbound connection without
+       this, and the failure looks like the network being down. -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+
+  <!-- Deliberately absent: `com.apple.security.app-sandbox`.
+       The sandbox forbids the Accessibility API this product reads context
+       through, so a sandboxed build cannot capture what is on screen — which
+       is the feature. Distribution is Developer ID and notarisation, not the
+       Mac App Store, and this is the trade that decides that. -->
+</dict>
+</plist>

@@ -24,7 +24,7 @@ system calibrates on.
 | ✅ **M2** retrieval | ONNX embeddings, background embed worker, FTS5 + vectors + RRF, `SEARCH`/`SHOW`/`OPEN`, page capture, the Hub |
 | 🔨 **M3** intelligence | ✅ Tier 1 router, in a supervised sidecar · ✅ correction log · ✅ `MOVE`/`TAG`/`TASK`/`UNDO` · 🔨 derived confidence |
 
-244 tests, 16 API tests, clippy clean, `tsc --noEmit` clean.
+244 Rust tests, 38 API tests, clippy clean, `tsc --noEmit` clean.
 
 ## Prerequisites
 
