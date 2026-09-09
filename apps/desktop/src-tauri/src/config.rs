@@ -198,6 +198,15 @@ pub struct Config {
     /// near the top edge grows straight off the screen.
     #[serde(default)]
     pub pill_top: bool,
+
+    /// Where sign-in goes, if anywhere.
+    ///
+    /// Empty in a checked-out build, and an empty provider means the Hub offers
+    /// no sign-in at all rather than a button that fails when pressed. Filling
+    /// this in is a deployment step, not a code change — see the Account
+    /// section of the README.
+    #[serde(default)]
+    pub auth: memos_auth::Provider,
 }
 
 fn yes() -> bool {
@@ -217,6 +226,7 @@ impl Default for Config {
             pill_x: None,
             pill_y: None,
             pill_top: false,
+            auth: memos_auth::Provider::default(),
         }
     }
 }

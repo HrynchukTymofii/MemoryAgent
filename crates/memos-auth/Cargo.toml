@@ -1,0 +1,30 @@
+[package]
+name         = "memos-auth"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+
+[dependencies]
+serde      = { workspace = true }
+serde_json = { workspace = true }
+chrono     = { workspace = true }
+thiserror  = { workspace = true }
+tracing    = { workspace = true }
+
+# Blocking on purpose. The whole flow is one long wait for a human to finish
+# something in their browser, and it runs on its own thread; an async client
+# would buy nothing and would have to be threaded through a runtime this crate
+# otherwise has no reason to know about.
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls",
+] }
+base64 = "0.22"
+sha2   = "0.10"
+rand   = "0.8"
+url    = "2"
+
+[dev-dependencies]
+tempfile = "3"

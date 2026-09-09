@@ -8,6 +8,7 @@ import {
   type MicStatus,
   type RouterStatus,
   type RoutingStats,
+  type Account as AccountData,
   type Settings as SettingsData,
   type SttStatus,
 } from "../../lib/api";
@@ -35,9 +36,13 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
   const [latency, setLatency] = useState<LatencyReport | null>(null);
   const [routing, setRouting] = useState<RoutingStats | null>(null);
   const [logNote, setLogNote] = useState<string | null>(null);
+  const [account, setAccount] = useState<AccountData | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authNote, setAuthNote] = useState<string | null>(null);
 
   useEffect(() => {
     void api.settings().then(setSettings).catch(() => {});
+    void api.account().then(setAccount).catch(() => {});
     let live = true;
     const tick = async () => {
       try {
@@ -95,13 +100,81 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
     }
   };
 
+  /**
+   * Sign in, and wait — this resolves only once the browser round trip is over,
+   * which can take minutes. Nothing else on this screen is blocked meanwhile.
+   */
+  const signIn = async () => {
+    setAuthBusy(true);
+    setAuthNote(null);
+    try {
+      setAccount(await api.signIn());
+    } catch (e) {
+      // Cancelling is the common case and is not a failure worth shouting
+      // about: nothing changed, and the app works exactly as it did.
+      setAuthNote(String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const signOut = async () => {
+    try {
+      setAccount(await api.signOut());
+      setAuthNote(null);
+    } catch (e) {
+      setAuthNote(String(e));
+    }
+  };
+
   return (
     <div className="panel">
       <h1>Settings</h1>
       <p className="sub">
-        The shortcut, the microphone and the models behind capture and search. Account and privacy
-        arrive with the milestones that need them.
+        The shortcut, the microphone and the models behind capture and search. Nothing here is
+        required to use the app — including the account.
       </p>
+
+      {account?.available && (
+        <div className="card">
+          <h2>Account</h2>
+          <div className="row last">
+            <span className="bd">
+              <span className="k">
+                {account.signed_in
+                  ? (account.display_name ?? account.email ?? "Signed in")
+                  : "Not signed in"}
+              </span>
+              <span className="v">
+                {account.signed_in
+                  ? account.email ?? "No email on this account."
+                  : "Capture, search and everything you have already saved work without an " +
+                    "account, and always will. Signing in is what will carry your memories " +
+                    "between machines when sync arrives."}
+              </span>
+              {authNote && (
+                <span className="v" style={{ marginTop: 4, display: "block", color: "var(--bad)" }}>
+                  {authNote}
+                </span>
+              )}
+            </span>
+            {account.signed_in ? (
+              <button type="button" className="btn" onClick={() => void signOut()}>
+                Sign out
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn primary"
+                disabled={authBusy}
+                onClick={() => void signIn()}
+              >
+                {authBusy ? "Waiting for browser…" : "Sign in"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {offline && (
         <p className="verdict bad">

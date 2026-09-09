@@ -24,7 +24,7 @@ system calibrates on.
 | ✅ **M2** retrieval | ONNX embeddings, background embed worker, FTS5 + vectors + RRF, `SEARCH`/`SHOW`/`OPEN`, page capture, the Hub |
 | 🔨 **M3** intelligence | ✅ Tier 1 router, in a supervised sidecar · ✅ correction log · ✅ `MOVE`/`TAG`/`TASK`/`UNDO` · 🔨 derived confidence |
 
-209 tests, clippy clean, `tsc --noEmit` clean.
+238 tests, clippy clean, `tsc --noEmit` clean.
 
 ## Prerequisites
 
@@ -133,6 +133,42 @@ paragraphs are headings, and they stay.
 A page with no prose at all returns nothing rather than something. A search
 results page or a mail client's folder list would otherwise be stored, and every
 such capture looks like every other one.
+
+## Account (optional)
+
+Sign-in is off until a provider is configured, and the Hub hides the Account
+section entirely when it is not. Nothing in the app requires it: capture,
+search and everything already saved work signed out and always will (ADR-0007
+— the archive is never gated). An account exists to know who is using this,
+and to be the identity cloud sync attaches to at M5.
+
+The flow is Authorization Code with **PKCE over a loopback redirect**
+(RFC 8252). There is no client secret, because a desktop binary cannot keep
+one — so when registering the app, create it as a **public / native client**
+and add the redirect URI `http://127.0.0.1` with **any port permitted**; the
+port is chosen by the operating system at each sign-in.
+
+Fill in `auth` in `%APPDATA%\PersonalMemoryOS\config.json`:
+
+```json
+"auth": {
+  "authorize_url": "https://api.stack-auth.com/api/v1/auth/oauth/authorize/<provider>",
+  "token_url":     "https://api.stack-auth.com/api/v1/auth/oauth/token",
+  "userinfo_url":  "https://api.stack-auth.com/api/v1/users/me",
+  "client_id":     "<your project id>",
+  "scope":         "openid email profile"
+}
+```
+
+Those URLs are the shape, not gospel — take the exact ones from your provider's
+OIDC discovery document (`/.well-known/openid-configuration`), which is what
+Neon Auth, Stack Auth, Auth0 and any other OIDC provider publish. `userinfo_url`
+may be omitted, in which case the email is read from the `id_token`'s claims.
+
+The session is stored as `session.json` beside the database, in clear text —
+the same protection the database itself has, which already holds every memory
+you have captured. Binding it to the OS account (DPAPI on Windows, Keychain on
+macOS) is a deliberate follow-up.
 
 ## The loop, end to end
 

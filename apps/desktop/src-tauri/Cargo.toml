@@ -32,6 +32,10 @@ memos-retrieval = { workspace = true }
 # (ADR-0008), so nothing here needs a native toolchain and the escalation path
 # is always compiled in.
 memos-llm  = { workspace = true }
+# Sign-in. Nothing on the capture path touches this crate: an account is for
+# knowing who is using the product and, at M5, for sync — never for permission
+# to use it.
+memos-auth = { workspace = true }
 
 tauri      = { version = "2", features = ["tray-icon", "image-png"] }
 serde      = { workspace = true }

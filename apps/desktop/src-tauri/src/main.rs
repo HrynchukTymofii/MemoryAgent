@@ -33,6 +33,10 @@ pub struct AppState {
     /// The one destination question waiting on an answer, if any.
     pub questions: Arc<question::Pending>,
     pub router: Arc<router::Tier1>,
+    /// Sign-in. Present whether or not a provider is configured; an
+    /// unconfigured one simply answers "not signed in" to everything, which is
+    /// the same answer a signed-out user gets and needs no special casing.
+    pub auth: Arc<memos_auth::Auth>,
     pub config: parking_lot::Mutex<config::Config>,
     /// Read by the dispatch thread on every engagement, so a changed debounce
     /// takes effect without a restart like the binding does.
@@ -815,6 +819,70 @@ fn save_pill_anchor(
     Ok(state_out)
 }
 
+// ------------------------------------------------------------------- account
+
+/// Who is signed in, and whether signing in is even on offer.
+#[derive(serde::Serialize)]
+struct Account {
+    /// False in a build with no provider configured. The Hub hides the whole
+    /// section rather than showing a button that cannot work.
+    available: bool,
+    #[serde(flatten)]
+    identity: memos_auth::Identity,
+}
+
+#[tauri::command]
+fn account(state: tauri::State<'_, AppState>) -> Account {
+    Account {
+        available: state.auth.is_configured(),
+        identity: state.auth.identity(),
+    }
+}
+
+/// Run the sign-in flow, and resolve when the user comes back.
+///
+/// `spawn_blocking` because the flow is blocking by design: it opens a browser
+/// and then waits on a person, for up to five minutes. Holding a Tauri worker
+/// thread for that would starve every other command — including the ones the
+/// capture path needs — so it goes to the pool that exists for exactly this.
+#[tauri::command]
+async fn sign_in(app: tauri::AppHandle) -> Result<Account, String> {
+    let auth = {
+        let state = app.state::<AppState>();
+        state.auth.clone()
+    };
+    let signed = tauri::async_runtime::spawn_blocking(move || {
+        let identity = auth.sign_in();
+        (auth.is_configured(), identity)
+    })
+    .await
+    .map_err(|e| format!("sign-in did not run: {e}"))?;
+
+    match signed {
+        (available, Ok(identity)) => {
+            tracing::info!(email = ?identity.email, "account connected");
+            Ok(Account { available, identity })
+        }
+        (_, Err(e)) => {
+            // Logged whole, reported short. The user pressing cancel and the
+            // provider being unreachable are the same non-event to them: they
+            // are not signed in, and the app works exactly as it did.
+            tracing::warn!(?e, "sign-in did not complete");
+            Err(e.to_string())
+        }
+    }
+}
+
+/// Forget the session on this machine.
+#[tauri::command]
+fn sign_out(state: tauri::State<'_, AppState>) -> Result<Account, String> {
+    state.auth.sign_out().map_err(|e| e.to_string())?;
+    Ok(Account {
+        available: state.auth.is_configured(),
+        identity: state.auth.identity(),
+    })
+}
+
 /// Bring the Hub up from the overlay.
 #[tauri::command]
 fn open_hub(app: tauri::AppHandle) {
@@ -1064,6 +1132,7 @@ fn main() {
             embeddings: embeddings.clone(),
             questions: questions.clone(),
             router: tier1.clone(),
+            auth: Arc::new(memos_auth::Auth::new(cfg.auth.clone(), data_dir())),
             config: parking_lot::Mutex::new(cfg.clone()),
             hold_ms: hold_ms.clone(),
         })
@@ -1087,6 +1156,9 @@ fn main() {
             overlay_clickable,
             rest_state,
             save_pill_anchor,
+            account,
+            sign_in,
+            sign_out,
             open_hub,
             set_idle_pill,
             search,

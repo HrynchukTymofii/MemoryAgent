@@ -101,6 +101,16 @@ export interface CollectionRow {
   items: number;
 }
 
+/** Who is signed in, and whether signing in is offered by this build at all. */
+export interface Account {
+  /** False when no provider is configured — the section stays hidden. */
+  available: boolean;
+  signed_in: boolean;
+  email: string | null;
+  display_name: string | null;
+  signed_in_at: string | null;
+}
+
 export interface TaskRow {
   id: string;
   title: string;
@@ -144,6 +154,10 @@ export const api = {
   setTaskDone: (id: string, done: boolean) =>
     invoke<void>("set_task_done", { id, done }),
   openTaskCount: () => invoke<number>("open_task_count"),
+  account: () => invoke<Account>("account"),
+  /** Resolves when the browser round trip finishes — which can take minutes. */
+  signIn: () => invoke<Account>("sign_in"),
+  signOut: () => invoke<Account>("sign_out"),
   /** Resolves to what was opened, or `null` for an item with no source. */
   openItem: (id: string) => invoke<string | null>("open_item", { id }),
 };
