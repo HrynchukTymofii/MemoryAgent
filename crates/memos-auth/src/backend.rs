@@ -102,10 +102,34 @@ pub fn record_user(
         let body = response.text().unwrap_or_default();
         tracing::warn!(%status, body = %body.chars().take(300).collect::<String>(),
             "could not record the user");
-        return Err(AuthError::Protocol(format!("backend refused the write ({status})")));
+        return Err(AuthError::Protocol(explain(status.as_u16(), &body)));
     }
     tracing::info!(user = %session.user_id, "recorded the signed-in user");
     Ok(())
+}
+
+/// Turn the backend's refusal into something a developer can act on.
+///
+/// The two failures that actually happen during setup are indistinguishable in
+/// a raw status code, and both look like "it silently does not work": the table
+/// has not been created yet, or the Data API is not configured to trust the
+/// identity provider. Naming them here is the difference between a five-minute
+/// fix and an afternoon.
+fn explain(status: u16, body: &str) -> String {
+    let missing_table = body.contains("does not exist") || body.contains("PGRST205");
+    match status {
+        404 if missing_table || body.is_empty() => concat!(
+            "the `users` table does not exist yet — apply cloud/migrations ",
+            "(scripts/migrate-cloud.ps1)"
+        )
+        .into(),
+        401 | 403 => concat!(
+            "the backend rejected the identity token — check that the Data API ",
+            "trusts the issuer https://accounts.google.com"
+        )
+        .into(),
+        other => format!("backend refused the write ({other})"),
+    }
 }
 
 #[cfg(test)]
@@ -158,6 +182,22 @@ mod tests {
         s.user_id = String::new();
         let b = Backend { data_api_url: "https://example.invalid".into() };
         assert!(matches!(record_user(&http(), &b, &s), Err(AuthError::Protocol(_))));
+    }
+
+    /// The two setup failures that look identical from the outside must not
+    /// read identically in the log.
+    #[test]
+    fn a_missing_table_says_so_rather_than_reporting_a_status_code() {
+        let m = explain(404, r#"{"code":"PGRST205","message":"relation does not exist"}"#);
+        assert!(m.contains("does not exist yet"), "{m}");
+        assert!(m.contains("migrate-cloud"), "{m}");
+
+        let auth = explain(401, "");
+        assert!(auth.contains("accounts.google.com"), "{auth}");
+
+        // Anything else stays honest about being unrecognised rather than
+        // guessing at a cause.
+        assert!(explain(500, "boom").contains("500"));
     }
 
     /// The row is keyed by the provider's subject, never by email — people

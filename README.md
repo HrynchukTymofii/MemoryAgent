@@ -24,7 +24,7 @@ system calibrates on.
 | ✅ **M2** retrieval | ONNX embeddings, background embed worker, FTS5 + vectors + RRF, `SEARCH`/`SHOW`/`OPEN`, page capture, the Hub |
 | 🔨 **M3** intelligence | ✅ Tier 1 router, in a supervised sidecar · ✅ correction log · ✅ `MOVE`/`TAG`/`TASK`/`UNDO` · 🔨 derived confidence |
 
-239 tests, clippy clean, `tsc --noEmit` clean.
+245 tests, clippy clean, `tsc --noEmit` clean.
 
 ## Prerequisites
 
@@ -182,31 +182,26 @@ against Google's public keys and runs the statement as that user, so row-level
 security decides what the request may touch. A stolen token is one session and
 expires; a stolen connection string is the whole database, forever.
 
-In the Neon console: enable the **Data API** on your project, then add Google as
-an authentication provider — issuer `https://accounts.google.com`, JWKS
+In the Neon console: enable the **Data API** on your project, then add Google
+as an authentication provider — issuer `https://accounts.google.com`, JWKS
 `https://www.googleapis.com/oauth2/v3/certs`. Copy the Data API URL into
-`MEMOS_DATA_API_URL`. Then create the table it writes to:
+`MEMOS_DATA_API_URL`.
 
-```sql
-create table users (
-  id            text primary key,   -- the provider's `sub` claim
-  email         text,
-  display_name  text,
-  last_seen_at  timestamptz not null default now(),
-  created_at    timestamptz not null default now()
-);
+Then create the table. The schema lives in `cloud/migrations/`, not in a
+console someone once clicked through:
 
-alter table users enable row level security;
-
--- Each user sees and writes exactly their own row, enforced by the database
--- rather than by the client asking nicely.
-create policy users_own_row on users
-  for all
-  using (id = auth.user_id())
-  with check (id = auth.user_id());
-
-grant select, insert, update on users to authenticated;
 ```
+.\scripts\migrate-cloud.ps1
+```
+
+With `psql` installed and `DATABASE_URL` set in `.env`, it applies every
+migration. Without either, it prints them for pasting into the Neon SQL
+Editor — the same text, applied the same way. `DATABASE_URL` is a *developer*
+credential: it is used by that script on your machine and is never compiled
+into the app or shipped.
+
+Until the table exists, sign-in still works and the write fails with
+`the users table does not exist yet` in the log rather than a bare 404.
 
 The row is keyed by `sub` rather than by email, because people change their
 email address and must remain the same user when they do.
