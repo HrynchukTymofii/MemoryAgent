@@ -7,12 +7,26 @@ visible instead of hidden in whatever the environment happened to set.
 """
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# The repository root, found from this file rather than from the working
+# directory. `env_file=".env"` is resolved relative to wherever the process was
+# started, so running `uvicorn` from `cloud/` looked for `cloud/.env` and found
+# nothing — reported as three missing fields rather than as a missing file.
+_ROOT = Path(__file__).resolve().parents[2]
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # Both, in order: the repository root is where the desktop app's `.env`
+    # already lives, and a `cloud/.env` is what a deployment that only ships
+    # this service would have.
+    model_config = SettingsConfigDict(
+        env_file=(_ROOT / ".env", _ROOT / "cloud" / ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     # The direct Postgres connection string. Lives here and only here: this is
     # the credential the desktop app must never hold, and the whole reason this
