@@ -144,26 +144,62 @@ and to be the identity cloud sync attaches to at M5.
 
 The flow is Authorization Code with **PKCE over a loopback redirect**
 (RFC 8252). There is no client secret, because a desktop binary cannot keep
-one — so when registering the app, create it as a **public / native client**
-and add the redirect URI `http://127.0.0.1` with **any port permitted**; the
-port is chosen by the operating system at each sign-in.
+one — anything compiled in is readable by everyone who installs it.
 
-Fill in `auth` in `%APPDATA%\PersonalMemoryOS\config.json`:
+### Google
+
+The provider that fits this shape with no server of our own. In the Google
+Cloud console: **APIs & Services → Credentials → Create OAuth client ID →
+Desktop app**. That client type is built for exactly this — public client, no
+secret, loopback redirect on a port chosen at runtime.
+
+Then fill in `auth` in `%APPDATA%\PersonalMemoryOS\config.json` (these are
+Google's published endpoints, from its OIDC discovery document):
 
 ```json
 "auth": {
-  "authorize_url": "https://api.stack-auth.com/api/v1/auth/oauth/authorize/<provider>",
-  "token_url":     "https://api.stack-auth.com/api/v1/auth/oauth/token",
-  "userinfo_url":  "https://api.stack-auth.com/api/v1/users/me",
-  "client_id":     "<your project id>",
+  "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+  "token_url":     "https://oauth2.googleapis.com/token",
+  "userinfo_url":  "https://openidconnect.googleapis.com/v1/userinfo",
+  "client_id":     "<yours>.apps.googleusercontent.com",
   "scope":         "openid email profile"
 }
 ```
 
-Those URLs are the shape, not gospel — take the exact ones from your provider's
-OIDC discovery document (`/.well-known/openid-configuration`), which is what
-Neon Auth, Stack Auth, Auth0 and any other OIDC provider publish. `userinfo_url`
-may be omitted, in which case the email is read from the `id_token`'s claims.
+Any OIDC provider fits this shape; take the URLs from its
+`/.well-known/openid-configuration`. `userinfo_url` may be omitted, in which
+case the email is read from the `id_token`'s claims.
+
+### One project, several clients
+
+A web app and a mobile app each need their **own** OAuth client — Google issues
+one per platform, because the ways they prove identity differ (a web client has
+a secret and fixed redirect URIs; iOS binds to a bundle ID; Android to a package
+name and signing fingerprint). That is a registration step, not a second
+integration.
+
+Keep them all in **one Google Cloud project**. The `sub` claim that identifies a
+user is stable per project, not per client, so the same person signing in from
+the desktop app, the website and the phone is one row in the database rather
+than three.
+
+### Why Google before Apple or GitHub
+
+Neither of the other two fits a no-backend desktop app, and it is worth knowing
+why before promising them:
+
+- **Apple** signs its client secret rather than issuing one: a JWT you mint with
+  a private key, rotated at most every six months. A desktop binary cannot hold
+  that key, so Apple needs either a server to mint it, or the native macOS
+  sign-in sheet — which is macOS-only and does not help Windows.
+- **GitHub** requires a client secret at the token exchange for the ordinary web
+  flow. Its **device flow** needs no secret and is the right answer for a
+  desktop app, but it is a different flow from the one here: a code the user
+  types into a browser, and polling rather than a redirect.
+
+Both become easy the moment a backend exists to hold a secret — which is what a
+website brings with it. So the order is Google now, the others alongside the web
+app, rather than three half-solutions in the desktop client.
 
 The session is stored as `session.json` beside the database, in clear text —
 the same protection the database itself has, which already holds every memory
