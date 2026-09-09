@@ -27,6 +27,13 @@ interface Candidate {
   score: number;
 }
 
+/** Just enough of a memory to list it in the expanded pill. */
+interface Recent {
+  id: string;
+  title: string;
+  collection: string | null;
+}
+
 /** A narrow question: one slot, a few indistinguishable candidates. */
 interface Ambiguity {
   slot: string;
@@ -231,9 +238,152 @@ function fitWindowToContent() {
   });
 }
 
-await listen("capture:begin", () => {
+// ------------------------------------------------------------------ idle
+
+let idle = false;
+let expanded = false;
+
+/**
+ * Shrink the window onto the pill, then let it be clicked.
+ *
+ * Strictly in that order. This is the only state where the overlay is clickable
+ * without a question on screen, and a transparent window intercepts clicks
+ * across its whole rectangle — so turning clicks on while the window is still
+ * its resting 520px wide would swallow everything in a band across the display
+ * where nothing is drawn.
+ */
+function fitIdleWindow() {
+  requestAnimationFrame(() => {
+    const box = pill.getBoundingClientRect();
+    const top = expanded ? results.getBoundingClientRect().top : box.top;
+    const css = Math.ceil(box.bottom - top) + 26;
+    // The margins are outside the rect, and the shadow is drawn outside the
+    // border box: too tight a width clips it into a visible hard edge.
+    const width = Math.ceil((expanded ? results.getBoundingClientRect().width : box.width) + 34);
+    const dpr = window.devicePixelRatio || 1;
+    invoke("size_overlay", {
+      height: Math.ceil(css * dpr),
+      width: Math.ceil(width * dpr),
+      css,
+      dpr,
+    })
+      .then(() => invoke("overlay_clickable", { clickable: true }))
+      .catch(() => {});
+  });
+}
+
+function enterIdle() {
+  idle = false; // so collapse() does not try to re-fit mid-transition
+  expanded = false;
   clearResults();
-  pill.classList.remove("done", "empty", "unsure");
+  animating = false;
+  cancelAnimationFrame(raf);
+  stopLevelPolling();
+  setIdleBars();
+  document.body.classList.add("idle");
+  pill.className = "shown idle";
+  dot.hidden = true;
+  kbd.hidden = true;
+  text.textContent = "Memory";
+  idle = true;
+  fitIdleWindow();
+}
+
+/** Leave idle for a capture: full width, click-through, normal pill. */
+function leaveIdle() {
+  idle = false;
+  expanded = false;
+  document.body.classList.remove("idle");
+  invoke("overlay_clickable", { clickable: false }).catch(() => {});
+}
+
+async function expand() {
+  expanded = true;
+  pill.classList.add("expanded");
+  text.textContent = "Recent";
+
+  let items: Recent[] = [];
+  let open = 0;
+  try {
+    [items, open] = await Promise.all([
+      invoke<Recent[]>("recent", { limit: 3 }),
+      invoke<number>("open_task_count"),
+    ]);
+  } catch {
+    // An empty panel is still a correct answer here — the pill is expanded and
+    // says so. Failing loudly over a decorative list would be worse.
+  }
+
+  results.replaceChildren();
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.className = "recent";
+    const title = document.createElement("span");
+    title.className = "title";
+    title.textContent = item.title;
+    li.appendChild(title);
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    meta.textContent = item.collection?.replace(/\//g, " / ") ?? "Unfiled";
+    li.appendChild(meta);
+    results.appendChild(li);
+  }
+
+  const foot = document.createElement("li");
+  foot.className = "foot";
+  const count = document.createElement("span");
+  count.className = "count";
+  count.textContent = open === 1 ? "1 task open" : `${open} tasks open`;
+  foot.appendChild(count);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Open Hub";
+  button.addEventListener("click", (e) => {
+    e.stopPropagation();
+    invoke("open_hub").catch(() => {});
+    collapse();
+  });
+  foot.appendChild(button);
+  results.appendChild(foot);
+
+  results.classList.add("shown");
+  fitIdleWindow();
+}
+
+function collapse() {
+  if (!expanded) return;
+  expanded = false;
+  pill.classList.remove("expanded");
+  text.textContent = "Memory";
+  clearResults();
+  fitIdleWindow();
+}
+
+pill.addEventListener("click", () => {
+  if (!idle) return;
+  if (expanded) collapse();
+  else void expand();
+});
+
+// The overlay never takes focus, so there is no blur to close on and no
+// keyboard reaching this window. Escape is here for the case where the webview
+// does happen to have focus — cheap, and the alternative is a panel with no
+// keyboard way out at all.
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") collapse();
+});
+
+await listen("capture:idle", () => {
+  enterIdle();
+});
+
+await listen("capture:begin", () => {
+  // A capture starting is what dismisses an expanded pill. The window has
+  // already been restored to its resting size and made click-through on the
+  // Rust side; this is the page catching up with that.
+  leaveIdle();
+  clearResults();
+  pill.className = "";
   pill.classList.add("shown", "live");
   dot.hidden = false;
   kbd.hidden = false;
@@ -279,6 +429,9 @@ await listen("capture:end", () => {
 await listen("capture:hide", () => {
   pill.classList.remove("shown", "live", "done", "empty", "unsure");
   clearResults();
+  // Deliberately not returning to idle here. This is the fade, and the Rust
+  // side decides what follows it — hide, or `capture:idle` — because only it
+  // knows whether the user wants a resting pill at all.
 });
 
 await listen<CaptureResult>("capture:result", (e) => {
@@ -337,3 +490,14 @@ await listen<CaptureResult>("capture:result", (e) => {
   kbd.hidden = false;
   kbd.textContent = `${r.total_ms} ms`;
 });
+
+// Last, after every listener above is registered: ask whether this window
+// should be resting on screen rather than waiting to be summoned. Asked, not
+// awaited from an event — see `idle_pill_enabled` for why the push version
+// silently did nothing.
+try {
+  if (await invoke<boolean>("idle_pill_enabled")) enterIdle();
+} catch {
+  // No answer means no resting pill, which is the pre-pill behaviour and a
+  // perfectly good place to fail to.
+}

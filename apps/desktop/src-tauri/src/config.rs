@@ -168,6 +168,20 @@ pub struct Config {
     /// only — it records everything you type, so it stays off by default.
     #[serde(default)]
     pub debug_keys: bool,
+
+    /// Keep a small pill on screen when nothing is being captured.
+    ///
+    /// On by default: a shortcut with no visible affordance is a shortcut
+    /// people forget they have, and the pill is the only thing telling them the
+    /// app is running at all. It is a preference rather than a fixed behaviour
+    /// because an always-on-top window is genuinely unwelcome over a game or a
+    /// full-screen video, and that is not a judgement to make for someone.
+    #[serde(default = "yes")]
+    pub idle_pill: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for Config {
@@ -179,6 +193,7 @@ impl Default for Config {
             hotkey: "ctrl+win".into(),
             hold_threshold_ms: 120,
             debug_keys: false,
+            idle_pill: true,
         }
     }
 }

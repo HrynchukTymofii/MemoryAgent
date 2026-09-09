@@ -17,6 +17,17 @@ const HOLD_OPTIONS = [0, 120, 200, 350];
 
 export function Settings({ hook, offline }: { hook: HookStats | null; offline: boolean }) {
   const [settings, setSettings] = useState<SettingsData | null>(null);
+
+  // The backend returns the whole settings object, so the toggle reflects what
+  // was actually persisted rather than what was clicked.
+  const toggleIdlePill = async (enabled: boolean) => {
+    try {
+      setSettings(await api.setIdlePill(enabled));
+    } catch {
+      // Leave the toggle where it was: a switch that moves without the setting
+      // changing is worse than one that does not move.
+    }
+  };
   const [mic, setMic] = useState<MicStatus | null>(null);
   const [stt, setStt] = useState<SttStatus | null>(null);
   const [embed, setEmbed] = useState<EmbedStatus | null>(null);
@@ -102,6 +113,33 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
       <div className="card">
         <h2>Capture</h2>
         <Shortcut settings={settings} hook={hook} onSaved={setSettings} />
+
+        <div className="row">
+          <span className="bd">
+            <span className="k">Resting pill</span>
+            <span className="v">
+              A small pill stays near the bottom of the screen when nothing is being captured.
+              Click it for your last few memories. Turn it off if an always-on-top window gets in
+              the way of full-screen work.
+            </span>
+          </span>
+          <span className="seg">
+            <button
+              type="button"
+              className={settings?.idle_pill ? "on" : ""}
+              onClick={() => void toggleIdlePill(true)}
+            >
+              On
+            </button>
+            <button
+              type="button"
+              className={settings && !settings.idle_pill ? "on" : ""}
+              onClick={() => void toggleIdlePill(false)}
+            >
+              Off
+            </button>
+          </span>
+        </div>
 
         <div className="row last">
           <span className="bd">

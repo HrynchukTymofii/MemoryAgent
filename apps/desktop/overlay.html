@@ -137,6 +137,47 @@
     font-size: 9.5px; color: #6E7C8A;
   }
 
+  /* ------------------------------------------------------------- idle */
+  /* The resting state: a small pill that stays on screen so the shortcut has
+     a visible affordance and the app is visibly running. It is the one state
+     in which this window is clickable by default, which is why the window
+     shrinks to hug it — see `size_overlay`. */
+  body.idle { align-items: center; }
+  #pill.idle {
+    margin: 10px auto;
+    padding: 9px 14px;
+    min-height: 0;
+    gap: 9px;
+    cursor: pointer;
+    /* Quieter than a capture. This sits on screen all day; at full contrast it
+       would be something the eye keeps returning to for no reason. */
+    background: rgba(31, 35, 40, .82);
+    border-color: #2E353D;
+    box-shadow: 0 6px 18px rgba(15, 26, 40, .30);
+  }
+  #pill.idle:hover { background: #1F2328; border-color: #414A54; }
+  /* `flex: 1` on the text is what makes the pill fill the window during a
+     capture. Idle, the pill must hug its content instead or the window cannot
+     shrink to it. */
+  #pill.idle #text { flex: 0 0 auto; font-size: 12px; color: #8D9AA8; }
+  #pill.idle #wave i { background: #6E7C8A; }
+  #pill.idle:hover #wave i { background: #DCE5EC; }
+
+  /* Expanded: the same pill, with a panel of recent memories above it. */
+  #pill.expanded { background: #1F2328; border-color: #414A54; }
+  #results li.recent .title { font-size: 12px; }
+  #results li.foot {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 7px 12px; background: rgba(31, 35, 40, .82);
+  }
+  #results li.foot .count { font-size: 11px; color: #8D9AA8; }
+  #results li.foot button {
+    background: #2E3238; border: 1px solid #414A54; border-radius: 7px;
+    color: #F1F4F8; font: inherit; font-size: 11px; padding: 4px 10px;
+    cursor: pointer;
+  }
+  #results li.foot button:hover { background: #3A424B; border-color: #5A6673; }
+
   @media (prefers-reduced-motion: reduce) {
     #pill, #wave i, #results { transition: none; }
   }

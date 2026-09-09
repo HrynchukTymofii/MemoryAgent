@@ -84,17 +84,25 @@ struct Settings {
     hold_threshold_ms: u64,
     debug_keys: bool,
     active_chord: String,
+    idle_pill: bool,
 }
 
-#[tauri::command]
-fn get_settings(state: tauri::State<'_, AppState>) -> Settings {
+/// One place that reads the config into the shape the Hub expects, so a field
+/// added here cannot be forgotten by one of the three commands that return it.
+fn settings_of(state: &tauri::State<'_, AppState>) -> Settings {
     let c = state.config.lock().clone();
     Settings {
         hotkey: c.hotkey,
         hold_threshold_ms: c.hold_threshold_ms,
         debug_keys: c.debug_keys,
         active_chord: hotkey::active_chord_label(),
+        idle_pill: c.idle_pill,
     }
+}
+
+#[tauri::command]
+fn get_settings(state: tauri::State<'_, AppState>) -> Settings {
+    settings_of(&state)
 }
 
 /// Apply a new binding immediately and persist it.
@@ -130,6 +138,7 @@ fn set_hotkey(
         hold_threshold_ms: cfg.hold_threshold_ms,
         debug_keys: cfg.debug_keys,
         active_chord: hotkey::active_chord_label(),
+        idle_pill: cfg.idle_pill,
     })
 }
 
@@ -230,7 +239,7 @@ fn router_status(state: tauri::State<'_, AppState>) -> RouterStatus {
 /// Clamped at both ends anyway. This number arrives from a webview, and a
 /// webview mid-layout can report anything at all.
 #[tauri::command]
-fn size_overlay(app: tauri::AppHandle, height: u32, css: f64, dpr: f64) {
+fn size_overlay(app: tauri::AppHandle, height: u32, width: Option<u32>, css: f64, dpr: f64) {
     let Some(w) = app.get_webview_window("overlay") else {
         return;
     };
@@ -245,8 +254,22 @@ fn size_overlay(app: tauri::AppHandle, height: u32, css: f64, dpr: f64) {
     let max = (OVERLAY_MAX_HEIGHT as f64 * scale) as u32;
     let height = height.clamp(min, max);
 
-    tracing::debug!(css, dpr, scale, height, current = current.height, "sizing overlay");
-    if let Err(e) = w.set_size(tauri::PhysicalSize::new(current.width, height)) {
+    // Width is sent only by the idle pill, and only because it has to be: an
+    // idle window is *clickable*, and a transparent window intercepts clicks
+    // across its whole rectangle. Left at the resting 520 px it would eat every
+    // click in a band across the screen where nothing is drawn. Every other
+    // state keeps the resting width, where full-width rows are what is wanted.
+    let width = match width {
+        Some(px) => {
+            let min = (OVERLAY_MIN_WIDTH as f64 * scale) as u32;
+            let max = (OVERLAY_SIZE.0 as f64 * scale) as u32;
+            px.clamp(min, max)
+        }
+        None => current.width,
+    };
+
+    tracing::debug!(css, dpr, scale, height, width, current = current.height, "sizing overlay");
+    if let Err(e) = w.set_size(tauri::PhysicalSize::new(width, height)) {
         tracing::warn!(?e, "could not resize the overlay");
         return;
     }
@@ -313,7 +336,7 @@ fn answer_question(
             let _ = fade.emit_to("overlay", "capture:hide", ());
             std::thread::sleep(std::time::Duration::from_millis(140));
             if let Some(w) = fade.get_webview_window("overlay") {
-                let _ = w.hide();
+                rest(&fade, &w);
             }
         });
     }
@@ -650,6 +673,10 @@ const OVERLAY_SIZE: (u32, u32) = (520, 320);
 /// webview, and a webview mid-layout can report anything at all.
 const OVERLAY_MIN_HEIGHT: u32 = 120;
 const OVERLAY_MAX_HEIGHT: u32 = 620;
+/// The idle pill is narrow, and the window shrinks to it. Small enough to hug
+/// the pill, large enough that a bad measurement cannot produce a window too
+/// small to see or click.
+const OVERLAY_MIN_WIDTH: u32 = 90;
 
 /// Make the overlay something the user can click.
 ///
@@ -674,6 +701,94 @@ fn speak_only<R: Runtime>(w: &tauri::WebviewWindow<R>) {
     let _ = w.set_ignore_cursor_events(true);
     let _ = w.set_size(tauri::LogicalSize::new(OVERLAY_SIZE.0, OVERLAY_SIZE.1));
     position_overlay(w);
+}
+
+/// Where the overlay goes when there is nothing to show.
+///
+/// Two resting states, and which one applies is the user's choice. With the
+/// idle pill on the window never actually leaves — it shrinks back to the small
+/// always-there pill, which is the entire point of that mode. With it off the
+/// window hides, exactly as it did before the pill existed.
+///
+/// Note the asymmetry: hiding is safe to do here, but becoming *clickable* is
+/// not. That waits until the page has laid the idle pill out and told us how
+/// small the window may be — see `overlay_clickable`.
+fn rest(app: &tauri::AppHandle, w: &tauri::WebviewWindow) {
+    let idle = app
+        .try_state::<AppState>()
+        .map(|s| s.config.lock().idle_pill)
+        .unwrap_or(false);
+    if idle {
+        let _ = app.emit_to("overlay", "capture:idle", ());
+    } else {
+        let _ = w.hide();
+        speak_only(w);
+    }
+}
+
+/// Let the page say when the overlay may be pointed at.
+///
+/// Driven from the page rather than from here because only the page knows when
+/// its layout has settled. Turning this on while the window is still at its
+/// resting 520x320 would swallow every click in that rectangle, so the idle
+/// pill calls `size_overlay` first and this second — in that order, always.
+#[tauri::command]
+fn overlay_clickable(app: tauri::AppHandle, clickable: bool) {
+    let Some(w) = app.get_webview_window("overlay") else {
+        return;
+    };
+    if let Err(e) = w.set_ignore_cursor_events(!clickable) {
+        tracing::warn!(?e, clickable, "could not change overlay click handling");
+    }
+}
+
+/// Whether the overlay should be showing its resting pill.
+///
+/// Pulled by the page on load rather than pushed at it. An event emitted before
+/// the webview has registered its listeners is simply dropped — and at startup
+/// that is exactly the ordering, so the pill stayed invisible at `opacity: 0`
+/// in a window that never shrank. Asking is race-free; being told is not.
+#[tauri::command]
+fn idle_pill_enabled(state: tauri::State<'_, AppState>) -> bool {
+    state.config.lock().idle_pill
+}
+
+/// Bring the Hub up from the overlay.
+#[tauri::command]
+fn open_hub(app: tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// Turn the idle pill on or off, and act on it immediately.
+///
+/// Applied to the live window rather than only saved, because a preference that
+/// needs a restart to take effect reads as one that did not work.
+#[tauri::command]
+fn set_idle_pill(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<Settings, String> {
+    {
+        let mut cfg = state.config.lock();
+        cfg.idle_pill = enabled;
+        cfg.save()?;
+    }
+    if let Some(w) = app.get_webview_window("overlay") {
+        if enabled {
+            let _ = w.show();
+            let _ = app.emit_to("overlay", "capture:idle", ());
+        } else {
+            let _ = w.set_ignore_cursor_events(true);
+            let _ = w.hide();
+            speak_only(&w);
+        }
+    }
+    Ok(settings_of(&state))
 }
 
 /// Let the overlay be clicked without ever taking focus.
@@ -847,6 +962,10 @@ fn main() {
             forget_command_log,
             answer_question,
             size_overlay,
+            overlay_clickable,
+            idle_pill_enabled,
+            open_hub,
+            set_idle_pill,
             search,
             items,
             recent,
@@ -879,6 +998,19 @@ fn main() {
             }
 
             position_overlay(&overlay);
+
+            // The idle pill, if the user wants one. Shown here rather than
+            // declared visible in tauri.conf.json so the window still gets its
+            // pre-warm — created hidden, webview loaded and first paint done —
+            // before anything appears on screen. Showing it after that costs a
+            // native show() and no webview construction, which is the same
+            // trick the capture path relies on.
+            // Only the native show() here. What the page draws is its own
+            // decision, taken when it loads and asks `idle_pill_enabled` —
+            // emitting at it now would land before its listeners exist.
+            if app.state::<AppState>().config.lock().idle_pill {
+                let _ = overlay.show();
+            }
 
             // Vocabulary for whisper's decoder bias: the user's own collection
             // names. These are exactly the words a generic model gets wrong and
@@ -930,8 +1062,11 @@ fn main() {
                         if let Some(w) = expire.get_webview_window("overlay") {
                             let _ = expire.emit_to("overlay", "capture:hide", ());
                             std::thread::sleep(std::time::Duration::from_millis(140));
-                            let _ = w.hide();
-                            speak_only(&w);
+                            // Click-through again the moment the options are
+                            // gone: an expired question must not leave a
+                            // clickable rectangle sitting over the user's work.
+                            let _ = w.set_ignore_cursor_events(true);
+                            rest(&expire, &w);
                         }
                     });
                     return;
@@ -967,11 +1102,7 @@ fn main() {
                         // snapping a window out of existence reads as a glitch.
                         let _ = fade.emit_to("overlay", "capture:hide", ());
                         std::thread::sleep(std::time::Duration::from_millis(140));
-                        let _ = w.hide();
-                        // Back to the resting shape while it is hidden, so the
-                        // next capture starts from a known size rather than
-                        // from whatever the last result list needed.
-                        speak_only(&w);
+                        rest(&fade, &w);
                     });
                 }
             });
@@ -1096,7 +1227,15 @@ fn main() {
                                     r.cursor_secs_ago(lead / 1000.0)
                                 });
                                 let t0 = std::time::Instant::now();
-                                position_overlay(&overlay);
+                                // Resting shape and click-through *before* the
+                                // show. With the idle pill on, this window is
+                                // currently small and clickable; a capture that
+                                // began from that state would lay its transcript
+                                // out inside a pill-sized window and intercept
+                                // clicks while the user is talking. `speak_only`
+                                // restores both, and is a no-op-ish pair of
+                                // native calls when nothing changed.
+                                speak_only(&overlay);
                                 if let Err(e) = overlay.show() {
                                     tracing::error!(?e, "failed to show overlay");
                                 }

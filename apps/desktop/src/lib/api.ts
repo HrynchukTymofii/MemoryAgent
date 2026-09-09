@@ -76,6 +76,8 @@ export interface Settings {
   hold_threshold_ms: number;
   debug_keys: boolean;
   active_chord: string;
+  /** Keep a small pill on screen when nothing is being captured. */
+  idle_pill: boolean;
 }
 
 export interface Item {
@@ -130,6 +132,7 @@ export const api = {
   settings: () => invoke<Settings>("get_settings"),
   setHotkey: (spec: string, holdThresholdMs: number) =>
     invoke<Settings>("set_hotkey", { spec, holdThresholdMs }),
+  setIdlePill: (enabled: boolean) => invoke<Settings>("set_idle_pill", { enabled }),
   captureCount: () => invoke<number>("capture_count"),
   summary: () => invoke<LibrarySummary>("library_summary"),
   recent: (limit: number) => invoke<Item[]>("recent", { limit }),
