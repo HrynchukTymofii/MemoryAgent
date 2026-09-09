@@ -32,6 +32,15 @@ if [ "${1:-}" = "--local" ]; then
     *) fail "Unknown architecture: $arch" ;;
   esac
 
+  # Sourcing .env above exports every Apple key in it, and the template ships
+  # them empty. Tauri treats "defined but empty" as an instruction to sign,
+  # calls codesign with an identity of "", and the build dies at the bundling
+  # step after a full compile. Unset rather than skipped: the difference
+  # between an empty variable and an absent one is the whole bug.
+  unset APPLE_SIGNING_IDENTITY APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
+  unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+  unset APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
+
   note "Local build for $target — unsigned, and it will not run on another Mac."
   cd apps/desktop
   npm ci
