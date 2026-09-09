@@ -465,6 +465,61 @@ fn library_summary(state: tauri::State<'_, AppState>) -> Library {
     }
 }
 
+/// A task, flattened for the interface.
+///
+/// `about` is the memory the task was spoken alongside, resolved to its title
+/// here rather than in the view: a task that reads "finish this" is meaningless
+/// without it, and the Hub should not have to fetch a second list to find out
+/// what "this" was.
+#[derive(serde::Serialize)]
+struct TaskRow {
+    id: String,
+    title: String,
+    about: Option<String>,
+    due_at: Option<String>,
+    done: bool,
+    created_at: String,
+}
+
+/// Everything on the list, open first.
+///
+/// Done tasks are included rather than filtered out. A task that vanishes the
+/// instant it is ticked gives no confirmation that the tick landed, and undoing
+/// a tick you cannot see is not something a user will attempt.
+#[tauri::command]
+fn tasks(state: tauri::State<'_, AppState>, limit: usize) -> Vec<TaskRow> {
+    state
+        .db
+        .tasks(limit.clamp(1, 500))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|t| TaskRow {
+            id: t.id.to_string(),
+            title: t.title,
+            about: t
+                .item_id
+                .and_then(|i| state.db.get_item(i).ok().flatten())
+                .map(|i| i.title),
+            due_at: t.due_at.map(|d| d.to_rfc3339()),
+            done: t.status == "done",
+            created_at: t.created_at.to_rfc3339(),
+        })
+        .collect()
+}
+
+/// Tick a task, or untick it.
+#[tauri::command]
+fn set_task_done(state: tauri::State<'_, AppState>, id: String, done: bool) -> Result<(), String> {
+    let id = memos_core::Id::parse(&id).map_err(|e| e.to_string())?;
+    state.db.set_task_done(id, done).map_err(|e| e.to_string())
+}
+
+/// How many are still open, for the nav badge.
+#[tauri::command]
+fn open_task_count(state: tauri::State<'_, AppState>) -> u32 {
+    state.db.open_task_count().unwrap_or(0)
+}
+
 /// Reopen an item's source, and count the access.
 ///
 /// Returns what it opened so the Hub can say so; `Ok(None)` means the item is a
@@ -797,6 +852,9 @@ fn main() {
             recent,
             collections,
             library_summary,
+            tasks,
+            set_task_done,
+            open_task_count,
             open_item
         ])
         .setup(move |app| {

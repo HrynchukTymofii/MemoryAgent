@@ -121,7 +121,8 @@ function dayLabel(iso: string): string {
   return d.toLocaleDateString(undefined, { day: "numeric", month: "long" });
 }
 
-function when(iso: string): string {
+/** Relative age, shared with any screen that lists something time-stamped. */
+export function when(iso: string): string {
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins} min ago`;

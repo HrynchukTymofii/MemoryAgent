@@ -263,3 +263,45 @@
   border-radius:12px; padding:12px 15px; font-size:12px; color:var(--ink2);
 }
 .banner b { color:var(--ink); }
+
+/* ================================================================= M3 tasks */
+
+/* The nav badge. Sits at the far right of its row, and only appears when the
+   number is worth a glance — see App.tsx. */
+.badge {
+  margin-left:auto; flex:none; min-width:18px; padding:0 6px;
+  border-radius:999px; background:var(--acc); color:#fff;
+  font-size:10.5px; font-weight:700; line-height:17px; text-align:center;
+  font-variant-numeric:tabular-nums;
+}
+nav li.on .badge { background:var(--ink); }
+
+/* A task row is the item row's sibling, not a copy of it: same card, same
+   metadata line, but the whole surface is the checkbox rather than a link,
+   because ticking is the only thing you can do to a task from here. */
+.tasks { display:flex; flex-direction:column; gap:7px; margin-top:12px; }
+.task {
+  display:flex; align-items:flex-start; gap:11px; text-align:left; width:100%;
+  background:var(--card); border:1px solid var(--line); border-radius:12px;
+  padding:11px 13px; font-family:inherit; font-size:13px; color:var(--ink);
+  cursor:pointer;
+}
+.task:hover { background:#FFFFFF; border-color:var(--line2); box-shadow:var(--lift); }
+.task:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+.task .box {
+  width:16px; height:16px; margin-top:1px; flex:none; border-radius:5px;
+  border:1.5px solid var(--line2); background:var(--card2);
+  display:grid; place-items:center; font-size:10px; color:#fff; line-height:1;
+}
+.task .bd { flex:1; min-width:0; }
+.task .t { display:block; font-weight:600; letter-spacing:-.01em; }
+.task .m {
+  display:flex; align-items:center; gap:7px; flex-wrap:wrap;
+  margin-top:4px; font-size:11px; color:var(--ink3);
+}
+
+/* Done is stated by the tick and the strike, not by hiding the row. Kept at
+   full contrast on hover so an accidental tick is easy to find and reverse. */
+.task.done { background:var(--card2); }
+.task.done .box { background:var(--ok); border-color:var(--ok); }
+.task.done .t { text-decoration:line-through; color:var(--ink2); font-weight:500; }

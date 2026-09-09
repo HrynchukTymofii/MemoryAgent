@@ -99,6 +99,16 @@ export interface CollectionRow {
   items: number;
 }
 
+export interface TaskRow {
+  id: string;
+  title: string;
+  /** The memory the task was spoken alongside, if there was one. */
+  about: string | null;
+  due_at: string | null;
+  done: boolean;
+  created_at: string;
+}
+
 export interface LibrarySummary {
   items: number;
   collections: number;
@@ -127,6 +137,10 @@ export const api = {
     invoke<Item[]>("items", { collection, limit, offset }),
   search: (query: string, limit: number) => invoke<Item[]>("search", { query, limit }),
   collections: () => invoke<CollectionRow[]>("collections"),
+  tasks: (limit: number) => invoke<TaskRow[]>("tasks", { limit }),
+  setTaskDone: (id: string, done: boolean) =>
+    invoke<void>("set_task_done", { id, done }),
+  openTaskCount: () => invoke<number>("open_task_count"),
   /** Resolves to what was opened, or `null` for an item with no source. */
   openItem: (id: string) => invoke<string | null>("open_item", { id }),
 };

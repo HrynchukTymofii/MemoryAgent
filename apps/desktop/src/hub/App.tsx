@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, CAPTURE_LIMIT, type HookStats, type LibrarySummary } from "../lib/api";
 import { Home } from "../features/home/Home";
 import { Library } from "../features/library/Library";
 import { Collections } from "../features/collections/Collections";
+import { Tasks } from "../features/tasks/Tasks";
 import { Settings } from "../features/settings/Settings";
 
-export type Page = "home" | "library" | "collections" | "settings";
+export type Page = "home" | "library" | "collections" | "tasks" | "settings";
 
 /**
  * How often the shell polls the backend.
@@ -29,6 +30,11 @@ export function App() {
   const [used, setUsed] = useState(0);
   const [summary, setSummary] = useState<LibrarySummary | null>(null);
   const [hook, setHook] = useState<HookStats | null>(null);
+  const [openTasks, setOpenTasks] = useState(0);
+  // The count as of the previous poll. Tasks are the one thing on screen that
+  // arrives from outside the Hub — you speak one while the window is open — so
+  // a change in the count is the signal that the list behind it is stale.
+  const seenTasks = useRef<number | null>(null);
   const [offline, setOffline] = useState(false);
   /** Bumped after anything that changes the store, to re-fetch lists. */
   const [revision, setRevision] = useState(0);
@@ -41,15 +47,19 @@ export function App() {
     let live = true;
     const tick = async () => {
       try {
-        const [count, sum, stats] = await Promise.all([
+        const [count, sum, stats, tasks] = await Promise.all([
           api.captureCount(),
           api.summary(),
           api.hookStats(),
+          api.openTaskCount(),
         ]);
         if (!live) return;
         setUsed(count);
         setSummary(sum);
         setHook(stats);
+        setOpenTasks(tasks);
+        if (seenTasks.current !== null && seenTasks.current !== tasks) refresh();
+        seenTasks.current = tasks;
         setOffline(false);
       } catch {
         // Never fail silently. When the backend stopped answering, every tile
@@ -64,7 +74,7 @@ export function App() {
       live = false;
       window.clearInterval(t);
     };
-  }, [interval, revision]);
+  }, [interval, revision, refresh]);
 
   const openCollection = useCallback((path: string | null) => {
     setFilter(path);
@@ -108,9 +118,16 @@ export function App() {
               glyph="◱"
               label="Collections"
             />
-            <li className="muted">
-              <span className="g">◷</span> Tasks
-            </li>
+            <NavItem
+              page="tasks"
+              current={page}
+              onGo={setPage}
+              glyph="◷"
+              label="Tasks"
+              // Only when there is something to do. A badge that sits at zero
+              // is a permanent request for attention that has nothing to say.
+              badge={openTasks > 0 ? openTasks : undefined}
+            />
           </ul>
           <div className="navh">Tools</div>
           <ul>
@@ -149,6 +166,7 @@ export function App() {
         {page === "collections" && (
           <Collections revision={revision} onOpen={openCollection} />
         )}
+        {page === "tasks" && <Tasks revision={revision} onChanged={refresh} />}
         {page === "settings" && <Settings hook={hook} offline={offline} />}
       </main>
     </div>
@@ -161,12 +179,14 @@ function NavItem({
   onGo,
   glyph,
   label,
+  badge,
 }: {
   page: Page;
   current: Page;
   onGo: (p: Page) => void;
   glyph: string;
   label: string;
+  badge?: number;
 }) {
   return (
     <li
@@ -175,6 +195,7 @@ function NavItem({
       onClick={() => onGo(page)}
     >
       <span className="g">{glyph}</span> {label}
+      {badge !== undefined && <span className="badge">{badge}</span>}
     </li>
   );
 }

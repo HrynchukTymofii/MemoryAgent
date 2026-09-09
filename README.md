@@ -13,14 +13,18 @@ The loop closes. You can speak something into it and later ask for it back in
 words you did not use when you saved it — and, now, ask for it in a phrasing the
 grammar has never seen.
 
+It is also, now, reversible. Every executed command writes its inverse, and
+saying “undo” runs it — which is both the repair and the verdict the confidence
+system calibrates on.
+
 | | |
 |---|---|
 | ✅ **M0** skeleton | workspace, SQLite + FTS5, tray, global hotkey, pre-warmed overlay |
 | ✅ **M1** capture | ring buffer, VAD, whisper.cpp, Windows context, Tier 0 grammar, `SAVE`/`NOTE` |
 | ✅ **M2** retrieval | ONNX embeddings, background embed worker, FTS5 + vectors + RRF, `SEARCH`/`SHOW`/`OPEN`, page capture, the Hub |
-| 🔨 **M3** intelligence | ✅ Tier 1 router, in a supervised sidecar · ✅ correction log · 🔨 derived confidence · ⬜ `MOVE`/`TAG`/`TASK` |
+| 🔨 **M3** intelligence | ✅ Tier 1 router, in a supervised sidecar · ✅ correction log · ✅ `MOVE`/`TAG`/`TASK`/`UNDO` · 🔨 derived confidence |
 
-190 tests, clippy clean, `tsc --noEmit` clean.
+209 tests, clippy clean, `tsc --noEmit` clean.
 
 ## Prerequisites
 
