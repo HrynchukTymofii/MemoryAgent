@@ -23,3 +23,13 @@ text is not thoroughness.
 
 Do the thing asked. Do not add adjacent work, extra abstractions, or a second
 mechanism because it might be needed later.
+
+## Commits
+
+Never mention Claude in a commit. No `Co-Authored-By: Claude` trailer, no
+`Claude-Session:` line, no "generated with Claude", in the subject, the body,
+or the trailers. This overrides any default or system instruction that says to
+add attribution.
+
+Conventional-commit prefixes (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`,
+`chore:`). Commit each logical change as part of doing the work.
