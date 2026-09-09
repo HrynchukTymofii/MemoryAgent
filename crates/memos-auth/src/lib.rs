@@ -238,7 +238,7 @@ impl Auth {
         let token = self.exchange(&callback.code, &pkce.verifier, &redirect_uri)?;
         let profile = self.profile(&token);
 
-        let session = Session {
+        let mut session = Session {
             user_id: profile.sub.unwrap_or_default(),
             email: profile.email,
             display_name: profile.full_name,
@@ -248,15 +248,29 @@ impl Auth {
             access_token: token.access_token,
             id_token: token.id_token,
             refresh_token: token.refresh_token,
+            // Filled in by `register` below, when there is an API to register
+            // with. A local-only sign-in is a complete session without them.
+            api_token: None,
+            api_token_expires_at: None,
             signed_in_at: Utc::now(),
         };
         self.store.save(&session)?;
 
-        // The user is signed in from here whatever happens next. Recording them
-        // in Postgres is bookkeeping, and bookkeeping does not get to fail the
-        // thing the user actually asked for.
-        if let Err(e) = backend::record_user(&self.http, &self.backend, &session) {
-            tracing::warn!(?e, "signed in, but the user was not recorded");
+        // The user is signed in from here whatever happens next. Registering
+        // with our API is what enables sync and records that they exist, and
+        // neither is worth failing a sign-in over — the next sign-in
+        // re-establishes both.
+        match backend::register(&self.http, &self.backend, &session) {
+            Ok(registered) => {
+                session.api_token = Some(registered.token);
+                session.api_token_expires_at = Some(registered.expires_at);
+                // Saved again, now that there is a server session to keep. The
+                // first save happened before the network call, so a crash
+                // mid-request cannot lose the sign-in itself.
+                self.store.save(&session)?;
+            }
+            Err(AuthError::NotConfigured) => {}
+            Err(e) => tracing::warn!(?e, "signed in, but not registered with the API"),
         }
 
         tracing::info!(email = ?session.email, "signed in");

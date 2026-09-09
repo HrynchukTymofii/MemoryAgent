@@ -1,134 +1,127 @@
-//! Recording the signed-in user in Postgres.
+//! Talking to our own API.
 //!
-//! ## Why there is no connection string
+//! ## Why there is a service in the middle
 //!
 //! A desktop application cannot hold a database password. It ships to everyone,
-//! it is readable by everyone, and a Postgres URL inside it is a credential
-//! granting whoever extracts it full access to every row every user has ever
-//! written. There is no configuration that makes that safe.
+//! it is readable by everyone, and a Postgres URL inside it grants whoever
+//! extracts it every row every user has ever written. No configuration makes
+//! that safe.
 //!
-//! So the app never speaks Postgres. It speaks HTTPS to Neon's Data API — a
-//! PostgREST-compatible endpoint in front of the same database — and
-//! authenticates with the OIDC identity token it already holds from signing in.
-//! Neon validates that token against the provider's public keys and runs the
-//! statement as that user, so row-level security decides what a request may
-//! touch. A stolen token is one user's session and expires; a stolen connection
-//! string is the whole database forever.
+//! So the app holds no connection string and speaks no SQL. It sends the
+//! identity token it got from signing in to our API, which verifies it against
+//! the provider's public keys, records the user, and returns a session token of
+//! our own. Postgres is reachable only from that service.
 //!
 //! ```text
-//! desktop  --id_token-->  Neon Data API  --RLS-->  Postgres
+//! desktop --id_token--> API --verifies--> Google
+//!                        |
+//!                        +--SQL--> Postgres
+//!                        |
+//!         <--session token--
 //! ```
 //!
-//! The table this expects, and the policies that make it safe, are in the
-//! Account section of the README.
+//! The session token replaces Google's, deliberately. Google's identity token
+//! expires in an hour and renewing it means going back to Google; ours is
+//! issued by the service that will answer every later request anyway, lasts as
+//! long as we choose, and is revoked by rotating one secret.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{AuthError, AuthResult, Session};
 
-/// Where the backend lives. Empty means there is none, which is a supported
-/// state: the app keeps the session locally and records nothing.
-#[derive(Debug, Clone, Default, Serialize, serde::Deserialize, PartialEq)]
+/// Where our API lives. Empty means there is none, which is a supported state:
+/// the app signs in, keeps the session locally, and records nothing anywhere.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Backend {
-    /// Base URL of the Data API, without a trailing slash.
+    /// Base URL, without a trailing slash.
     #[serde(default)]
-    pub data_api_url: String,
+    pub api_url: String,
 }
 
 impl Backend {
     pub fn is_configured(&self) -> bool {
-        !self.data_api_url.trim().is_empty()
+        !self.api_url.trim().is_empty()
     }
 }
 
-/// One row of the `users` table, as the app knows it.
+/// What we send: the assertion the provider made about this person.
 #[derive(Debug, Serialize)]
-struct UserRow<'a> {
-    /// The provider's subject claim. The primary key, because it is the only
-    /// identifier that is stable when someone changes their email address.
-    id: &'a str,
-    email: Option<&'a str>,
-    display_name: Option<&'a str>,
-    last_seen_at: String,
+struct SignInBody<'a> {
+    id_token: &'a str,
 }
 
-/// Write the signed-in user into Postgres, creating or updating the row.
+/// What comes back: our own session, and the account as the server has it.
+#[derive(Debug, Deserialize)]
+pub struct Registered {
+    pub token: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub account: Account,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Account {
+    pub id: String,
+    pub email: Option<String>,
+    pub display_name: Option<String>,
+}
+
+/// Exchange the provider's identity token for a session with our API.
 ///
-/// Deliberately not fatal. Sign-in has already succeeded by the time this runs
-/// — the user is signed in, locally, whatever happens here — so a backend that
-/// is unreachable produces a warning and nothing else. Failing the sign-in over
-/// a bookkeeping write would be losing the thing the user asked for in order to
-/// protect the thing they did not.
-pub fn record_user(
+/// Deliberately not fatal to signing in. The user is signed in locally by the
+/// time this runs, and losing that because a server is unreachable would trade
+/// the thing they asked for against the thing they did not. What is lost when
+/// this fails is sync and the record of them existing, and the next sign-in
+/// re-establishes both.
+pub fn register(
     http: &reqwest::blocking::Client,
     backend: &Backend,
     session: &Session,
-) -> AuthResult<()> {
+) -> AuthResult<Registered> {
     if !backend.is_configured() {
-        return Ok(());
+        return Err(AuthError::NotConfigured);
     }
-    let Some(token) = session.id_token.as_deref() else {
-        // Nothing to authenticate with. A provider that issued no identity
-        // token cannot be used against a database that authenticates with one.
-        return Err(AuthError::Protocol(
-            "no identity token to authenticate with".into(),
-        ));
-    };
-    if session.user_id.is_empty() {
-        return Err(AuthError::Protocol("session has no user id".into()));
-    }
-
-    let row = UserRow {
-        id: &session.user_id,
-        email: session.email.as_deref(),
-        display_name: session.display_name.as_deref(),
-        last_seen_at: chrono::Utc::now().to_rfc3339(),
+    let Some(id_token) = session.id_token.as_deref() else {
+        // An access token cannot be verified by anyone but its issuer. Only the
+        // identity token carries claims a third party can check.
+        return Err(AuthError::Protocol("no identity token to present".into()));
     };
 
-    let url = format!("{}/users", backend.data_api_url.trim_end_matches('/'));
+    let url = format!("{}/v1/auth/google", backend.api_url.trim_end_matches('/'));
     let response = http
         .post(&url)
-        .bearer_auth(token)
-        // PostgREST's upsert: insert, and on a primary-key collision update
-        // instead. Without it a returning user is a duplicate-key error on
-        // every launch — which is the normal case, not the exception.
-        .header("Prefer", "resolution=merge-duplicates,return=minimal")
-        .json(&row)
+        .json(&SignInBody { id_token })
         .send()
         .map_err(|e| AuthError::Network(e.to_string()))?;
 
     let status = response.status();
+    let body = response.text().unwrap_or_default();
     if !status.is_success() {
-        let body = response.text().unwrap_or_default();
         tracing::warn!(%status, body = %body.chars().take(300).collect::<String>(),
-            "could not record the user");
-        return Err(AuthError::Protocol(explain(status.as_u16(), &body)));
+            "the API refused the sign-in");
+        return Err(AuthError::Protocol(explain(status.as_u16())));
     }
-    tracing::info!(user = %session.user_id, "recorded the signed-in user");
-    Ok(())
+    serde_json::from_str(&body)
+        .map_err(|e| AuthError::Protocol(format!("unreadable response from the API: {e}")))
 }
 
-/// Turn the backend's refusal into something a developer can act on.
+/// Turn a refusal into something a developer can act on.
 ///
-/// The two failures that actually happen during setup are indistinguishable in
-/// a raw status code, and both look like "it silently does not work": the table
-/// has not been created yet, or the Data API is not configured to trust the
-/// identity provider. Naming them here is the difference between a five-minute
-/// fix and an afternoon.
-fn explain(status: u16, body: &str) -> String {
-    let missing_table = body.contains("does not exist") || body.contains("PGRST205");
+/// The failures that actually happen during setup are indistinguishable in a
+/// status code and all present as "it silently does not work".
+fn explain(status: u16) -> String {
     match status {
-        404 if missing_table || body.is_empty() => concat!(
-            "the `users` table does not exist yet — apply cloud/migrations ",
-            "(scripts/migrate-cloud.ps1)"
+        401 => concat!(
+            "the API rejected the identity token - check that its ",
+            "GOOGLE_CLIENT_ID matches the client this app was built with"
         )
         .into(),
-        401 | 403 => concat!(
-            "the backend rejected the identity token — check that the Data API ",
-            "trusts the issuer https://accounts.google.com"
+        404 => "no such endpoint - is MEMOS_API_URL the API's base URL?".into(),
+        500..=599 => concat!(
+            "the API failed - check its logs, and that migrations have been ",
+            "applied (scripts/migrate-cloud.ps1)"
         )
         .into(),
-        other => format!("backend refused the write ({other})"),
+        other => format!("the API refused the sign-in ({other})"),
     }
 }
 
@@ -144,6 +137,8 @@ mod tests {
             display_name: Some("A B".into()),
             access_token: "at".into(),
             id_token: Some("jwt".into()),
+            api_token: None,
+            api_token_expires_at: None,
             refresh_token: None,
             expires_at: None,
             signed_in_at: Utc::now(),
@@ -155,64 +150,46 @@ mod tests {
     }
 
     #[test]
-    fn no_backend_configured_is_a_no_op_rather_than_an_error() {
+    fn no_api_configured_is_reported_as_such_rather_than_attempted() {
         let b = Backend::default();
         assert!(!b.is_configured());
-        record_user(&http(), &b, &session()).unwrap();
+        assert!(matches!(
+            register(&http(), &b, &session()),
+            Err(AuthError::NotConfigured)
+        ));
     }
 
     #[test]
-    fn a_whitespace_url_counts_as_no_backend() {
-        assert!(!Backend { data_api_url: "   ".into() }.is_configured());
+    fn a_whitespace_url_counts_as_no_api() {
+        assert!(!Backend { api_url: "   ".into() }.is_configured());
     }
 
-    /// The database authenticates with the identity token, not the access
-    /// token, and a session without one cannot write at all.
+    /// The API authenticates the identity token, not the access token: only the
+    /// former carries claims a third party can verify.
     #[test]
-    fn a_session_with_no_identity_token_cannot_write() {
+    fn a_session_with_no_identity_token_cannot_register() {
         let mut s = session();
         s.id_token = None;
-        let b = Backend { data_api_url: "https://example.invalid".into() };
-        assert!(matches!(record_user(&http(), &b, &s), Err(AuthError::Protocol(_))));
+        let b = Backend { api_url: "https://example.invalid".into() };
+        assert!(matches!(register(&http(), &b, &s), Err(AuthError::Protocol(_))));
+    }
+
+    /// The setup failures that look identical from the outside must not read
+    /// identically in the log.
+    #[test]
+    fn each_setup_failure_names_itself() {
+        assert!(explain(401).contains("GOOGLE_CLIENT_ID"));
+        assert!(explain(404).contains("MEMOS_API_URL"));
+        assert!(explain(503).contains("migrate-cloud"));
+        assert!(explain(418).contains("418"));
     }
 
     #[test]
-    fn a_session_with_no_user_id_cannot_write() {
-        let mut s = session();
-        s.user_id = String::new();
-        let b = Backend { data_api_url: "https://example.invalid".into() };
-        assert!(matches!(record_user(&http(), &b, &s), Err(AuthError::Protocol(_))));
-    }
-
-    /// The two setup failures that look identical from the outside must not
-    /// read identically in the log.
-    #[test]
-    fn a_missing_table_says_so_rather_than_reporting_a_status_code() {
-        let m = explain(404, r#"{"code":"PGRST205","message":"relation does not exist"}"#);
-        assert!(m.contains("does not exist yet"), "{m}");
-        assert!(m.contains("migrate-cloud"), "{m}");
-
-        let auth = explain(401, "");
-        assert!(auth.contains("accounts.google.com"), "{auth}");
-
-        // Anything else stays honest about being unrecognised rather than
-        // guessing at a cause.
-        assert!(explain(500, "boom").contains("500"));
-    }
-
-    /// The row is keyed by the provider's subject, never by email — people
-    /// change their address and must stay the same user when they do.
-    #[test]
-    fn the_row_is_keyed_by_subject_not_by_email() {
-        let s = session();
-        let row = UserRow {
-            id: &s.user_id,
-            email: s.email.as_deref(),
-            display_name: s.display_name.as_deref(),
-            last_seen_at: "2026-01-01T00:00:00Z".into(),
-        };
-        let json = serde_json::to_value(&row).unwrap();
-        assert_eq!(json["id"], "sub-1");
-        assert_eq!(json["email"], "a@b.com");
+    fn a_session_response_is_parsed() {
+        let raw = r#"{"token":"t","expires_at":"2026-10-01T00:00:00Z",
+            "account":{"id":"sub-1","email":"a@b.com","display_name":"A B"}}"#;
+        let r: Registered = serde_json::from_str(raw).unwrap();
+        assert_eq!(r.token, "t");
+        assert_eq!(r.account.email.as_deref(), Some("a@b.com"));
     }
 }

@@ -882,7 +882,7 @@ fn built_in_provider() -> memos_auth::Provider {
 
 fn built_in_backend() -> memos_auth::Backend {
     memos_auth::Backend {
-        data_api_url: env!("MEMOS_DATA_API_URL").into(),
+        api_url: env!("MEMOS_API_URL").into(),
     }
 }
 

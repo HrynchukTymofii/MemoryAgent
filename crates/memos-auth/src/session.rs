@@ -30,6 +30,16 @@ pub struct Session {
     pub refresh_token: Option<String>,
     pub expires_at: Option<DateTime<Utc>>,
 
+    /// Our own API's session token, and when it stops working.
+    ///
+    /// A different session from the provider's, with a different issuer: Google
+    /// says who you are, this says you are known to us. It is the credential
+    /// every later API call carries.
+    #[serde(default)]
+    pub api_token: Option<String>,
+    #[serde(default)]
+    pub api_token_expires_at: Option<DateTime<Utc>>,
+
     /// When this session was first established. Kept because "signed in since"
     /// is the honest thing to show, and because it survives a token refresh
     /// while `expires_at` does not.
@@ -177,6 +187,8 @@ mod tests {
             display_name: Some("Someone".into()),
             access_token: "ACCESS-SECRET".into(),
             id_token: Some("ID-SECRET".into()),
+            api_token: Some("API-SECRET".into()),
+            api_token_expires_at: None,
             refresh_token: Some("REFRESH-SECRET".into()),
             expires_at: Some(Utc::now() + Duration::hours(1)),
             signed_in_at: Utc::now(),

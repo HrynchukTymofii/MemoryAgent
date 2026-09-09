@@ -24,7 +24,7 @@ system calibrates on.
 | ✅ **M2** retrieval | ONNX embeddings, background embed worker, FTS5 + vectors + RRF, `SEARCH`/`SHOW`/`OPEN`, page capture, the Hub |
 | 🔨 **M3** intelligence | ✅ Tier 1 router, in a supervised sidecar · ✅ correction log · ✅ `MOVE`/`TAG`/`TASK`/`UNDO` · 🔨 derived confidence |
 
-245 tests, clippy clean, `tsc --noEmit` clean.
+244 tests, 16 API tests, clippy clean, `tsc --noEmit` clean.
 
 ## Prerequisites
 
@@ -169,47 +169,42 @@ of the binary and cannot be otherwise. PKCE is what protects the exchange.
 A checkout with no `.env` builds a working app with sign-in switched off, which
 is what a contributor who has never registered a client should get.
 
-### 2. The database, via the Data API
+### 2. The API, in `cloud/`
 
-The desktop app never speaks Postgres and holds no connection string. It could
-not: a connection string inside a binary that ships to everyone is a credential
-granting whoever extracts it every row every user has written, and no amount of
-obfuscation changes that.
+The desktop app holds no connection string and speaks no SQL. It could not: a
+Postgres URL inside a binary that ships to everyone grants whoever extracts it
+every row every user has ever written, and no obfuscation changes that.
 
-Instead it calls **Neon's Data API** over HTTPS and authenticates with the OIDC
-identity token it already holds from signing in. Neon validates that token
-against Google's public keys and runs the statement as that user, so row-level
-security decides what the request may touch. A stolen token is one session and
-expires; a stolen connection string is the whole database, forever.
+So there is a service. It verifies the identity token against Google's public
+keys, records the user, and returns a session token of its own. It is also the
+only place a secret can live, which is what makes email, Apple and GitHub
+sign-in possible later — all three were blocked on exactly this.
 
-In the Neon console: enable the **Data API** on your project, then add Google
-as an authentication provider — issuer `https://accounts.google.com`, JWKS
-`https://www.googleapis.com/oauth2/v3/certs`. Copy the Data API URL into
-`MEMOS_DATA_API_URL`.
+```
+cd cloud
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
 
-Then create the table. The schema lives in `cloud/migrations/`, not in a
-console someone once clicked through:
+With `MEMOS_API_URL=http://127.0.0.1:8000` in `.env`, signing in the desktop app
+writes the user into Postgres. See [`cloud/README.md`](cloud/README.md).
+
+Apply the schema first — it lives in `cloud/migrations/`, not in a console
+someone once clicked through:
 
 ```
 .\scripts\migrate-cloud.ps1
 ```
 
-With `psql` installed and `DATABASE_URL` set in `.env`, it applies every
-migration. Without either, it prints them for pasting into the Neon SQL
-Editor — the same text, applied the same way. `DATABASE_URL` is a *developer*
-credential: it is used by that script on your machine and is never compiled
-into the app or shipped.
+With `psql` installed and `DATABASE_URL` set it applies every migration;
+without either it prints them for pasting into the Neon SQL Editor.
+`DATABASE_URL` is a *developer* credential — used by that script and by the
+API, never compiled into the desktop app.
 
-Until the table exists, sign-in still works and the write fails with
-`the users table does not exist yet` in the log rather than a bare 404.
-
-The row is keyed by `sub` rather than by email, because people change their
-email address and must remain the same user when they do.
-
-Leaving `MEMOS_DATA_API_URL` empty is supported: sign-in works and the session
-stays local. And recording the user is never allowed to fail a sign-in — the
-user is signed in either way, so an unreachable backend is a warning in the log
-and nothing more.
+Leaving `MEMOS_API_URL` empty is supported: sign-in works and the session stays
+local. And registering with the API never fails a sign-in — the user is signed
+in either way, so an unreachable service is a warning in the log and nothing
+more.
 
 The session is stored as `session.json` beside the database, in clear text —
 the same protection the database itself has, which already holds every memory
