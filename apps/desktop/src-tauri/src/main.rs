@@ -594,7 +594,18 @@ fn open_externally(target: &str) -> Result<(), String> {
             .spawn()
             .map_err(|e| e.to_string())?;
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        // `--` so a target that begins with a hyphen is an argument rather than
+        // a flag to `open` itself. The scheme guard above already rejects
+        // anything that is not http(s) or an existing absolute path.
+        std::process::Command::new("open")
+            .arg("--")
+            .arg(t)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = t;
     }
