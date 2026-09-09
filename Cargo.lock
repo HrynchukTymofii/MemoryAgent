@@ -2655,6 +2655,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "core-foundation",
+ "core-graphics",
  "memos-agent",
  "memos-auth",
  "memos-context",

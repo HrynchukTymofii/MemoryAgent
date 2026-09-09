@@ -47,6 +47,12 @@ tracing-subscriber = { workspace = true }
 anyhow     = { workspace = true }
 tauri-plugin-single-instance = "2"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# The event tap and its run loop. Both already arrive with tauri on this
+# platform, so binding to them costs nothing that is not already linked.
+core-graphics   = "0.25"
+core-foundation = "0.10"
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
     "Win32_Foundation",
