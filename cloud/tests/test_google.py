@@ -74,8 +74,10 @@ def test_both_spellings_of_googles_issuer_are_accepted():
 
 
 def test_an_expired_token_is_rejected():
+    # Comfortably past the clock-skew leeway. Ten seconds stale is inside it,
+    # deliberately — that is drift, not an expired token.
     with pytest.raises(google.InvalidToken):
-        verify(token(exp=int(time.time()) - 10))
+        verify(token(exp=int(time.time()) - google.CLOCK_SKEW_SECONDS - 60))
 
 
 def test_a_token_signed_by_someone_else_is_rejected():
@@ -120,3 +122,24 @@ def test_an_unverified_email_is_recorded_rather_than_refused():
 def test_a_token_with_no_subject_is_rejected():
     with pytest.raises(google.InvalidToken):
         verify(token(sub=None))
+
+
+def test_a_token_issued_seconds_in_the_future_is_accepted():
+    """Clock skew, not an attack.
+
+    `iat` is stamped by Google and checked against this machine's clock. A
+    workstation a few seconds slow makes a token issued moments ago look like
+    it is not yet valid, and sign-in fails with nothing actually wrong.
+    """
+    user = verify(token(iat=int(time.time()) + 30))
+    assert user.sub == "google-user-1"
+
+
+def test_the_leeway_does_not_stretch_to_a_genuinely_future_token():
+    with pytest.raises(google.InvalidToken):
+        verify(token(iat=int(time.time()) + google.CLOCK_SKEW_SECONDS + 300))
+
+
+def test_a_token_expired_beyond_the_leeway_is_still_rejected():
+    with pytest.raises(google.InvalidToken):
+        verify(token(exp=int(time.time()) - google.CLOCK_SKEW_SECONDS - 300))

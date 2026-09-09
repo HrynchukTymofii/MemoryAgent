@@ -27,6 +27,17 @@ from jwt import PyJWKClient
 JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
 ISSUERS = ("https://accounts.google.com", "accounts.google.com")
 
+# Tolerance for the two clocks disagreeing.
+#
+# `iat` and `exp` are stamped by Google and checked against this machine's
+# clock. A workstation a few seconds slow makes a token that was issued
+# moments ago look like it is *not yet valid*, and the sign-in fails with
+# nothing wrong anywhere — which is exactly the failure this was added for.
+#
+# Two minutes: far more than ordinary NTP drift, far less than the hour a
+# token lives, so nothing meaningfully expired is accepted.
+CLOCK_SKEW_SECONDS = 120
+
 _jwks = PyJWKClient(JWKS_URL, cache_keys=True)
 
 
@@ -60,6 +71,7 @@ def verify(id_token: str, *, audience: str, _client: PyJWKClient | None = None) 
             key,
             algorithms=["RS256"],
             audience=audience,
+            leeway=CLOCK_SKEW_SECONDS,
             # Checked explicitly below: PyJWT accepts only a single issuer
             # string, and Google uses two spellings.
             options={"verify_iss": False, "require": ["exp", "iat", "sub", "aud"]},

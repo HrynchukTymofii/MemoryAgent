@@ -1,6 +1,7 @@
-# Fix: 401 from /v1/auth/google says nothing
+# Fix: ImmatureSignatureError (iat in the future)
 
-The reason is discarded, so the failure is undiagnosable.
+Local clock is seconds behind Google's, so a fresh token looks not-yet-valid.
+JWT validation needs a clock-skew leeway.
 
-- `cloud/app/main.py` — log the real verification failure
-- `cloud/app/google.py` — carry the specific reason on the exception
+- `cloud/app/google.py` — 120s leeway on decode
+- `cloud/tests/test_google.py` — a token issued slightly in the future is accepted
