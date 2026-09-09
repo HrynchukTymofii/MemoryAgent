@@ -52,10 +52,29 @@ if [ "${1:-}" = "--local" ]; then
   # executable, which fails `codesign --verify` and carries no entitlements —
   # so the microphone is denied under the hardened runtime. Signing it here
   # ad-hoc is what makes the local build behave like the shipped one.
-  note "Ad-hoc signing with the real entitlements..."
-  codesign --force --deep --sign - --options runtime \
+  # Prefer a real Apple Development certificate over an ad-hoc signature, and
+  # not for Gatekeeper's sake — it makes no difference there.
+  #
+  # It is about TCC. Accessibility and Input Monitoring are remembered against
+  # the app's code signature, and an ad-hoc signature is its own hash: every
+  # rebuild is a new application that has never been granted anything, so the
+  # permission silently stops applying and the shortcut dies until it is granted
+  # again. A certificate gives a stable identity, so the grant survives a
+  # rebuild — which is the difference between developing this app and fighting
+  # System Settings all afternoon.
+  identity="$(security find-identity -v -p codesigning \
+    | grep -o '"Apple Development: [^"]*"' | head -1 | tr -d '"')"
+  if [ -n "$identity" ]; then
+    note "Signing with: $identity"
+  else
+    identity="-"
+    note "No Apple Development certificate; signing ad-hoc."
+    note "Expect to re-grant Input Monitoring and Accessibility after every rebuild."
+  fi
+
+  codesign --force --deep --sign "$identity" --options runtime \
     --entitlements "$root/apps/desktop/src-tauri/entitlements.plist" "$app"
-  codesign --verify --deep --strict "$app" || fail "Ad-hoc signature did not verify."
+  codesign --verify --deep --strict "$app" || fail "Signature did not verify."
 
   note "Installing to /Applications..."
   rm -rf "/Applications/PersonalMemoryOS.app"
