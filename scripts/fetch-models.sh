@@ -9,6 +9,7 @@
 #   ./scripts/fetch-models.sh router        # ~609 MB, the Tier 1 intent router
 #   ./scripts/fetch-models.sh router-light  # ~378 MB, same model, Q4
 #   ./scripts/fetch-models.sh onnxruntime   # ~17 MB, the runtime on its own
+#   ./scripts/fetch-models.sh install       # put what is fetched where the app looks
 #
 # Weights are never committed — .gitignore excludes *.bin, *.onnx and friends.
 set -euo pipefail
@@ -99,7 +100,75 @@ fetch_onnxruntime() {
     ok "Done: $dest"
 }
 
+# Where the installed app looks. The repository layout and the installed layout
+# are different shapes, not the same shape in two places — under the data
+# directory whisper sits at models/ggml-*.bin, with no stt/ level — so this
+# maps between them rather than copying a tree.
+#
+# Hard links, because these files run to hundreds of megabytes and a second
+# copy on the same volume is pure waste. A link also survives the repository
+# being moved, which a symlink would not.
+install_into_data_dir() {
+    local data="$HOME/Library/Application Support/PersonalMemoryOS"
+    [ "$(uname)" = "Darwin" ] || fail "Only the macOS layout is handled here."
+
+    local placed=0
+    place() {
+        local src="$1" dst="$2"
+        [ -f "$src" ] || return 0
+        mkdir -p "$(dirname "$dst")"
+        if [ -f "$dst" ]; then
+            ok "Already installed: $dst"
+        else
+            ln "$src" "$dst" 2>/dev/null || cp "$src" "$dst"
+            ok "Installed: $dst"
+        fi
+        placed=$((placed + 1))
+    }
+
+    for m in "$root"/models/stt/ggml-*.bin; do
+        place "$m" "$data/models/$(basename "$m")"
+    done
+    place "$root/models/embedding/model.onnx"     "$data/models/embedding/model.onnx"
+    place "$root/models/embedding/tokenizer.json" "$data/models/embedding/tokenizer.json"
+    place "$root/models/llm/router.gguf"          "$data/models/llm/router.gguf"
+    place "$root/runtime/libonnxruntime.dylib"    "$data/runtime/libonnxruntime.dylib"
+
+    # The runtime is a library the app dlopens, not data, and the hardened
+    # runtime enforces library validation: a process signed by a team may only
+    # load code signed by that same team. A downloaded, ad-hoc-signed dylib is
+    # refused with "different Team IDs", `ort` turns that refusal into a panic,
+    # and `panic = "abort"` turns the panic into a dead application.
+    #
+    # So it is signed to match whatever signed the installed app — read from the
+    # app rather than chosen here, because those two answers must agree and only
+    # one of them is ours to pick.
+    if [ -f "$data/runtime/libonnxruntime.dylib" ]; then
+        local authority app="/Applications/PersonalMemoryOS.app"
+        authority="$(codesign -dv --verbose=2 "$app" 2>&1 \
+            | grep '^Authority=' | head -1 | cut -d= -f2-)"
+        [ -n "$authority" ] || authority="-"
+        codesign --force --sign "$authority" "$data/runtime/libonnxruntime.dylib" 2>/dev/null \
+            && ok "Signed the ONNX Runtime to match the app ($authority)" \
+            || fail "Could not sign the ONNX Runtime with '$authority'."
+    fi
+
+    if [ "$placed" -eq 0 ]; then
+        fail "Nothing to install — fetch a model first."
+    fi
+    echo
+    ok "Restart the app to pick these up."
+}
+
 case "$model" in
+  # Fetching leaves everything in the repository, which is where a `cargo run`
+  # looks and where the installed app never does. Without this step the app in
+  # /Applications reports every model missing no matter how many were fetched.
+  install)
+    install_into_data_dir
+    exit 0
+    ;;
+
   onnxruntime)
     fetch_onnxruntime
     exit 0
