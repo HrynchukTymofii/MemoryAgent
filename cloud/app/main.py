@@ -20,7 +20,7 @@ from datetime import datetime
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from pydantic import BaseModel
 
-from . import google, tokens
+from . import codes, google, mail, tokens
 from .config import settings
 from .db import Database, User
 
@@ -104,6 +104,84 @@ async def sign_in_with_google(
     account = await store.upsert_user(sub=user.sub, email=user.email, display_name=user.name)
     token, expires = tokens.issue(
         user.sub, secret=config.session_secret, ttl_days=config.session_ttl_days
+    )
+    return SignInResponse(token=token, expires_at=expires, account=Account.of(account))
+
+
+# --------------------------------------------------------------- email sign-in
+
+
+class EmailStartRequest(BaseModel):
+    email: str
+
+
+class EmailVerifyRequest(BaseModel):
+    email: str
+    code: str
+
+
+@app.post("/v1/auth/email/start", status_code=status.HTTP_204_NO_CONTENT)
+async def email_start(body: EmailStartRequest, store: Database = Depends(database)) -> None:
+    """Send a one-time code to an address.
+
+    Returns 204 whether or not the address belongs to anyone. Answering
+    differently would turn this endpoint into a way to ask "does this person
+    have an account here", which is not a question a stranger gets to ask.
+    Genuine failures — a mail server that would not accept the message — are
+    still errors, because the user is staring at a screen that would otherwise
+    claim something was sent.
+    """
+    config = settings()
+    if not config.smtp_host:
+        raise HTTPException(
+            status.HTTP_501_NOT_IMPLEMENTED, "email sign-in is not configured"
+        )
+
+    email = codes.normalise(body.email)
+    if not codes.looks_like_an_address(email):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "that does not look like an address")
+
+    code = codes.generate()
+    await store.store_code(
+        email=email, code_hash=codes.hash_code(code), ttl_minutes=codes.TTL_MINUTES
+    )
+    try:
+        await mail.send_code(config, email, code)
+    except mail.SendFailed as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "could not send the code") from e
+
+
+@app.post("/v1/auth/email/verify", response_model=SignInResponse)
+async def email_verify(
+    body: EmailVerifyRequest, store: Database = Depends(database)
+) -> SignInResponse:
+    """Exchange a correct code for a session.
+
+    Every failure below is the same message. Distinguishing "no code was
+    requested" from "the code is wrong" from "you have guessed too many times"
+    tells someone probing the endpoint exactly where they are, and tells a
+    legitimate user nothing they can act on beyond asking for a new code.
+    """
+    email = codes.normalise(body.email)
+    stored = await store.take_code(email=email, max_attempts=codes.MAX_ATTEMPTS)
+    if stored is None or not codes.matches(body.code.strip(), stored):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "that code is not valid")
+
+    # Correct: spend it, so it cannot be replayed.
+    await store.clear_code(email)
+
+    # An email account has no `sub` from a provider, so one is derived from the
+    # address. Stable, and namespaced so it can never collide with a Google
+    # subject — the same person signing in both ways is two accounts today, and
+    # merging them is a deliberate feature rather than an accident of key
+    # collision.
+    existing = await store.user_by_email(email)
+    sub = existing.id if existing else f"email:{email}"
+
+    account = await store.upsert_user(sub=sub, email=email, display_name=None)
+    config = settings()
+    token, expires = tokens.issue(
+        sub, secret=config.session_secret, ttl_days=config.session_ttl_days
     )
     return SignInResponse(token=token, expires_at=expires, account=Account.of(account))
 

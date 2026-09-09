@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { api, CAPTURE_LIMIT, type HookStats, type LibrarySummary } from "../lib/api";
+import {
+  api,
+  CAPTURE_LIMIT,
+  type Account as AccountData,
+  type HookStats,
+  type LibrarySummary,
+} from "../lib/api";
 import { Home } from "../features/home/Home";
 import { Library } from "../features/library/Library";
 import { Collections } from "../features/collections/Collections";
@@ -45,14 +51,18 @@ export function App() {
    * rather than as a first run.
    */
   const [askToSignIn, setAskToSignIn] = useState<boolean | null>(null);
+  const [signInAccount, setSignInAccount] = useState<AccountData | null>(null);
 
   useEffect(() => {
     void (async () => {
       try {
         const [seen, account] = await Promise.all([api.signInPromptSeen(), api.account()]);
-        // Only when there is something to sign in to, and only when the
-        // question has never been answered.
-        setAskToSignIn(account.available && !account.signed_in && !seen);
+        setSignInAccount(account);
+        // Only when there is something to sign in to — either provider counts
+        // — and only when the question has never been answered.
+        setAskToSignIn(
+          (account.available || account.email_available) && !account.signed_in && !seen,
+        );
       } catch {
         setAskToSignIn(false);
       }
@@ -111,9 +121,10 @@ export function App() {
 
   // Held back until the question is answered — see `askToSignIn`.
   if (askToSignIn === null) return null;
-  if (askToSignIn) {
+  if (askToSignIn && signInAccount) {
     return (
       <SignIn
+        account={signInAccount}
         onDone={() => setAskToSignIn(false)}
         onSignedIn={() => refresh()}
       />

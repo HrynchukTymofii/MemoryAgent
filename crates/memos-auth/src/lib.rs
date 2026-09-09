@@ -277,6 +277,40 @@ impl Auth {
         Ok(Identity::from(&session))
     }
 
+    /// Send a one-time code to an email address.
+    pub fn email_start(&self, email: &str) -> AuthResult<()> {
+        backend::email_start(&self.http, &self.backend, email.trim())
+    }
+
+    /// Exchange a code for a session.
+    ///
+    /// Unlike the Google path there is no provider token here at all: the API
+    /// is the only thing that ever proved this person owns the address, so the
+    /// session it returns is the whole credential.
+    pub fn email_verify(&self, email: &str, code: &str) -> AuthResult<Identity> {
+        let registered = backend::email_verify(&self.http, &self.backend, email.trim(), code.trim())?;
+        let session = Session {
+            user_id: registered.account.id,
+            email: registered.account.email,
+            display_name: registered.account.display_name,
+            access_token: String::new(),
+            id_token: None,
+            refresh_token: None,
+            expires_at: None,
+            api_token: Some(registered.token),
+            api_token_expires_at: Some(registered.expires_at),
+            signed_in_at: Utc::now(),
+        };
+        self.store.save(&session)?;
+        tracing::info!(email = ?session.email, "signed in by email");
+        Ok(Identity::from(&session))
+    }
+
+    /// Whether email sign-in is on offer — it needs the API, not a provider.
+    pub fn email_available(&self) -> bool {
+        self.backend.is_configured()
+    }
+
     /// Forget the session locally.
     ///
     /// Deliberately local-only. Revoking at the provider needs an endpoint not

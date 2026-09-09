@@ -104,6 +104,61 @@ pub fn register(
         .map_err(|e| AuthError::Protocol(format!("unreadable response from the API: {e}")))
 }
 
+/// Ask the API to send a one-time code to an address.
+pub fn email_start(
+    http: &reqwest::blocking::Client,
+    backend: &Backend,
+    email: &str,
+) -> AuthResult<()> {
+    if !backend.is_configured() {
+        return Err(AuthError::NotConfigured);
+    }
+    let url = format!("{}/v1/auth/email/start", backend.api_url.trim_end_matches('/'));
+    let response = http
+        .post(&url)
+        .json(&serde_json::json!({ "email": email }))
+        .send()
+        .map_err(|e| AuthError::Network(e.to_string()))?;
+
+    match response.status().as_u16() {
+        200..=299 => Ok(()),
+        400 => Err(AuthError::Protocol("that does not look like an email address".into())),
+        501 => Err(AuthError::NotConfigured),
+        other => Err(AuthError::Protocol(explain(other))),
+    }
+}
+
+/// Exchange a code for a session.
+pub fn email_verify(
+    http: &reqwest::blocking::Client,
+    backend: &Backend,
+    email: &str,
+    code: &str,
+) -> AuthResult<Registered> {
+    if !backend.is_configured() {
+        return Err(AuthError::NotConfigured);
+    }
+    let url = format!("{}/v1/auth/email/verify", backend.api_url.trim_end_matches('/'));
+    let response = http
+        .post(&url)
+        .json(&serde_json::json!({ "email": email, "code": code }))
+        .send()
+        .map_err(|e| AuthError::Network(e.to_string()))?;
+
+    let status = response.status();
+    let body = response.text().unwrap_or_default();
+    if !status.is_success() {
+        // The server deliberately does not say which way it was wrong — no
+        // code, wrong code, or too many tries — so neither does this.
+        return Err(match status.as_u16() {
+            401 => AuthError::Denied("that code is not valid".into()),
+            other => AuthError::Protocol(explain(other)),
+        });
+    }
+    serde_json::from_str(&body)
+        .map_err(|e| AuthError::Protocol(format!("unreadable response from the API: {e}")))
+}
+
 /// Turn a refusal into something a developer can act on.
 ///
 /// The failures that actually happen during setup are indistinguishable in a

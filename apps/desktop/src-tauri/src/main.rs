@@ -828,6 +828,9 @@ struct Account {
     /// False in a build with no provider configured. The Hub hides the whole
     /// section rather than showing a button that cannot work.
     available: bool,
+    /// Email sign-in needs the API rather than an OAuth client, so it can be
+    /// available when Google is not, and the reverse.
+    email_available: bool,
     #[serde(flatten)]
     identity: memos_auth::Identity,
 }
@@ -836,6 +839,7 @@ struct Account {
 fn account(state: tauri::State<'_, AppState>) -> Account {
     Account {
         available: state.auth.is_configured(),
+        email_available: state.auth.email_available(),
         identity: state.auth.identity(),
     }
 }
@@ -915,7 +919,11 @@ async fn sign_in(app: tauri::AppHandle) -> Result<Account, String> {
     match signed {
         (available, Ok(identity)) => {
             tracing::info!(email = ?identity.email, "account connected");
-            Ok(Account { available, identity })
+            Ok(Account {
+                available,
+                email_available: app.state::<AppState>().auth.email_available(),
+                identity,
+            })
         }
         (_, Err(e)) => {
             // Logged whole, reported short. The user pressing cancel and the
@@ -933,7 +941,39 @@ fn sign_out(state: tauri::State<'_, AppState>) -> Result<Account, String> {
     state.auth.sign_out().map_err(|e| e.to_string())?;
     Ok(Account {
         available: state.auth.is_configured(),
+        email_available: state.auth.email_available(),
         identity: state.auth.identity(),
+    })
+}
+
+/// Send a one-time code to an email address.
+#[tauri::command]
+async fn email_start(app: tauri::AppHandle, email: String) -> Result<(), String> {
+    let auth = app.state::<AppState>().auth.clone();
+    tauri::async_runtime::spawn_blocking(move || auth.email_start(&email))
+        .await
+        .map_err(|e| format!("did not run: {e}"))?
+        .map_err(|e| e.to_string())
+}
+
+/// Exchange a code for a session.
+#[tauri::command]
+async fn email_verify(
+    app: tauri::AppHandle,
+    email: String,
+    code: String,
+) -> Result<Account, String> {
+    let auth = app.state::<AppState>().auth.clone();
+    let identity = tauri::async_runtime::spawn_blocking(move || auth.email_verify(&email, &code))
+        .await
+        .map_err(|e| format!("did not run: {e}"))?
+        .map_err(|e| e.to_string())?;
+
+    let state = app.state::<AppState>();
+    Ok(Account {
+        available: state.auth.is_configured(),
+        email_available: state.auth.email_available(),
+        identity,
     })
 }
 
@@ -1219,6 +1259,8 @@ fn main() {
             sign_out,
             sign_in_prompt_seen,
             dismiss_sign_in_prompt,
+            email_start,
+            email_verify,
             open_hub,
             set_idle_pill,
             search,

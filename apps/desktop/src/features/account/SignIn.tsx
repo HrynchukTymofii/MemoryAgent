@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { api, type Account } from "../../lib/api";
+import { EmailSignIn } from "./EmailSignIn";
 
 /**
  * The sign-in screen, shown once.
@@ -16,9 +17,11 @@ import { api, type Account } from "../../lib/api";
  * grey link hidden underneath them.
  */
 export function SignIn({
+  account,
   onDone,
   onSignedIn,
 }: {
+  account: Account;
   onDone: () => void;
   onSignedIn: (a: Account) => void;
 }) {
@@ -66,19 +69,32 @@ export function SignIn({
           how we know who is actually using this.
         </p>
 
-        <button
-          type="button"
-          className="provider"
-          onClick={() => void signIn()}
-          disabled={busy}
-        >
-          <span className="mark" aria-hidden="true">
-            G
-          </span>
-          {busy ? "Waiting for your browser…" : "Continue with Google"}
-        </button>
+        {account.available && (
+          <button
+            type="button"
+            className="provider"
+            onClick={() => void signIn()}
+            disabled={busy}
+          >
+            <span className="mark" aria-hidden="true">
+              G
+            </span>
+            {busy ? "Waiting for your browser…" : "Continue with Google"}
+          </button>
+        )}
 
         {error && <p className="signin-error">{error}</p>}
+
+        {account.available && account.email_available && <p className="or">or</p>}
+
+        {account.email_available && (
+          <EmailSignIn
+            onSignedIn={(a) => {
+              onSignedIn(a);
+              onDone();
+            }}
+          />
+        )}
 
         <button type="button" className="skip" onClick={() => void skip()} disabled={busy}>
           Continue without an account

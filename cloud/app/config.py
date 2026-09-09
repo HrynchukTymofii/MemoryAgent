@@ -32,6 +32,17 @@ class Settings(BaseSettings):
     # use weekly, short enough that a leaked token is not permanent.
     session_ttl_days: int = 30
 
+    # Mail, for email sign-in. Empty host disables it and the endpoints say so
+    # rather than failing obscurely.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    # Port 465 is implicit TLS; 587 upgrades with STARTTLS. Both are encrypted,
+    # and getting this wrong looks like a hang rather than an error.
+    smtp_ssl: bool = False
+
 
 @lru_cache
 def settings() -> Settings:

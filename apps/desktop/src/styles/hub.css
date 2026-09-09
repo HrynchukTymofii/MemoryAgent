@@ -378,3 +378,27 @@ nav li.on .badge { background:var(--ink); }
 }
 .cred::placeholder { color: var(--ink3); }
 .cred:focus { outline: 2px solid var(--acc); outline-offset: 1px; }
+
+/* Email sign-in, beneath the providers. */
+.or {
+  display: flex; align-items: center; gap: 10px;
+  margin: 14px 0 12px; font-size: 11px; color: var(--ink3);
+  text-transform: uppercase; letter-spacing: .1em;
+}
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.email-step { display: flex; flex-direction: column; }
+.email-field {
+  width: 100%; margin-bottom: 9px; padding: 11px 14px;
+  background: var(--card2); border: 1px solid var(--line2); border-radius: 11px;
+  font: inherit; font-size: 13px; color: var(--ink); text-align: center;
+}
+.email-field::placeholder { color: var(--ink3); }
+.email-field:focus { outline: 2px solid var(--acc); outline-offset: 1px; }
+/* The code is read off a phone and typed one character at a time; spacing it
+   out is what makes a mistyped digit visible before it is submitted. */
+.email-field.code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 21px; font-weight: 600; letter-spacing: .38em; text-indent: .38em;
+}
+.email-sent { margin: 0 0 10px; font-size: 12px; color: var(--ink2); }
+.email-sent b { color: var(--ink); font-weight: 600; }
