@@ -390,31 +390,72 @@ fn claims_of(jwt: &str) -> Option<Profile> {
 /// exactly that reason.
 fn open_browser(url: &str) -> AuthResult<()> {
     #[cfg(windows)]
-    let mut command = {
-        // `explorer` takes the argument verbatim and applies the user's own
-        // default handler. It also returns a non-zero exit code on success,
-        // which is why the status is never checked.
-        let mut c = std::process::Command::new("explorer");
-        c.arg(url);
-        c
-    };
-    #[cfg(target_os = "macos")]
-    let mut command = {
-        let mut c = std::process::Command::new("open");
-        c.arg(url);
-        c
-    };
-    #[cfg(all(not(windows), not(target_os = "macos")))]
-    let mut command = {
-        let mut c = std::process::Command::new("xdg-open");
-        c.arg(url);
-        c
-    };
+    {
+        open_windows(url)
+    }
+    #[cfg(not(windows))]
+    {
+        let program = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        std::process::Command::new(program)
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| AuthError::Browser(e.to_string()))
+    }
+}
 
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| AuthError::Browser(e.to_string()))
+/// `ShellExecuteW`, and not a spawned process.
+///
+/// The two obvious alternatives are both wrong here, and both fail in ways that
+/// look like the app is broken rather than like a quoting bug:
+///
+/// - `explorer.exe <url>` parses the argument as a *path*. An authorize URL is
+///   mostly query string, so Explorer gives up and opens a folder window —
+///   which is exactly the symptom this replaces.
+/// - `cmd /c start "" <url>` runs the URL through cmd's expansion first, and
+///   percent-encoding is full of `%` pairs that cmd reads as variable
+///   references. `%2F...%3D` can be silently rewritten, corrupting the
+///   `redirect_uri` or the challenge with no error anywhere.
+///
+/// `ShellExecuteW` takes the string verbatim and applies the user's own default
+/// handler for the scheme, which is what "open this in the browser" means.
+#[cfg(windows)]
+fn open_windows(url: &str) -> AuthResult<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    fn wide(s: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    let verb = wide("open");
+    let target = wide(url);
+    // Returns a fake HINSTANCE; values above 32 mean success. This is the
+    // documented contract, odd as it looks.
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(verb.as_ptr()),
+            PCWSTR(target.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result.0 as isize > 32 {
+        Ok(())
+    } else {
+        Err(AuthError::Browser(format!(
+            "the shell refused to open the sign-in page (code {})",
+            result.0 as isize
+        )))
+    }
 }
 
 #[cfg(test)]
