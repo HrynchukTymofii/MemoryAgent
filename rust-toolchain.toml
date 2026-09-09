@@ -1,4 +1,10 @@
 [toolchain]
 channel    = "stable"
 components = ["rustfmt", "clippy"]
-targets    = ["x86_64-pc-windows-msvc"]
+# Both Apple targets, because the shipped bundle is universal: a Mac build on
+# Apple silicon still has to produce the Intel half.
+targets    = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+]
