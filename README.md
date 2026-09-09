@@ -61,6 +61,39 @@ Skip both and the app still runs. Tier 0 answers the formulaic commands, and
 unusual phrasings come back "not sure what to do with that" - which is what they
 did before Tier 1 existed.
 
+## macOS
+
+The workspace builds and runs on macOS now. Capture does not: the hotkey and
+context implementations are stubs, and are the M7 work (ADR-0009).
+
+```
+xcode-select --install
+brew install cmake
+cargo install tauri-cli --version "^2"
+cd apps/desktop && npm install && npm start
+```
+
+**Nothing is needed from Apple to build or run.** The bundle identifier
+(`com.personalmemoryos.desktop`) is ours to choose and is already set; it only
+has to be registered in the developer portal for App Store distribution or
+capabilities like push and iCloud, and this app uses neither. A Developer ID
+certificate is needed to give the build to somebody else, not to run it.
+
+**The one macOS trap worth knowing before it costs an afternoon.** Accessibility
+and Input Monitoring grants are bound to the exact binary that was authorised.
+An unsigned debug build gets a *new* identity on every rebuild, so the shortcut
+silently stops working and System Settings still shows the app ticked — the tick
+refers to the previous binary. Remove and re-add it after each build, or sign
+locally with a stable identity:
+
+```
+codesign --force --deep --sign - target/debug/bundle/macos/PersonalMemoryOS.app
+```
+
+There is no such thing as an "accessibility identifier" to register. macOS
+identifies the app by bundle id and signature, and the user grants the
+permission in System Settings — no API can request it.
+
 ## Run
 
 ```
