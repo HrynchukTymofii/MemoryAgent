@@ -41,6 +41,7 @@
 //!   save the session
 //! ```
 
+pub mod backend;
 pub mod loopback;
 pub mod pkce;
 pub mod session;
@@ -51,6 +52,7 @@ use std::time::Duration;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
+pub use backend::Backend;
 pub use loopback::Loopback;
 pub use pkce::Pkce;
 pub use session::{Identity, Session, SessionStore};
@@ -179,12 +181,13 @@ struct Profile {
 
 pub struct Auth {
     provider: Provider,
+    backend: Backend,
     store: SessionStore,
     http: reqwest::blocking::Client,
 }
 
 impl Auth {
-    pub fn new(provider: Provider, data_dir: PathBuf) -> Self {
+    pub fn new(provider: Provider, backend: Backend, data_dir: PathBuf) -> Self {
         let http = reqwest::blocking::Client::builder()
             // Every request here is one a person is waiting on, in front of a
             // screen that says "signing in". A hung connection has to become an
@@ -195,6 +198,7 @@ impl Auth {
             .unwrap_or_default();
         Self {
             provider,
+            backend,
             store: SessionStore::new(&data_dir),
             http,
         }
@@ -242,10 +246,19 @@ impl Auth {
                 .expires_in
                 .map(|s| Utc::now() + chrono::Duration::seconds(s)),
             access_token: token.access_token,
+            id_token: token.id_token,
             refresh_token: token.refresh_token,
             signed_in_at: Utc::now(),
         };
         self.store.save(&session)?;
+
+        // The user is signed in from here whatever happens next. Recording them
+        // in Postgres is bookkeeping, and bookkeeping does not get to fail the
+        // thing the user actually asked for.
+        if let Err(e) = backend::record_user(&self.http, &self.backend, &session) {
+            tracing::warn!(?e, "signed in, but the user was not recorded");
+        }
+
         tracing::info!(email = ?session.email, "signed in");
         Ok(Identity::from(&session))
     }
@@ -406,7 +419,11 @@ mod tests {
     }
 
     fn auth() -> Auth {
-        Auth::new(provider(), std::env::temp_dir().join("memos-auth-tests"))
+        Auth::new(
+            provider(),
+            Backend::default(),
+            std::env::temp_dir().join("memos-auth-tests"),
+        )
     }
 
     #[test]
@@ -419,7 +436,7 @@ mod tests {
     /// tenant behind it, which can only ever produce a confusing error.
     #[test]
     fn signing_in_without_configuration_is_refused_before_anything_opens() {
-        let auth = Auth::new(Provider::default(), std::env::temp_dir());
+        let auth = Auth::new(Provider::default(), Backend::default(), std::env::temp_dir());
         assert!(matches!(auth.sign_in(), Err(AuthError::NotConfigured)));
     }
 
@@ -455,7 +472,7 @@ mod tests {
     fn existing_query_parameters_are_preserved() {
         let mut p = provider();
         p.authorize_url = "https://auth.example.com/authorize?tenant=acme".into();
-        let auth = Auth::new(p, std::env::temp_dir());
+        let auth = Auth::new(p, Backend::default(), std::env::temp_dir());
         let url = auth.authorize_url(&Pkce::new(), "http://127.0.0.1:1/callback").unwrap();
         assert!(url.contains("tenant=acme"), "{url}");
         assert!(url.contains("code_challenge_method=S256"), "{url}");
@@ -508,7 +525,7 @@ mod tests {
     #[test]
     fn signing_out_with_no_session_is_not_an_error() {
         let dir = tempfile::tempdir().unwrap();
-        let auth = Auth::new(provider(), dir.path().to_path_buf());
+        let auth = Auth::new(provider(), Backend::default(), dir.path().to_path_buf());
         auth.sign_out().unwrap();
         assert!(!auth.identity().signed_in);
     }

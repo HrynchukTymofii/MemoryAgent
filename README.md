@@ -143,74 +143,78 @@ search and everything already saved work signed out and always will (ADR-0007
 and to be the identity cloud sync attaches to at M5.
 
 The flow is Authorization Code with **PKCE over a loopback redirect**
-(RFC 8252). There is no client secret, because a desktop binary cannot keep
-one — anything compiled in is readable by everyone who installs it.
+(RFC 8252), and the signed-in user is recorded in Postgres over HTTPS. Two
+setup steps, both in this repository — nothing is configured on a user's
+machine.
 
-### Google
+### 1. Credentials, in `.env`
 
-The provider that fits this shape with no server of our own. In the Google
-Cloud console: **APIs & Services → Credentials → Create OAuth client ID →
-Desktop app**. That client type is built for exactly this — public client, no
-secret, loopback redirect on a port chosen at runtime.
+The app's own OAuth client identifies *this application* to Google. It is the
+same for every install and no user ever sees it, so it is compiled in at build
+time from `.env` at the repository root. Copy `.env.example` and fill it in:
 
-Then fill in `auth` in `%APPDATA%\PersonalMemoryOS\config.json` (these are
-Google's published endpoints, from its OIDC discovery document):
-
-```json
-"auth": {
-  "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
-  "token_url":     "https://oauth2.googleapis.com/token",
-  "userinfo_url":  "https://openidconnect.googleapis.com/v1/userinfo",
-  "client_id":     "<yours>.apps.googleusercontent.com",
-  "client_secret": "<yours>",
-  "scope":         "openid email profile"
-}
+```
+MEMOS_GOOGLE_CLIENT_ID=000000000000-xxxx.apps.googleusercontent.com
+MEMOS_GOOGLE_CLIENT_SECRET=GOCSPX-xxxx
+MEMOS_DATA_API_URL=https://app-xxxx.dpl.myneon.app/rest/v1
 ```
 
-Google issues a `client_secret` even for a Desktop app client, and its token
-endpoint requires it. That is not a contradiction of PKCE: Google documents it
-as not confidential for installed apps, and PKCE is what actually protects the
-exchange. Providers that forbid the parameter can omit the field.
+Get the first two from the Google Cloud console: **APIs & Services →
+Credentials → Create OAuth client ID → Desktop app**. Google issues a secret
+even for that client type and its token endpoint requires it; Google documents
+it as not confidential for installed apps, because it ships inside every copy
+of the binary and cannot be otherwise. PKCE is what protects the exchange.
+`.env` is gitignored regardless.
 
-With this filled in, the app shows a **sign-in screen on first launch** —
-Google, and "Continue without an account" as an equal option. Skipping is
-remembered (`sign_in_prompt_seen`), so it is asked once. The Account page in
-the sidebar is where it lives afterwards.
+A checkout with no `.env` builds a working app with sign-in switched off, which
+is what a contributor who has never registered a client should get.
 
-Any OIDC provider fits this shape; take the URLs from its
-`/.well-known/openid-configuration`. `userinfo_url` may be omitted, in which
-case the email is read from the `id_token`'s claims.
+### 2. The database, via the Data API
 
-### One project, several clients
+The desktop app never speaks Postgres and holds no connection string. It could
+not: a connection string inside a binary that ships to everyone is a credential
+granting whoever extracts it every row every user has written, and no amount of
+obfuscation changes that.
 
-A web app and a mobile app each need their **own** OAuth client — Google issues
-one per platform, because the ways they prove identity differ (a web client has
-a secret and fixed redirect URIs; iOS binds to a bundle ID; Android to a package
-name and signing fingerprint). That is a registration step, not a second
-integration.
+Instead it calls **Neon's Data API** over HTTPS and authenticates with the OIDC
+identity token it already holds from signing in. Neon validates that token
+against Google's public keys and runs the statement as that user, so row-level
+security decides what the request may touch. A stolen token is one session and
+expires; a stolen connection string is the whole database, forever.
 
-Keep them all in **one Google Cloud project**. The `sub` claim that identifies a
-user is stable per project, not per client, so the same person signing in from
-the desktop app, the website and the phone is one row in the database rather
-than three.
+In the Neon console: enable the **Data API** on your project, then add Google as
+an authentication provider — issuer `https://accounts.google.com`, JWKS
+`https://www.googleapis.com/oauth2/v3/certs`. Copy the Data API URL into
+`MEMOS_DATA_API_URL`. Then create the table it writes to:
 
-### Why Google before Apple or GitHub
+```sql
+create table users (
+  id            text primary key,   -- the provider's `sub` claim
+  email         text,
+  display_name  text,
+  last_seen_at  timestamptz not null default now(),
+  created_at    timestamptz not null default now()
+);
 
-Neither of the other two fits a no-backend desktop app, and it is worth knowing
-why before promising them:
+alter table users enable row level security;
 
-- **Apple** signs its client secret rather than issuing one: a JWT you mint with
-  a private key, rotated at most every six months. A desktop binary cannot hold
-  that key, so Apple needs either a server to mint it, or the native macOS
-  sign-in sheet — which is macOS-only and does not help Windows.
-- **GitHub** requires a client secret at the token exchange for the ordinary web
-  flow. Its **device flow** needs no secret and is the right answer for a
-  desktop app, but it is a different flow from the one here: a code the user
-  types into a browser, and polling rather than a redirect.
+-- Each user sees and writes exactly their own row, enforced by the database
+-- rather than by the client asking nicely.
+create policy users_own_row on users
+  for all
+  using (id = auth.user_id())
+  with check (id = auth.user_id());
 
-Both become easy the moment a backend exists to hold a secret — which is what a
-website brings with it. So the order is Google now, the others alongside the web
-app, rather than three half-solutions in the desktop client.
+grant select, insert, update on users to authenticated;
+```
+
+The row is keyed by `sub` rather than by email, because people change their
+email address and must remain the same user when they do.
+
+Leaving `MEMOS_DATA_API_URL` empty is supported: sign-in works and the session
+stays local. And recording the user is never allowed to fail a sign-in — the
+user is signed in either way, so an unreachable backend is a warning in the log
+and nothing more.
 
 The session is stored as `session.json` beside the database, in clear text —
 the same protection the database itself has, which already holds every memory

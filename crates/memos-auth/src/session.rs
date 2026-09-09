@@ -19,6 +19,12 @@ pub struct Session {
     pub display_name: Option<String>,
 
     pub access_token: String,
+    /// The OIDC identity token, kept because it is the credential the backend
+    /// accepts: Postgres validates it against the provider's JWKS and scopes
+    /// rows by its `sub` claim. Google's access tokens are opaque and cannot do
+    /// that job, so this is not a duplicate of the field above.
+    #[serde(default)]
+    pub id_token: Option<String>,
     /// Absent when the provider issues none, which makes the session last
     /// exactly as long as the access token does.
     pub refresh_token: Option<String>,
@@ -170,6 +176,7 @@ mod tests {
             email: Some("someone@example.com".into()),
             display_name: Some("Someone".into()),
             access_token: "ACCESS-SECRET".into(),
+            id_token: Some("ID-SECRET".into()),
             refresh_token: Some("REFRESH-SECRET".into()),
             expires_at: Some(Utc::now() + Duration::hours(1)),
             signed_in_at: Utc::now(),

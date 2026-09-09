@@ -37,10 +37,7 @@ pub struct AppState {
     /// unconfigured one simply answers "not signed in" to everything, which is
     /// the same answer a signed-out user gets and needs no special casing.
     ///
-    /// Swappable, because credentials are pasted into the running app rather
-    /// than compiled in — connecting a provider must take effect without a
-    /// restart, or the form appears not to have worked.
-    pub auth: parking_lot::Mutex<Arc<memos_auth::Auth>>,
+    pub auth: Arc<memos_auth::Auth>,
     pub config: parking_lot::Mutex<config::Config>,
     /// Read by the dispatch thread on every engagement, so a changed debounce
     /// takes effect without a restart like the binding does.
@@ -837,59 +834,10 @@ struct Account {
 
 #[tauri::command]
 fn account(state: tauri::State<'_, AppState>) -> Account {
-    let auth = state.auth.lock().clone();
     Account {
-        available: auth.is_configured(),
-        identity: auth.identity(),
+        available: state.auth.is_configured(),
+        identity: state.auth.identity(),
     }
-}
-
-/// Connect a Google OAuth client, from credentials pasted into the app.
-///
-/// The four endpoint URLs are Google's published ones and are filled in here
-/// rather than asked for. Making someone copy four URLs that are identical for
-/// every Google client on earth is a form to get wrong, not a choice to offer;
-/// the two values that actually differ are the two the form asks for.
-///
-/// The secret is optional because not every provider issues one, and is stored
-/// exactly as the rest of the config is — see the Account section of the README
-/// for what that does and does not protect.
-#[tauri::command]
-fn connect_google(
-    state: tauri::State<'_, AppState>,
-    client_id: String,
-    client_secret: String,
-) -> Result<Account, String> {
-    let client_id = client_id.trim().to_string();
-    if client_id.is_empty() {
-        return Err("A client ID is required.".into());
-    }
-    let secret = client_secret.trim();
-
-    let provider = memos_auth::Provider {
-        authorize_url: "https://accounts.google.com/o/oauth2/v2/auth".into(),
-        token_url: "https://oauth2.googleapis.com/token".into(),
-        userinfo_url: Some("https://openidconnect.googleapis.com/v1/userinfo".into()),
-        client_id,
-        client_secret: (!secret.is_empty()).then(|| secret.to_string()),
-        scope: "openid email profile".into(),
-    };
-
-    {
-        let mut cfg = state.config.lock();
-        cfg.auth = provider.clone();
-        cfg.save()?;
-    }
-    // Swapped in the same call that saved it, so the Account page reflects the
-    // new provider immediately instead of at the next launch.
-    let auth = Arc::new(memos_auth::Auth::new(provider, data_dir()));
-    *state.auth.lock() = auth.clone();
-
-    tracing::info!("connected a sign-in provider");
-    Ok(Account {
-        available: auth.is_configured(),
-        identity: auth.identity(),
-    })
 }
 
 /// Whether the sign-in screen has been shown and answered.
@@ -910,6 +858,44 @@ fn dismiss_sign_in_prompt(state: tauri::State<'_, AppState>) -> Result<(), Strin
     cfg.save()
 }
 
+/// The application's own OAuth credentials and backend, compiled in.
+///
+/// These identify *this app* to Google. They are identical for every install
+/// and no user ever sees or supplies them — they come from `.env` in the
+/// repository at build time (see `build.rs`). An empty client id means this
+/// build was compiled without them, and sign-in is simply not offered.
+///
+/// A value in `config.json` still wins, so a running install can be pointed at
+/// a different tenant without a rebuild. That is an escape hatch, not the path
+/// anyone is expected to take.
+fn built_in_provider() -> memos_auth::Provider {
+    memos_auth::Provider {
+        authorize_url: "https://accounts.google.com/o/oauth2/v2/auth".into(),
+        token_url: "https://oauth2.googleapis.com/token".into(),
+        userinfo_url: Some("https://openidconnect.googleapis.com/v1/userinfo".into()),
+        client_id: env!("MEMOS_GOOGLE_CLIENT_ID").into(),
+        client_secret: Some(env!("MEMOS_GOOGLE_CLIENT_SECRET").into())
+            .filter(|s: &String| !s.is_empty()),
+        scope: "openid email profile".into(),
+    }
+}
+
+fn built_in_backend() -> memos_auth::Backend {
+    memos_auth::Backend {
+        data_api_url: env!("MEMOS_DATA_API_URL").into(),
+    }
+}
+
+/// The provider this build should use: whatever `config.json` overrides, else
+/// what was compiled in.
+fn effective_provider(cfg: &config::Config) -> memos_auth::Provider {
+    if cfg.auth.is_configured() {
+        cfg.auth.clone()
+    } else {
+        built_in_provider()
+    }
+}
+
 /// Run the sign-in flow, and resolve when the user comes back.
 ///
 /// `spawn_blocking` because the flow is blocking by design: it opens a browser
@@ -918,11 +904,7 @@ fn dismiss_sign_in_prompt(state: tauri::State<'_, AppState>) -> Result<(), Strin
 /// capture path needs — so it goes to the pool that exists for exactly this.
 #[tauri::command]
 async fn sign_in(app: tauri::AppHandle) -> Result<Account, String> {
-    let auth = {
-        let state = app.state::<AppState>();
-        let auth = state.auth.lock().clone();
-        auth
-    };
+    let auth = app.state::<AppState>().auth.clone();
     let signed = tauri::async_runtime::spawn_blocking(move || {
         let identity = auth.sign_in();
         (auth.is_configured(), identity)
@@ -948,11 +930,10 @@ async fn sign_in(app: tauri::AppHandle) -> Result<Account, String> {
 /// Forget the session on this machine.
 #[tauri::command]
 fn sign_out(state: tauri::State<'_, AppState>) -> Result<Account, String> {
-    let auth = state.auth.lock().clone();
-    auth.sign_out().map_err(|e| e.to_string())?;
+    state.auth.sign_out().map_err(|e| e.to_string())?;
     Ok(Account {
-        available: auth.is_configured(),
-        identity: auth.identity(),
+        available: state.auth.is_configured(),
+        identity: state.auth.identity(),
     })
 }
 
@@ -1205,10 +1186,11 @@ fn main() {
             embeddings: embeddings.clone(),
             questions: questions.clone(),
             router: tier1.clone(),
-            auth: parking_lot::Mutex::new(Arc::new(memos_auth::Auth::new(
-                cfg.auth.clone(),
+            auth: Arc::new(memos_auth::Auth::new(
+                effective_provider(&cfg),
+                built_in_backend(),
                 data_dir(),
-            ))),
+            )),
             config: parking_lot::Mutex::new(cfg.clone()),
             hold_ms: hold_ms.clone(),
         })
@@ -1237,7 +1219,6 @@ fn main() {
             sign_out,
             sign_in_prompt_seen,
             dismiss_sign_in_prompt,
-            connect_google,
             open_hub,
             set_idle_pill,
             search,
