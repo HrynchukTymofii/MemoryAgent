@@ -280,7 +280,9 @@ fn size_overlay(app: tauri::AppHandle, height: u32, width: Option<u32>, css: f64
     }
     // The window is positioned by its bottom edge, so this keeps the pill where
     // the user is already looking and grows the list upward into empty space.
-    position_overlay(&w);
+    // Told the size rather than left to read it back: the resize above has not
+    // landed yet on macOS.
+    position_overlay_sized(&w, tauri::PhysicalSize::new(width, height));
 }
 
 /// Answer the overlay's destination question by choosing option `index`.
@@ -730,8 +732,12 @@ fn answerable<R: Runtime>(w: &tauri::WebviewWindow<R>) {
 /// Back to a window you only ever speak to.
 fn speak_only<R: Runtime>(w: &tauri::WebviewWindow<R>) {
     let _ = w.set_ignore_cursor_events(true);
-    let _ = w.set_size(tauri::LogicalSize::new(OVERLAY_SIZE.0, OVERLAY_SIZE.1));
-    position_overlay(w);
+    let size = tauri::LogicalSize::new(OVERLAY_SIZE.0, OVERLAY_SIZE.1);
+    let _ = w.set_size(size);
+    // Converted here rather than read back, for the same reason: on macOS the
+    // resize above is still in flight.
+    let scale = w.scale_factor().unwrap_or(1.0);
+    position_overlay_sized(w, size.to_physical(scale));
 }
 
 /// Where the overlay goes when there is nothing to show.
@@ -1075,8 +1081,26 @@ fn never_activates<R: Runtime>(_w: &tauri::WebviewWindow<R>) {}
 /// Called before every show, not only at startup: monitor layout and DPI can
 /// change while the app sits in the tray for days.
 fn position_overlay<R: Runtime>(w: &tauri::WebviewWindow<R>) {
-    let app = w.app_handle();
     let Ok(size) = w.outer_size() else { return };
+    position_overlay_sized(w, size)
+}
+
+/// Place the overlay, told what size it is about to be.
+///
+/// The size is passed in rather than read back because `set_size` does not take
+/// effect immediately on macOS — it is dispatched to the main thread, so
+/// `outer_size()` on the next line still returns the *previous* size. Every
+/// caller here resizes and then positions, so the read was of a stale value and
+/// the window was centred as though it were still its old shape.
+///
+/// Measured, before the fix: the 90x120 idle pill was placed at (595, 633) on a
+/// 1710x1107 display, where bottom-centre is (810, 832) — out by exactly half
+/// the difference between the pill and the resting 520x320 window. It looked
+/// like a positioning bug and was a synchronisation one.
+///
+/// Windows resizes synchronously, which is why this never showed up there.
+fn position_overlay_sized<R: Runtime>(w: &tauri::WebviewWindow<R>, size: tauri::PhysicalSize<u32>) {
+    let app = w.app_handle();
 
     // A pill the user placed by hand wins over anything computed. The anchor is
     // an edge, not a corner: the window changes size constantly — 46px idle,
@@ -1467,6 +1491,7 @@ fn main() {
                             Err(_) => break, // hook gone; app shutting down
                             Ok(ChordState::Released) => {
                                 tracing::debug!("chord released");
+                                hotkey::diag(&format!("chord RELEASED (showing={showing})"));
                                 if showing {
                                     showing = false;
                                     let released = std::time::Instant::now();
@@ -1511,6 +1536,12 @@ fn main() {
                             }
                             Ok(ChordState::Engaged) => {
                                 tracing::debug!("chord engaged");
+                                // In the diagnostic log too, not only at debug
+                                // level: in a packaged app there is no console
+                                // to read, and "I press the shortcut and
+                                // nothing happens" is unanswerable without
+                                // knowing whether the chord ever matched.
+                                hotkey::diag("chord ENGAGED");
                                 // Debounce. A single-modifier binding such as
                                 // `rctrl` would otherwise fire during an
                                 // ordinary Ctrl+C. Waiting here is free from M1
@@ -1571,6 +1602,20 @@ fn main() {
                                 // what the native window cost.
                                 let native_ms = t0.elapsed().as_secs_f64() * 1000.0;
                                 tracing::info!("position+show(): {native_ms:.2} ms");
+                                // What the window actually became, not what it
+                                // was asked to become. "The pill did not
+                                // expand" has two very different causes — the
+                                // chord never fired, or it fired and the window
+                                // stayed pill-sized — and only one line tells
+                                // them apart.
+                                if let (Ok(sz), Ok(pos)) =
+                                    (overlay.outer_size(), overlay.outer_position())
+                                {
+                                    hotkey::diag(&format!(
+                                        "overlay shown: {}x{} at ({}, {})",
+                                        sz.width, sz.height, pos.x, pos.y
+                                    ));
+                                }
                                 append_line(
                                     data_dir().join("latency.log"),
                                     &format!("native show: {native_ms:.2} ms"),
