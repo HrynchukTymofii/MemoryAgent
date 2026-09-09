@@ -56,6 +56,21 @@ def png_bytes(px):
             + chunk(b"IEND", b""))
 
 
+def icns_bytes(types_to_png):
+    """Pack PNGs into an .icns.
+
+    Written by hand rather than shelled out to `iconutil`, because that only
+    exists on macOS and this script has to keep producing every icon from
+    whichever machine the brand changed on. The container is trivial: a magic,
+    a total length, then typed chunks whose payload a modern macOS reads as
+    PNG directly.
+    """
+    body = b""
+    for tag, data in types_to_png:
+        body += tag + struct.pack(">I", len(data) + 8) + data
+    return b"icns" + struct.pack(">I", len(body) + 8) + body
+
+
 def ico_bytes(sizes_to_png):
     n = len(sizes_to_png)
     header = struct.pack("<HHH", 0, 1, n)
@@ -72,15 +87,30 @@ out = os.path.join(os.path.dirname(__file__), "..", "apps", "desktop", "src-taur
 os.makedirs(out, exist_ok=True)
 
 pngs = {}
-for s in (32, 64, 128, 256):
+for s in (32, 64, 128, 256, 512, 1024):
     pngs[s] = png_bytes(render(s))
 
 open(os.path.join(out, "32x32.png"), "wb").write(pngs[32])
 open(os.path.join(out, "128x128.png"), "wb").write(pngs[128])
 open(os.path.join(out, "128x128@2x.png"), "wb").write(pngs[256])
-open(os.path.join(out, "icon.png"), "wb").write(pngs[256])
+open(os.path.join(out, "icon.png"), "wb").write(pngs[1024])
 open(os.path.join(out, "icon.ico"), "wb").write(
     ico_bytes([(32, pngs[32]), (64, pngs[64]), (128, pngs[128])])
+)
+# macOS reads the Dock and Finder icon from here and nowhere else. The Retina
+# variants are separate entries rather than scaled copies, because macOS picks
+# by type and falls back to a blurry upscale of the largest it finds.
+open(os.path.join(out, "icon.icns"), "wb").write(
+    icns_bytes([
+        (b"ic11", pngs[32]),    # 16pt @2x
+        (b"ic12", pngs[64]),    # 32pt @2x
+        (b"ic07", pngs[128]),
+        (b"ic13", pngs[256]),   # 128pt @2x
+        (b"ic08", pngs[256]),
+        (b"ic14", pngs[512]),   # 256pt @2x
+        (b"ic09", pngs[512]),
+        (b"ic10", pngs[1024]),  # 512pt @2x
+    ])
 )
 print("wrote icons to", os.path.normpath(out))
 for f in sorted(os.listdir(out)):
