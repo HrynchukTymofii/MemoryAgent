@@ -485,7 +485,10 @@ impl Stt {
         let Some(path) = memos_stt::find_model(explicit.as_deref(), &data) else {
             *self.state.write() = ModelState::Missing;
             *self.detail.write() =
-                "No speech model found. Run scripts/fetch-models.ps1 base.en".into();
+                format!(
+                    "No speech model found. Run {} base.en",
+                    memos_core::scripts::FETCH_MODELS
+                );
             tracing::warn!("no whisper model found; transcription disabled");
             crate::hotkey::diag("whisper model MISSING");
             return;

@@ -1219,7 +1219,10 @@ fn main() {
         // Said through the router rather than only logged, so the Hub can
         // explain why unusual phrasings are not being understood instead of
         // leaving it as something the user has to notice for themselves.
-        None => tier1.unavailable("No router model. Fetch it: scripts/fetch-models.ps1 router"),
+        None => tier1.unavailable(&format!(
+            "No router model. Fetch it: {} router",
+            memos_core::scripts::FETCH_MODELS
+        )),
     }
 
     let cfg = config::Config::load();

@@ -254,7 +254,10 @@ impl Tier1 {
         let Some(exe) = find_sidecar() else {
             return self.down(
                 ModelState::Missing,
-                "No router binary. Build it with scripts/build-router.ps1".into(),
+                format!(
+                    "No router binary. Build it with {}",
+                    memos_core::scripts::BUILD_ROUTER
+                ),
             );
         };
 
@@ -341,7 +344,8 @@ impl Tier1 {
                 ModelState::Failed,
                 format!(
                     "The router binary is out of date (protocol {protocol}, expected \
-                     {PROTOCOL}). Rebuild it: scripts/build-router.ps1"
+                     {PROTOCOL}). Rebuild it: {}",
+                    memos_core::scripts::BUILD_ROUTER
                 ),
             ),
             Ok(Response::State { state, detail, .. }) => {
@@ -367,7 +371,8 @@ impl Tier1 {
             Err(e) => tracing::error!(
                 error = %e,
                 line,
-                "unreadable router reply — rebuild the router: scripts/build-router.ps1"
+                rebuild_with = memos_core::scripts::BUILD_ROUTER,
+                "unreadable router reply — rebuild the router"
             ),
         }
     }
@@ -589,7 +594,7 @@ mod tests {
             .map(|p| workspace.join("target").join(p).join(name))
             .find(|p| p.exists())
         else {
-            eprintln!("no sidecar built; skipping. scripts/build-router.ps1");
+            eprintln!("no sidecar built; skipping. {}", memos_core::scripts::BUILD_ROUTER);
             return;
         };
         std::env::set_var(SIDECAR_ENV, &sidecar);

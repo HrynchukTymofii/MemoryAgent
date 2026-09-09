@@ -48,7 +48,7 @@ const CASES: &[(&str, &str)] = &[
 fn main() {
     let collections: Vec<String> = STARTER.iter().map(|s| s.to_string()).collect();
     let Some(model) = memos_llm::find_model(None, std::path::Path::new(".")) else {
-        println!("No router model. Run: scripts/fetch-models.ps1 router");
+        println!("No router model. Run: {} router", memos_core::scripts::FETCH_MODELS);
         std::process::exit(1);
     };
     println!("model {}\n", model.display());

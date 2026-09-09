@@ -8,7 +8,7 @@ fn main() {
     let model = match find_model(None, std::path::Path::new(".")) {
         Some(m) => m,
         None => {
-            println!("No model found. Run: scripts/fetch-models.ps1 base.en");
+            println!("No model found. Run: {} base.en", memos_core::scripts::FETCH_MODELS);
             std::process::exit(1);
         }
     };
