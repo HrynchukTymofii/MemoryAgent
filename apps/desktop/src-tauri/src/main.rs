@@ -742,15 +742,77 @@ fn overlay_clickable(app: tauri::AppHandle, clickable: bool) {
     }
 }
 
-/// Whether the overlay should be showing its resting pill.
-///
+/// What the overlay should be doing when nothing is being captured.
+#[derive(serde::Serialize, Clone, Copy)]
+struct RestState {
+    /// Whether to show the resting pill at all.
+    idle_pill: bool,
+    /// Whether the pill is anchored by its top edge, and so opens downward.
+    top: bool,
+}
+
 /// Pulled by the page on load rather than pushed at it. An event emitted before
 /// the webview has registered its listeners is simply dropped — and at startup
 /// that is exactly the ordering, so the pill stayed invisible at `opacity: 0`
 /// in a window that never shrank. Asking is race-free; being told is not.
 #[tauri::command]
-fn idle_pill_enabled(state: tauri::State<'_, AppState>) -> bool {
-    state.config.lock().idle_pill
+fn rest_state(state: tauri::State<'_, AppState>) -> RestState {
+    let c = state.config.lock();
+    RestState {
+        idle_pill: c.idle_pill,
+        top: c.pill_top,
+    }
+}
+
+/// Remember where the user just dragged the pill to.
+///
+/// Reads the window's own rectangle rather than taking coordinates from the
+/// page: the drag is performed by the window manager, so the window is the only
+/// thing that knows where it ended up.
+///
+/// Which edge becomes the anchor is decided here, by where the pill landed. In
+/// the top third of its display it anchors by its top and opens downward;
+/// anywhere else it anchors by its bottom and opens upward. A third rather than
+/// a half because opening upward is the better default — it is what the pill
+/// does at its resting position — so the flip should need a deliberate move
+/// toward the top edge, not merely crossing the middle of the screen.
+#[tauri::command]
+fn save_pill_anchor(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<RestState, String> {
+    let Some(w) = app.get_webview_window("overlay") else {
+        return Ok(rest_state(state));
+    };
+    let (Ok(pos), Ok(size)) = (w.outer_position(), w.outer_size()) else {
+        return Ok(rest_state(state));
+    };
+
+    let centre_y = pos.y + size.height as i32 / 2;
+    let top = w
+        .current_monitor()
+        .ok()
+        .flatten()
+        .map(|m| {
+            let mp = m.position();
+            let ms = m.size();
+            centre_y < mp.y + ms.height as i32 / 3
+        })
+        .unwrap_or(false);
+
+    let state_out = {
+        let mut c = state.config.lock();
+        c.pill_x = Some(pos.x + size.width as i32 / 2);
+        c.pill_y = Some(if top { pos.y } else { pos.y + size.height as i32 });
+        c.pill_top = top;
+        c.save()?;
+        RestState {
+            idle_pill: c.idle_pill,
+            top: c.pill_top,
+        }
+    };
+    tracing::debug!(x = pos.x, y = pos.y, top, "pill anchored");
+    Ok(state_out)
 }
 
 /// Bring the Hub up from the overlay.
@@ -826,6 +888,35 @@ fn never_activates<R: Runtime>(_w: &tauri::WebviewWindow<R>) {}
 /// change while the app sits in the tray for days.
 fn position_overlay<R: Runtime>(w: &tauri::WebviewWindow<R>) {
     let app = w.app_handle();
+    let Ok(size) = w.outer_size() else { return };
+
+    // A pill the user placed by hand wins over anything computed. The anchor is
+    // an edge, not a corner: the window changes size constantly — 46px idle,
+    // 520 wide mid-capture, taller again with results — and only by pinning the
+    // edge the pill sits on does it stay put while everything else moves.
+    let anchor = app
+        .try_state::<AppState>()
+        .and_then(|s| {
+            let c = s.config.lock();
+            match (c.pill_x, c.pill_y) {
+                (Some(x), Some(y)) => Some((x, y, c.pill_top)),
+                _ => None,
+            }
+        });
+
+    if let Some((cx, cy, top)) = anchor {
+        let x = cx - size.width as i32 / 2;
+        let y = if top { cy } else { cy - size.height as i32 };
+        // Clamped onto a monitor that actually exists. A display unplugged
+        // since the pill was placed would otherwise strand it off-screen, where
+        // it cannot be dragged back.
+        let (x, y) = clamp_onto_a_monitor(w, x, y, size);
+        if let Err(e) = w.set_position(PhysicalPosition::new(x, y)) {
+            tracing::warn!(?e, "could not position overlay at its anchor");
+        }
+        return;
+    }
+
     let monitor = app
         .cursor_position()
         .ok()
@@ -837,7 +928,6 @@ fn position_overlay<R: Runtime>(w: &tauri::WebviewWindow<R>) {
         tracing::warn!("no monitor found; leaving overlay at its default position");
         return;
     };
-    let Ok(size) = w.outer_size() else { return };
 
     let mp = m.position();
     let ms = m.size();
@@ -849,6 +939,38 @@ fn position_overlay<R: Runtime>(w: &tauri::WebviewWindow<R>) {
     if let Err(e) = w.set_position(PhysicalPosition::new(x, y)) {
         tracing::warn!(?e, "could not position overlay");
     }
+}
+
+/// Keep a window rectangle on a display that exists.
+///
+/// Prefers the monitor the point already falls on and only falls back to the
+/// primary when it falls on none — so a pill on a second screen stays on that
+/// screen rather than being yanked to the middle of the main one.
+fn clamp_onto_a_monitor<R: Runtime>(
+    w: &tauri::WebviewWindow<R>,
+    x: i32,
+    y: i32,
+    size: tauri::PhysicalSize<u32>,
+) -> (i32, i32) {
+    let app = w.app_handle();
+    let m = app
+        .monitor_from_point((x + size.width as i32 / 2) as f64, (y + size.height as i32 / 2) as f64)
+        .ok()
+        .flatten()
+        .or_else(|| w.primary_monitor().ok().flatten());
+    let Some(m) = m else { return (x, y) };
+
+    let mp = m.position();
+    let ms = m.size();
+    // A margin, so a pill dragged flush to an edge stays visibly grabbable
+    // rather than sitting half under the screen border.
+    const EDGE: i32 = 2;
+    let max_x = mp.x + ms.width as i32 - size.width as i32 - EDGE;
+    let max_y = mp.y + ms.height as i32 - size.height as i32 - EDGE;
+    (
+        x.clamp(mp.x + EDGE, max_x.max(mp.x + EDGE)),
+        y.clamp(mp.y + EDGE, max_y.max(mp.y + EDGE)),
+    )
 }
 
 fn main() {
@@ -963,7 +1085,8 @@ fn main() {
             answer_question,
             size_overlay,
             overlay_clickable,
-            idle_pill_enabled,
+            rest_state,
+            save_pill_anchor,
             open_hub,
             set_idle_pill,
             search,

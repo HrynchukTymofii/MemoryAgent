@@ -178,6 +178,26 @@ pub struct Config {
     /// full-screen video, and that is not a judgement to make for someone.
     #[serde(default = "yes")]
     pub idle_pill: bool,
+
+    /// Where the user dragged the resting pill to, in absolute physical screen
+    /// coordinates: `pill_x` is the horizontal centre, `pill_y` the edge it is
+    /// anchored by. Absolute rather than monitor-relative because the pill is
+    /// placed against a physical spot on a physical desk — "the top right of my
+    /// second screen" — and a fraction of a monitor stops meaning that as soon
+    /// as the layout changes. Out-of-range values are clamped back onto a real
+    /// monitor at load, so an unplugged display cannot strand it off-screen.
+    #[serde(default)]
+    pub pill_x: Option<i32>,
+    #[serde(default)]
+    pub pill_y: Option<i32>,
+
+    /// Whether that edge is the pill's top rather than its bottom.
+    ///
+    /// Set when the pill is dragged into the upper part of a display, and it
+    /// flips which way its panel opens. A list that grows upward from a pill
+    /// near the top edge grows straight off the screen.
+    #[serde(default)]
+    pub pill_top: bool,
 }
 
 fn yes() -> bool {
@@ -194,6 +214,9 @@ impl Default for Config {
             hold_threshold_ms: 120,
             debug_keys: false,
             idle_pill: true,
+            pill_x: None,
+            pill_y: None,
+            pill_top: false,
         }
     }
 }

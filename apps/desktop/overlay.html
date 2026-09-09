@@ -138,33 +138,65 @@
   }
 
   /* ------------------------------------------------------------- idle */
-  /* The resting state: a small pill that stays on screen so the shortcut has
-     a visible affordance and the app is visibly running. It is the one state
-     in which this window is clickable by default, which is why the window
-     shrinks to hug it — see `size_overlay`. */
+  /* The resting state. Deliberately almost nothing: a small capsule, no text,
+     no indicator, no glyph. It sits on screen for the entire time the machine
+     is on, so anything with content in it becomes something the eye keeps
+     returning to and reading again. A shape is enough to say "here", and
+     "here" is the only thing it has to say.
+
+     It is also the one state where this window is clickable without a question
+     on screen, which is why the window shrinks to hug it exactly — see
+     `size_overlay`. */
   body.idle { align-items: center; }
   #pill.idle {
-    margin: 10px auto;
-    padding: 9px 14px;
+    margin: 6px auto;
+    padding: 0;
+    width: 46px;
+    height: 11px;
     min-height: 0;
-    gap: 9px;
-    cursor: pointer;
-    /* Quieter than a capture. This sits on screen all day; at full contrast it
-       would be something the eye keeps returning to for no reason. */
-    background: rgba(31, 35, 40, .82);
-    border-color: #2E353D;
-    box-shadow: 0 6px 18px rgba(15, 26, 40, .30);
+    gap: 0;
+    border-radius: 999px;
+    cursor: grab;
+    background: rgba(31, 35, 40, .78);
+    border-color: rgba(120, 134, 150, .28);
+    box-shadow: 0 3px 10px rgba(15, 26, 40, .28);
+    transition: opacity 90ms ease-out, height 110ms ease-out, width 110ms ease-out,
+                background 110ms ease-out;
   }
-  #pill.idle:hover { background: #1F2328; border-color: #414A54; }
-  /* `flex: 1` on the text is what makes the pill fill the window during a
-     capture. Idle, the pill must hug its content instead or the window cannot
-     shrink to it. */
-  #pill.idle #text { flex: 0 0 auto; font-size: 12px; color: #8D9AA8; }
-  #pill.idle #wave i { background: #6E7C8A; }
-  #pill.idle:hover #wave i { background: #DCE5EC; }
+  #pill.idle:hover {
+    width: 58px;
+    height: 13px;
+    background: #1F2328;
+    border-color: rgba(160, 175, 190, .5);
+  }
+  #pill.idle:active { cursor: grabbing; }
+  /* Everything the capture pill puts inside itself is gone here, not merely
+     hidden with opacity: the window measures the pill to size itself, so an
+     invisible child would still hold the window open around it. */
+  #pill.idle #dot,
+  #pill.idle #wave,
+  #pill.idle #text,
+  #pill.idle #kbd { display: none; }
 
-  /* Expanded: the same pill, with a panel of recent memories above it. */
-  #pill.expanded { background: #1F2328; border-color: #414A54; }
+  /* Dragged to the top half of a display, the pill flips: it sits at the top of
+     the window and its panel grows downward. Anchored the other way, a list
+     opening from a pill near the top edge would grow straight off the screen. */
+  body.top { justify-content: flex-start; }
+  body.top #results { order: 2; margin: 6px 14px 0; }
+  body.top #pill { order: 1; }
+
+  /* Expanded: the capsule grows back into something you can read, because now
+     it has something to say. */
+  #pill.idle.expanded {
+    width: auto; height: auto; min-height: 0;
+    padding: 8px 14px; gap: 9px; border-radius: 14px;
+    background: #1F2328; border-color: #414A54;
+    cursor: default;
+  }
+  #pill.idle.expanded #text {
+    display: block; flex: 0 0 auto; font-size: 11px; color: #8D9AA8;
+    letter-spacing: .04em; text-transform: uppercase;
+  }
   #results li.recent .title { font-size: 12px; }
   #results li.foot {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 interface Hit {
   id: string;
@@ -32,6 +33,13 @@ interface Recent {
   id: string;
   title: string;
   collection: string | null;
+}
+
+/** What the overlay does when nothing is being captured. */
+interface RestState {
+  idle_pill: boolean;
+  /** Anchored by its top edge, so its panel opens downward. */
+  top: boolean;
 }
 
 /** A narrow question: one slot, a few indistinguishable candidates. */
@@ -255,11 +263,14 @@ let expanded = false;
 function fitIdleWindow() {
   requestAnimationFrame(() => {
     const box = pill.getBoundingClientRect();
-    const top = expanded ? results.getBoundingClientRect().top : box.top;
-    const css = Math.ceil(box.bottom - top) + 26;
+    const panel = expanded ? results.getBoundingClientRect() : box;
+    // Measured as an extent rather than pill-to-results, because which of the
+    // two is on top depends on which edge the pill is anchored by.
+    const css =
+      Math.ceil(Math.max(box.bottom, panel.bottom) - Math.min(box.top, panel.top)) + 26;
     // The margins are outside the rect, and the shadow is drawn outside the
     // border box: too tight a width clips it into a visible hard edge.
-    const width = Math.ceil((expanded ? results.getBoundingClientRect().width : box.width) + 34);
+    const width = Math.ceil(Math.max(box.width, panel.width) + 34);
     const dpr = window.devicePixelRatio || 1;
     invoke("size_overlay", {
       height: Math.ceil(css * dpr),
@@ -359,11 +370,73 @@ function collapse() {
   fitIdleWindow();
 }
 
+/**
+ * Drag to move, click to open — from one button, with no modifier.
+ *
+ * The window manager performs the drag, and `startDragging` hands control to it
+ * immediately and irreversibly: called on mousedown it swallows the click, so
+ * the pill could be moved or opened but never both. So the press is held until
+ * the pointer actually travels, and only a real movement becomes a drag. Below
+ * the threshold it stays an ordinary click.
+ */
+const DRAG_THRESHOLD = 3;
+let press: { x: number; y: number } | null = null;
+let dragged = false;
+
+pill.addEventListener("mousedown", (e) => {
+  if (!idle || expanded || e.button !== 0) return;
+  press = { x: e.screenX, y: e.screenY };
+  dragged = false;
+});
+
+window.addEventListener("mousemove", (e) => {
+  if (!press) return;
+  if (Math.abs(e.screenX - press.x) < DRAG_THRESHOLD &&
+      Math.abs(e.screenY - press.y) < DRAG_THRESHOLD) {
+    return;
+  }
+  press = null;
+  dragged = true;
+  void getCurrentWindow()
+    .startDragging()
+    // The drag ends when the button is released, and nothing tells the page
+    // that happened — the pointer belongs to the window manager for the
+    // duration. `startDragging` resolving is the signal, and the window's
+    // final position is whatever it is by then.
+    .then(() => savePillAnchor())
+    .catch(() => {});
+});
+
+window.addEventListener("mouseup", () => {
+  press = null;
+});
+
 pill.addEventListener("click", () => {
   if (!idle) return;
+  // The mouseup that ends a drag also lands here as a click. Opening the panel
+  // every time the pill is moved would make it impossible to just move it.
+  if (dragged) {
+    dragged = false;
+    return;
+  }
   if (expanded) collapse();
   else void expand();
 });
+
+/** Record where the pill ended up, and flip the panel if it changed sides. */
+async function savePillAnchor() {
+  try {
+    applyAnchor(await invoke<RestState>("save_pill_anchor"));
+  } catch {
+    // The pill is where the user put it either way; only the memory of it is
+    // lost, and it will be re-saved on the next drag.
+  }
+  fitIdleWindow();
+}
+
+function applyAnchor(rest: RestState) {
+  document.body.classList.toggle("top", rest.top);
+}
 
 // The overlay never takes focus, so there is no blur to close on and no
 // keyboard reaching this window. Escape is here for the case where the webview
@@ -496,7 +569,9 @@ await listen<CaptureResult>("capture:result", (e) => {
 // awaited from an event — see `idle_pill_enabled` for why the push version
 // silently did nothing.
 try {
-  if (await invoke<boolean>("idle_pill_enabled")) enterIdle();
+  const rest = await invoke<RestState>("rest_state");
+  applyAnchor(rest);
+  if (rest.idle_pill) enterIdle();
 } catch {
   // No answer means no resting pill, which is the pre-pill behaviour and a
   // perfectly good place to fail to.
