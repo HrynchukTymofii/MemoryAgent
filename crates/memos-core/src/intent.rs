@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::Timestamp;
+use crate::{Id, Timestamp};
 
 /// The complete action space. This enum is the single source of truth: the GBNF
 /// grammar handed to the local router is generated from it, so the model
@@ -36,12 +36,24 @@ pub enum Intent {
     Plan,
     /// Generate recall exercises. Tier 2.
     Learn,
+    /// Take back the last thing that happened.
+    ///
+    /// Not in [`Intent::ALL`], and so never in the Tier 1 grammar. Undo is a
+    /// fixed phrase the grammar recognises exactly; a model that could *guess*
+    /// it would be a model that can delete a memory on a misheard word.
+    Undo,
     /// Nothing actionable was recognised.
     Unknown,
 }
 
 impl Intent {
-    /// Every variant, in a stable order. Used to generate the router grammar.
+    /// Every intent that has a name, in a stable order.
+    ///
+    /// This is the round-trip set — what `from_name` will parse back out of a
+    /// log or a model's JSON. It is **not** what the router may emit: that is
+    /// `memos_llm::grammar::ROUTABLE`, a much smaller list, and the difference
+    /// is what keeps `UNDO` parseable in the correction log while remaining
+    /// impossible for a model to produce.
     pub const ALL: &'static [Intent] = &[
         Intent::Save,
         Intent::Note,
@@ -57,6 +69,7 @@ impl Intent {
         Intent::Explain,
         Intent::Plan,
         Intent::Learn,
+        Intent::Undo,
     ];
 
     pub fn as_str(&self) -> &'static str {
@@ -75,6 +88,7 @@ impl Intent {
             Intent::Explain => "EXPLAIN",
             Intent::Plan => "PLAN",
             Intent::Learn => "LEARN",
+            Intent::Undo => "UNDO",
             Intent::Unknown => "UNKNOWN",
         }
     }
@@ -197,6 +211,11 @@ impl Confidence {
 /// A transcript that has been routed but not yet executed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutedCommand {
+    /// Identity, assigned where the routing happens rather than where it is
+    /// stored. One command is one row in the correction log, one set of events
+    /// in the audit, and one thing an undo can point back at — and all three
+    /// have to agree on which command they mean.
+    pub id: Id,
     pub transcript: String,
     pub intent: Intent,
     pub slots: Slots,

@@ -201,7 +201,7 @@ mod tests {
             ("Customer Acquisition Cost", "CAC measures marketing spend per user"),
             ("Router config", "The router configuration is on the fridge"),
         ] {
-            db.capture(&KnowledgeItem::capture(t, c)).unwrap();
+            db.capture(&KnowledgeItem::capture(t, c), None).unwrap();
         }
         db
     }
@@ -248,7 +248,7 @@ mod tests {
         // query still surfaces.
         let db = Db::open_in_memory().unwrap();
         let a = KnowledgeItem::capture("Snapshot", "State is a snapshot per render");
-        db.capture(&a).unwrap();
+        db.capture(&a, None).unwrap();
         let mut v = vec![0.0f32; 384];
         v[7] = 1.0;
         db.put_embedding(a.id, "test", &v).unwrap();

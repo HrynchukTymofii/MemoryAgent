@@ -102,7 +102,7 @@ impl Db {
         context: &impl Serialize,
         latency_ms: u32,
     ) -> DbResult<Id> {
-        let id = Id::new();
+        let id = cmd.id;
         let context = serde_json::to_string(context)?;
         let slots = serde_json::to_string(&cmd.slots)?;
         self.with(|c| {
@@ -347,6 +347,7 @@ mod tests {
 
     fn cmd(intent: Intent, tier: Tier, collection: Option<&str>) -> RoutedCommand {
         RoutedCommand {
+            id: Id::new(),
             transcript: "save this to react".into(),
             intent,
             slots: Slots {

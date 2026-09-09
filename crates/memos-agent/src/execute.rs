@@ -100,6 +100,13 @@ pub fn execute_with(
         // and the answer is in the overlay before it fades.
         Intent::Search | Intent::Show => search(db, cmd, query_vector, started),
         Intent::Open => open(db, cmd, query_vector, started),
+        // The three that act on a memory that already exists. Each resolves
+        // "this" the same way and each writes its own inverse, so any of them
+        // can be taken back by the next word the user says.
+        Intent::Move => move_to(db, cmd, started),
+        Intent::Tag => tag(db, cmd, started),
+        Intent::Task => task(db, cmd, started),
+        Intent::Undo => undo(db, started),
         other => Ok(Outcome::done(
             "unsupported",
             format!("{} is not implemented yet", other.as_str()),
@@ -311,7 +318,7 @@ fn save(
     if let Some(path) = &cmd.slots.collection {
         item.collection_id = db.collection_id_by_path(path)?;
     }
-    db.capture(&item)?;
+    db.capture(&item, Some(cmd.id))?;
 
     let where_to = cmd
         .slots
@@ -338,13 +345,156 @@ fn note(db: &Db, cmd: &RoutedCommand, started: std::time::Instant) -> DbResult<O
         .clone()
         .unwrap_or_else(|| cmd.transcript.clone());
     let item = KnowledgeItem::capture(truncate(&text, 200), text.clone());
-    db.capture(&item)?;
+    db.capture(&item, Some(cmd.id))?;
 
     Ok(Outcome {
         kind: "note",
         summary: "Noted".into(),
         provenance: Some(truncate(&text, 90)),
         item_id: Some(item.id.to_string()),
+        results: Vec::new(),
+        open: None,
+        took_ms: started.elapsed().as_millis() as u32,
+    })
+}
+
+
+/// Refile the memory the user just made.
+///
+/// "this" is the newest capture — see `Db::most_recent_capture`. That is the
+/// whole referent story for `MOVE` today, and it is the case that actually
+/// comes up: you say where something goes, see the receipt, and correct it.
+/// Refiling an arbitrary memory is a job for the library, where you can see
+/// what you are pointing at.
+fn move_to(db: &Db, cmd: &RoutedCommand, started: std::time::Instant) -> DbResult<Outcome> {
+    let Some(item) = db.most_recent_capture()? else {
+        return Ok(Outcome::done(
+            "nothing",
+            "Nothing to move \u{2014} save something first".into(),
+            started,
+        ));
+    };
+    // The grammar only routes MOVE with a destination it resolved, so this is
+    // belt and braces rather than a real branch.
+    let Some(path) = cmd.slots.collection.clone() else {
+        return Ok(Outcome::done(
+            "nothing",
+            "Move it where? Say a collection.".into(),
+            started,
+        ));
+    };
+    let Some(collection) = db.collection_id_by_path(&path)? else {
+        return Ok(Outcome::done(
+            "nothing",
+            format!("No collection called \u{201c}{path}\u{201d}"),
+            started,
+        ));
+    };
+
+    db.move_item(item.id, Some(collection))?;
+    Ok(Outcome {
+        kind: "move",
+        summary: format!("Moved to {}", path.replace('/', " / ")),
+        provenance: Some(truncate(&item.title, 90)),
+        item_id: Some(item.id.to_string()),
+        results: Vec::new(),
+        open: None,
+        took_ms: started.elapsed().as_millis() as u32,
+    })
+}
+
+/// Attach a tag to the memory the user just made.
+///
+/// Tagging never moves anything: an item keeps its collection and gains a
+/// second way of being found (§9). Re-tagging is reported as such rather than
+/// as a fresh success, because a receipt that says "Tagged" twice for one tag
+/// is a receipt that lies about what the second command did.
+fn tag(db: &Db, cmd: &RoutedCommand, started: std::time::Instant) -> DbResult<Outcome> {
+    let Some(name) = cmd.slots.tags.first().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
+    else {
+        return Ok(Outcome::done("nothing", "Tag it what?".into(), started));
+    };
+    let Some(item) = db.most_recent_capture()? else {
+        return Ok(Outcome::done(
+            "nothing",
+            "Nothing to tag \u{2014} save something first".into(),
+            started,
+        ));
+    };
+
+    let added = db.tag_item(item.id, &name)?;
+    Ok(Outcome {
+        kind: if added { "tag" } else { "nothing" },
+        summary: if added {
+            format!("Tagged \u{201c}{name}\u{201d}")
+        } else {
+            format!("Already tagged \u{201c}{name}\u{201d}")
+        },
+        provenance: Some(truncate(&item.title, 90)),
+        item_id: Some(item.id.to_string()),
+        results: Vec::new(),
+        open: None,
+        took_ms: started.elapsed().as_millis() as u32,
+    })
+}
+
+/// Create a task.
+///
+/// A task is not a reminder, and the difference is why this routes at Tier 0
+/// while `REMINDER` still does not: a reminder is meaningless without a time,
+/// and "next Tuesday" needs interpretation the grammar cannot do safely. A task
+/// is complete with nothing but its words.
+///
+/// It links to the current memory when there is one, so "create a task to
+/// finish this" after a save reads back attached to what it was about.
+fn task(db: &Db, cmd: &RoutedCommand, started: std::time::Instant) -> DbResult<Outcome> {
+    let Some(title) = cmd.slots.title.clone().filter(|t| !t.trim().is_empty()) else {
+        return Ok(Outcome::done("nothing", "A task to do what?".into(), started));
+    };
+
+    let about = db.most_recent_capture()?;
+    let task = db.create_task(&truncate(&title, 200), about.as_ref().map(|i| i.id), None)?;
+    Ok(Outcome {
+        kind: "task",
+        summary: format!("Task: {}", truncate(&task.title, 70)),
+        provenance: about.map(|i| format!("about {}", truncate(&i.title, 70))),
+        item_id: None,
+        results: Vec::new(),
+        open: None,
+        took_ms: started.elapsed().as_millis() as u32,
+    })
+}
+
+/// Take back the last thing that happened.
+///
+/// This is the other half of ADR-0005's bargain — the system acts without
+/// asking because acting is cheap to reverse — and, since Tier 1 started
+/// resolving the ambiguity that used to produce questions, it is also the main
+/// way the user can tell the system it was wrong. So the reversal is recorded
+/// as a verdict against the command that caused it (ADR-0006), not just
+/// performed.
+fn undo(db: &Db, started: std::time::Instant) -> DbResult<Outcome> {
+    let Some(undone) = db.undo_last()? else {
+        return Ok(Outcome::done(
+            "nothing",
+            "Nothing recent to undo".into(),
+            started,
+        ));
+    };
+
+    // Failing to record the verdict must not fail the undo. The user asked for
+    // their memory back, not for bookkeeping.
+    if let Some(command) = undone.command_id {
+        if let Err(e) = db.record_correction(command, false, None, &memos_core::Slots::default()) {
+            tracing::warn!(?e, "undone, but the verdict was not recorded");
+        }
+    }
+
+    Ok(Outcome {
+        kind: "undo",
+        summary: format!("Undid {}", undone.what),
+        provenance: None,
+        item_id: None,
         results: Vec::new(),
         open: None,
         took_ms: started.elapsed().as_millis() as u32,
@@ -465,6 +615,7 @@ mod tests {
 
     fn cmd(intent: Intent, slots: Slots, transcript: &str) -> RoutedCommand {
         RoutedCommand {
+            id: Id::new(),
             transcript: transcript.into(),
             intent,
             slots,
@@ -630,9 +781,9 @@ mod tests {
         db.capture(&KnowledgeItem::capture(
             "State as a Snapshot",
             "State is a snapshot for each render",
-        ))
+        ), None)
         .unwrap();
-        db.capture(&KnowledgeItem::capture("Router config", "on the fridge"))
+        db.capture(&KnowledgeItem::capture("Router config", "on the fridge"), None)
             .unwrap();
 
         let out = execute(
@@ -714,7 +865,7 @@ mod tests {
         db.capture(&KnowledgeItem::capture(
             "the router is behind the books",
             "the router is behind the books",
-        ))
+        ), None)
         .unwrap();
 
         let out = execute(
@@ -740,7 +891,7 @@ mod tests {
     fn a_vector_only_match_is_found_and_labelled_as_such() {
         let db = Db::open_in_memory().unwrap();
         let item = KnowledgeItem::capture("Snapshot", "State is a snapshot per render");
-        db.capture(&item).unwrap();
+        db.capture(&item, None).unwrap();
         let mut v = vec![0.0f32; 384];
         v[3] = 1.0;
         db.put_embedding(item.id, "test", &v).unwrap();

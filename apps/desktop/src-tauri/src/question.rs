@@ -110,6 +110,11 @@ impl Pending {
             // record as picking anything else (ADR-0005).
             accepted: index == 0,
             command: RoutedCommand {
+                // The same identity the prediction was logged under. This is
+                // one command that took two steps, not two commands — and the
+                // events it writes have to point at the row the verdict is
+                // recorded against.
+                id: question.command_id,
                 transcript: question.transcript,
                 intent: question.intent,
                 slots,

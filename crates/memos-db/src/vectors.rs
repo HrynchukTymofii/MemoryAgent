@@ -251,8 +251,8 @@ mod tests {
         let db = Db::open_in_memory().unwrap();
         let a = KnowledgeItem::capture("A", "first");
         let b = KnowledgeItem::capture("B", "second");
-        db.capture(&a).unwrap();
-        db.capture(&b).unwrap();
+        db.capture(&a, None).unwrap();
+        db.capture(&b, None).unwrap();
 
         db.put_embedding(a.id, "test", &unit(384, 0)).unwrap();
         db.put_embedding(b.id, "test", &unit(384, 1)).unwrap();
@@ -267,7 +267,7 @@ mod tests {
     fn re_embedding_replaces_rather_than_duplicates() {
         let db = Db::open_in_memory().unwrap();
         let a = KnowledgeItem::capture("A", "first");
-        db.capture(&a).unwrap();
+        db.capture(&a, None).unwrap();
         db.put_embedding(a.id, "test", &unit(384, 0)).unwrap();
         db.put_embedding(a.id, "test-v2", &unit(384, 5)).unwrap();
 
@@ -285,7 +285,7 @@ mod tests {
         let id = {
             let db = Db::open(&path).unwrap();
             let a = KnowledgeItem::capture("A", "first");
-            db.capture(&a).unwrap();
+            db.capture(&a, None).unwrap();
             db.put_embedding(a.id, "test", &unit(384, 3)).unwrap();
             a.id
         };
@@ -300,8 +300,8 @@ mod tests {
         let db = Db::open_in_memory().unwrap();
         let a = KnowledgeItem::capture("A", "first");
         let b = KnowledgeItem::capture("B", "second");
-        db.capture(&a).unwrap();
-        db.capture(&b).unwrap();
+        db.capture(&a, None).unwrap();
+        db.capture(&b, None).unwrap();
 
         assert_eq!(db.items_awaiting_embedding(10).unwrap().len(), 2);
         db.put_embedding(a.id, "test", &unit(384, 0)).unwrap();
@@ -317,7 +317,7 @@ mod tests {
     fn a_dimension_mismatch_degrades_rather_than_panicking() {
         let db = Db::open_in_memory().unwrap();
         let a = KnowledgeItem::capture("A", "first");
-        db.capture(&a).unwrap();
+        db.capture(&a, None).unwrap();
         db.put_embedding(a.id, "old-model", &unit(128, 0)).unwrap();
         // Querying with a different width must not crash.
         assert!(db.search_vector(&unit(384, 0), 5, 0.0).unwrap().is_empty());
@@ -326,7 +326,7 @@ mod tests {
     fn embedding_an_item_settles_its_job() {
         let db = Db::open_in_memory().unwrap();
         let item = memos_core::KnowledgeItem::capture("t", "c");
-        db.capture(&item).unwrap();
+        db.capture(&item, None).unwrap();
 
         let queued = |db: &Db| -> i64 {
             db.with(|c| {
@@ -349,7 +349,7 @@ mod tests {
     fn a_failed_embedding_stays_queued_and_counts_the_attempt() {
         let db = Db::open_in_memory().unwrap();
         let item = memos_core::KnowledgeItem::capture("t", "c");
-        db.capture(&item).unwrap();
+        db.capture(&item, None).unwrap();
         db.embedding_failed(item.id, "model unavailable").unwrap();
 
         let (attempts, state): (i64, String) = db
@@ -372,7 +372,7 @@ mod tests {
         // match" is indistinguishable from "here is the least unrelated item".
         let db = Db::open_in_memory().unwrap();
         let a = KnowledgeItem::capture("A", "first");
-        db.capture(&a).unwrap();
+        db.capture(&a, None).unwrap();
         let mut v = unit(384, 0);
         v[1] = 0.4; // a weak partial match to the query below
         normalise(&mut v);

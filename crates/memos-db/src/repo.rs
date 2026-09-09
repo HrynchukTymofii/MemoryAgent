@@ -17,7 +17,11 @@ impl Db {
     /// been sent anywhere. That is what makes the acknowledgement honest and
     /// offline-safe: the outbox and the embed job are durable too, so they will
     /// happen, but the user never waits for them.
-    pub fn capture(&self, item: &KnowledgeItem) -> DbResult<()> {
+    /// `command` is the routing decision that caused this capture, when there
+    /// was one. It rides on the audit row so that undoing the capture can be
+    /// recorded as a verdict against the command rather than as an anonymous
+    /// repair (ADR-0006).
+    pub fn capture(&self, item: &KnowledgeItem, command: Option<Id>) -> DbResult<()> {
         self.transaction(|tx| {
             tx.execute(
                 "INSERT INTO knowledge_items
@@ -59,13 +63,15 @@ impl Db {
 
             // Undo: the inverse of a create is a delete of this id.
             tx.execute(
-                "INSERT INTO events (id, kind, entity_id, payload, inverse, created_at)
-                 VALUES (?1,'item.created',?2,'{}',?3,?4)",
+                "INSERT INTO events
+                    (id, kind, entity_id, payload, inverse, command_id, created_at)
+                 VALUES (?1,'item.created',?2,'{}',?3,?4,?5)",
                 params![
                     Id::new().to_string(),
                     item.id.to_string(),
                     serde_json::json!({ "op": "delete_item", "id": item.id.to_string() })
                         .to_string(),
+                    command.map(|c| c.to_string()),
                     now,
                 ],
             )?;
@@ -418,7 +424,7 @@ mod tests {
     fn capture_writes_item_job_outbox_and_undo_atomically() {
         let db = Db::open_in_memory().unwrap();
         let item = KnowledgeItem::capture("State as a Snapshot", "State is a snapshot per render");
-        db.capture(&item).unwrap();
+        db.capture(&item, None).unwrap();
 
         let counts: (i64, i64, i64, i64) = db
             .with(|c| {
@@ -443,7 +449,7 @@ mod tests {
         db.capture(&KnowledgeItem::capture(
             "State as a Snapshot",
             "State is a snapshot for each render",
-        ))
+        ), None)
         .unwrap();
         let hits = db.search_keyword("snapshot render", 10).unwrap();
         assert_eq!(hits.len(), 1);
@@ -485,7 +491,7 @@ mod tests {
 
         let mut item = KnowledgeItem::capture("State as a Snapshot", "…");
         item.source_id = Some(src.id);
-        db.capture(&item).unwrap();
+        db.capture(&item, None).unwrap();
 
         let got = db.source_for_item(item.id).unwrap().expect("source");
         assert_eq!(got.url.as_deref(), Some("https://react.dev/learn/state-as-a-snapshot"));
@@ -496,7 +502,7 @@ mod tests {
     fn an_item_with_no_source_asks_without_erroring() {
         let db = Db::open_in_memory().unwrap();
         let item = KnowledgeItem::capture("A thought", "no source");
-        db.capture(&item).unwrap();
+        db.capture(&item, None).unwrap();
         assert!(db.source_for_item(item.id).unwrap().is_none());
     }
 
@@ -504,7 +510,7 @@ mod tests {
     fn opening_an_item_records_the_access() {
         let db = Db::open_in_memory().unwrap();
         let item = KnowledgeItem::capture("t", "c");
-        db.capture(&item).unwrap();
+        db.capture(&item, None).unwrap();
         db.record_access(item.id).unwrap();
         db.record_access(item.id).unwrap();
 
@@ -519,8 +525,8 @@ mod tests {
         let react = db.create_collection("React", None).unwrap();
         let mut filed = KnowledgeItem::capture("filed", "c");
         filed.collection_id = Some(react.id);
-        db.capture(&filed).unwrap();
-        db.capture(&KnowledgeItem::capture("unfiled", "c")).unwrap();
+        db.capture(&filed, None).unwrap();
+        db.capture(&KnowledgeItem::capture("unfiled", "c"), None).unwrap();
 
         assert_eq!(db.list_items(None, 10, 0).unwrap().len(), 2);
         assert_eq!(db.list_items(Some("React"), 10, 0).unwrap().len(), 1);
@@ -535,7 +541,7 @@ mod tests {
         db.create_collection("React", Some(study.id)).unwrap();
         let mut item = KnowledgeItem::capture("t", "c");
         item.collection_id = Some(study.id);
-        db.capture(&item).unwrap();
+        db.capture(&item, None).unwrap();
 
         let all = db.collections_with_counts().unwrap();
         assert_eq!(all.len(), 2);
@@ -556,7 +562,7 @@ mod tests {
                 "two" => 1,
                 _ => 2,
             });
-            db.capture(&i).unwrap();
+            db.capture(&i, None).unwrap();
         }
         let recent = db.recent_items(2).unwrap();
         assert_eq!(recent.len(), 2);

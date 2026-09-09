@@ -4,6 +4,7 @@
 //! within ~20 ms, offline, every time — everything else (embedding, sync, cloud
 //! enrichment) happens afterwards and is allowed to fail.
 
+pub mod actions;
 pub mod commands;
 mod migrate;
 pub mod repo;
@@ -14,6 +15,7 @@ use std::path::Path;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 
+pub use actions::{Task, Undone, UNDO_WINDOW};
 pub use commands::{Correction, LoggedCommand, RoutingStats};
 pub use migrate::SCHEMA_VERSION;
 pub use vectors::VectorHit;

@@ -300,6 +300,7 @@ pub fn parse(
     }
 
     Ok(RoutedCommand {
+        id: memos_core::Id::new(),
         transcript: transcript.to_string(),
         intent,
         slots,

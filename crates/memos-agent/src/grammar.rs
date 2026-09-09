@@ -91,6 +91,20 @@ const PATTERNS: &[(&[&str], Intent)] = &[
         Intent::Show,
     ),
     (&["open the", "open"], Intent::Open),
+    // Last, and exact. Every phrase here takes no object, so a shape that has
+    // words after it falls through to Tier 1 rather than matching — "undo the
+    // react one" is a request this cannot honour and must not pretend to.
+    //
+    // Tier 1 can never produce UNDO (it is not in `ROUTABLE`), which is the
+    // point: a model that could guess this word is a model that can delete a
+    // memory on a misheard syllable.
+    (
+        &[
+            "undo that", "undo it", "undo", "never mind", "nevermind",
+            "scratch that", "forget that", "take that back",
+        ],
+        Intent::Undo,
+    ),
 ];
 
 /// Strip trailing filler that speech recognition reliably appends.
@@ -198,15 +212,32 @@ pub fn parse(transcript: &str, collections: &[String]) -> Tier0 {
             }
             slots.tags = vec![shape.rest.clone()];
         }
+        // A task is complete with nothing but its words, which is exactly what
+        // separates it from a reminder. "call the plumber" is a whole task; it
+        // is not a reminder at all until somebody says when.
+        Intent::Task => {
+            if shape.rest.is_empty() {
+                return Tier0::Unrecognised;
+            }
+            slots.title = Some(shape.rest.clone());
+        }
+        // Takes no object and needs no slot. Anything after the word means the
+        // user asked for something narrower than this can do.
+        Intent::Undo => {
+            if !shape.rest.is_empty() {
+                return Tier0::Unrecognised;
+            }
+        }
         // Temporal parsing is not deterministic enough to belong in Tier 0 yet:
         // "next Tuesday" and "in a couple of days" need real interpretation, and
         // a wrong reminder time is a silent failure the user only discovers when
-        // it does not fire.
-        Intent::Reminder | Intent::Task => return Tier0::Unrecognised,
+        // it does not fire. A task has no such hole to fall into.
+        Intent::Reminder => return Tier0::Unrecognised,
         _ => return Tier0::Unrecognised,
     }
 
     Tier0::Routed(RoutedCommand {
+        id: memos_core::Id::new(),
         transcript: transcript.to_string(),
         intent: shape.intent,
         slots,
@@ -331,11 +362,12 @@ mod tests {
     #[test]
     fn saving_verbs_do_not_swallow_the_other_intents() {
         // SAVE is matched first, so every verb it claims must be specific
-        // enough to leave the later intents intact.
-        assert!(
-            matches!(parse("add a task to call the bank", &paths()), Tier0::Unrecognised),
-            "a task must not be captured as a save"
-        );
+        // enough to leave the later intents intact. This used to assert the
+        // weaker thing — that a task was not *saved* — because TASK did not
+        // route at all; now it routes, and the stronger claim can be made.
+        let task = routed("add a task to call the bank");
+        assert_eq!(task.intent, Intent::Task, "a task must not be captured as a save");
+        assert_eq!(task.slots.title.as_deref(), Some("call the bank"));
         let note = routed("add a note that the bins go out on tuesday");
         assert_eq!(note.intent, Intent::Note);
         assert_eq!(note.slots.title.as_deref(), Some("the bins go out on tuesday"));

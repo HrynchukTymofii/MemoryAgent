@@ -317,6 +317,7 @@ impl Stt {
                 // destination it was not. The user's answer becomes a verdict
                 // on this row rather than a second command (ADR-0006).
                 let prediction = memos_core::RoutedCommand {
+                    id: memos_core::Id::new(),
                     transcript: transcript.clone(),
                     intent,
                     slots: memos_core::Slots::default(),
@@ -370,6 +371,7 @@ impl Stt {
                 log_command(
                     &db,
                     &memos_core::RoutedCommand {
+                        id: memos_core::Id::new(),
                         transcript: text.to_string(),
                         intent: memos_core::Intent::Unknown,
                         slots: memos_core::Slots::default(),

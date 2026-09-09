@@ -79,7 +79,7 @@ fn main() {
     let mut ids = Vec::new();
     for (title, content) in CORPUS {
         let item = KnowledgeItem::capture(*title, *content);
-        db.capture(&item).expect("capture");
+        db.capture(&item, None).expect("capture");
         ids.push(item.id);
     }
     println!("captured {} items", ids.len());
