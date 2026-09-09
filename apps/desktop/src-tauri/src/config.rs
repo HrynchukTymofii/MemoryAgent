@@ -207,6 +207,14 @@ pub struct Config {
     /// section of the README.
     #[serde(default)]
     pub auth: memos_auth::Provider,
+
+    /// Whether the sign-in screen has been shown and answered once.
+    ///
+    /// Skipping is an answer, and it has to be remembered. An optional account
+    /// that asks again on every launch is not optional, it is a nag with a
+    /// close button.
+    #[serde(default)]
+    pub sign_in_prompt_seen: bool,
 }
 
 fn yes() -> bool {
@@ -227,6 +235,7 @@ impl Default for Config {
             pill_y: None,
             pill_top: false,
             auth: memos_auth::Provider::default(),
+            sign_in_prompt_seen: false,
         }
     }
 }

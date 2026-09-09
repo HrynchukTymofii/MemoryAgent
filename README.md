@@ -24,7 +24,7 @@ system calibrates on.
 | ✅ **M2** retrieval | ONNX embeddings, background embed worker, FTS5 + vectors + RRF, `SEARCH`/`SHOW`/`OPEN`, page capture, the Hub |
 | 🔨 **M3** intelligence | ✅ Tier 1 router, in a supervised sidecar · ✅ correction log · ✅ `MOVE`/`TAG`/`TASK`/`UNDO` · 🔨 derived confidence |
 
-238 tests, clippy clean, `tsc --noEmit` clean.
+239 tests, clippy clean, `tsc --noEmit` clean.
 
 ## Prerequisites
 
@@ -162,9 +162,20 @@ Google's published endpoints, from its OIDC discovery document):
   "token_url":     "https://oauth2.googleapis.com/token",
   "userinfo_url":  "https://openidconnect.googleapis.com/v1/userinfo",
   "client_id":     "<yours>.apps.googleusercontent.com",
+  "client_secret": "<yours>",
   "scope":         "openid email profile"
 }
 ```
+
+Google issues a `client_secret` even for a Desktop app client, and its token
+endpoint requires it. That is not a contradiction of PKCE: Google documents it
+as not confidential for installed apps, and PKCE is what actually protects the
+exchange. Providers that forbid the parameter can omit the field.
+
+With this filled in, the app shows a **sign-in screen on first launch** —
+Google, and "Continue without an account" as an equal option. Skipping is
+remembered (`sign_in_prompt_seen`), so it is asked once. The Account page in
+the sidebar is where it lives afterwards.
 
 Any OIDC provider fits this shape; take the URLs from its
 `/.well-known/openid-configuration`. `userinfo_url` may be omitted, in which

@@ -5,9 +5,11 @@ import { Home } from "../features/home/Home";
 import { Library } from "../features/library/Library";
 import { Collections } from "../features/collections/Collections";
 import { Tasks } from "../features/tasks/Tasks";
+import { Account } from "../features/account/Account";
+import { SignIn } from "../features/account/SignIn";
 import { Settings } from "../features/settings/Settings";
 
-export type Page = "home" | "library" | "collections" | "tasks" | "settings";
+export type Page = "home" | "library" | "collections" | "tasks" | "account" | "settings";
 
 /**
  * How often the shell polls the backend.
@@ -35,6 +37,27 @@ export function App() {
   // arrives from outside the Hub — you speak one while the window is open — so
   // a change in the count is the signal that the list behind it is stale.
   const seenTasks = useRef<number | null>(null);
+  /**
+   * Whether to show the sign-in screen instead of the shell.
+   *
+   * `null` while we are still asking, so the Hub does not flash its Home page
+   * for a frame before replacing it with a sign-in — which reads as a glitch
+   * rather than as a first run.
+   */
+  const [askToSignIn, setAskToSignIn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [seen, account] = await Promise.all([api.signInPromptSeen(), api.account()]);
+        // Only when there is something to sign in to, and only when the
+        // question has never been answered.
+        setAskToSignIn(account.available && !account.signed_in && !seen);
+      } catch {
+        setAskToSignIn(false);
+      }
+    })();
+  }, []);
   const [offline, setOffline] = useState(false);
   /** Bumped after anything that changes the store, to re-fetch lists. */
   const [revision, setRevision] = useState(0);
@@ -85,6 +108,17 @@ export function App() {
     () => Math.min(100, (used / CAPTURE_LIMIT) * 100),
     [used],
   );
+
+  // Held back until the question is answered — see `askToSignIn`.
+  if (askToSignIn === null) return null;
+  if (askToSignIn) {
+    return (
+      <SignIn
+        onDone={() => setAskToSignIn(false)}
+        onSignedIn={() => refresh()}
+      />
+    );
+  }
 
   return (
     <div className="shell">
@@ -137,6 +171,7 @@ export function App() {
             <li className="muted">
               <span className="g">↺</span> History
             </li>
+            <NavItem page="account" current={page} onGo={setPage} glyph="◍" label="Account" />
             <NavItem page="settings" current={page} onGo={setPage} glyph="⚙" label="Settings" />
           </ul>
         </nav>
@@ -167,6 +202,7 @@ export function App() {
           <Collections revision={revision} onOpen={openCollection} />
         )}
         {page === "tasks" && <Tasks revision={revision} onChanged={refresh} />}
+        {page === "account" && <Account revision={revision} onChanged={refresh} />}
         {page === "settings" && <Settings hook={hook} offline={offline} />}
       </main>
     </div>

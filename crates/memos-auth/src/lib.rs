@@ -21,10 +21,15 @@
 //!
 //! ## The shape of the flow
 //!
-//! Authorization Code with PKCE, over a loopback redirect, per RFC 8252. There
-//! is no client secret because a desktop binary cannot hold one; see
-//! [`pkce`] for why that is fine and [`loopback`] for why the redirect is a
-//! local port rather than a custom URI scheme.
+//! Authorization Code with PKCE, over a loopback redirect, per RFC 8252. What
+//! makes the code safe to intercept is the verifier, not a secret; see [`pkce`]
+//! for why, and [`loopback`] for why the redirect is a local port rather than a
+//! custom URI scheme.
+//!
+//! Some providers — Google's "Desktop app" client type among them — still issue
+//! and require a `client_secret` for public clients, and say plainly that it is
+//! not confidential. [`Provider::client_secret`] exists for those and is sent
+//! only when set.
 //!
 //! ```text
 //! sign_in()
@@ -97,6 +102,18 @@ pub struct Provider {
     #[serde(default)]
     pub userinfo_url: Option<String>,
     pub client_id: String,
+
+    /// Sent at the token exchange when present.
+    ///
+    /// A desktop client is a *public* client and this is not a secret in the
+    /// usual sense — Google issues one for its "Desktop app" client type and
+    /// says so explicitly, and its token endpoint rejects the exchange without
+    /// it. So this is not a contradiction of PKCE, it is a parameter some
+    /// providers require and others forbid; hence optional, and hence never
+    /// treated as confidential anywhere in this crate.
+    #[serde(default)]
+    pub client_secret: Option<String>,
+
     /// Space-separated, as the parameter is transmitted. `openid email profile`
     /// covers what this needs: an identifier and an address to write to.
     #[serde(default = "default_scope")]
@@ -127,6 +144,7 @@ impl Default for Provider {
             token_url: String::new(),
             userinfo_url: None,
             client_id: String::new(),
+            client_secret: None,
             scope: default_scope(),
         }
     }
@@ -262,13 +280,19 @@ impl Auth {
         verifier: &str,
         redirect_uri: &str,
     ) -> AuthResult<TokenResponse> {
-        let form = [
+        let mut form = vec![
             ("grant_type", "authorization_code"),
             ("code", code),
             ("redirect_uri", redirect_uri),
             ("client_id", &self.provider.client_id),
             ("code_verifier", verifier),
         ];
+        // Only when the provider asked for one. Sending an empty
+        // `client_secret` is not the same as omitting it: several providers
+        // reject the request outright rather than ignoring the parameter.
+        if let Some(secret) = self.provider.client_secret.as_deref().filter(|s| !s.is_empty()) {
+            form.push(("client_secret", secret));
+        }
         let response = self
             .http
             .post(&self.provider.token_url)
@@ -376,6 +400,7 @@ mod tests {
             token_url: "https://auth.example.com/token".into(),
             userinfo_url: Some("https://auth.example.com/userinfo".into()),
             client_id: "client-123".into(),
+            client_secret: None,
             scope: default_scope(),
         }
     }
@@ -434,6 +459,17 @@ mod tests {
         let url = auth.authorize_url(&Pkce::new(), "http://127.0.0.1:1/callback").unwrap();
         assert!(url.contains("tenant=acme"), "{url}");
         assert!(url.contains("code_challenge_method=S256"), "{url}");
+    }
+
+    /// Sending an empty `client_secret` is not the same as omitting it — some
+    /// providers reject the request rather than ignoring the parameter.
+    #[test]
+    fn an_empty_secret_is_treated_as_no_secret() {
+        let mut p = provider();
+        p.client_secret = Some(String::new());
+        assert!(p.client_secret.as_deref().filter(|s| !s.is_empty()).is_none());
+        p.client_secret = Some("shh".into());
+        assert_eq!(p.client_secret.as_deref().filter(|s| !s.is_empty()), Some("shh"));
     }
 
     #[test]

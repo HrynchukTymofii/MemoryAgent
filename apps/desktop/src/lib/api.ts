@@ -158,6 +158,8 @@ export const api = {
   /** Resolves when the browser round trip finishes — which can take minutes. */
   signIn: () => invoke<Account>("sign_in"),
   signOut: () => invoke<Account>("sign_out"),
+  signInPromptSeen: () => invoke<boolean>("sign_in_prompt_seen"),
+  dismissSignInPrompt: () => invoke<void>("dismiss_sign_in_prompt"),
   /** Resolves to what was opened, or `null` for an item with no source. */
   openItem: (id: string) => invoke<string | null>("open_item", { id }),
 };

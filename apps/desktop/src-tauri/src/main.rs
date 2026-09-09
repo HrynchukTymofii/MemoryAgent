@@ -839,6 +839,24 @@ fn account(state: tauri::State<'_, AppState>) -> Account {
     }
 }
 
+/// Whether the sign-in screen has been shown and answered.
+///
+/// Separate from being signed in, and that difference is the whole point: the
+/// screen is offered once, and skipping it is an answer. Without this the Hub
+/// would present a sign-in wall on every launch to someone who has already
+/// said no, which is how an optional account becomes a nag.
+#[tauri::command]
+fn sign_in_prompt_seen(state: tauri::State<'_, AppState>) -> bool {
+    state.config.lock().sign_in_prompt_seen
+}
+
+#[tauri::command]
+fn dismiss_sign_in_prompt(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut cfg = state.config.lock();
+    cfg.sign_in_prompt_seen = true;
+    cfg.save()
+}
+
 /// Run the sign-in flow, and resolve when the user comes back.
 ///
 /// `spawn_blocking` because the flow is blocking by design: it opens a browser
@@ -1159,6 +1177,8 @@ fn main() {
             account,
             sign_in,
             sign_out,
+            sign_in_prompt_seen,
+            dismiss_sign_in_prompt,
             open_hub,
             set_idle_pill,
             search,
