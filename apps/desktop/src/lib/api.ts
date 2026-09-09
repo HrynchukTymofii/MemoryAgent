@@ -160,6 +160,8 @@ export const api = {
   signOut: () => invoke<Account>("sign_out"),
   signInPromptSeen: () => invoke<boolean>("sign_in_prompt_seen"),
   dismissSignInPrompt: () => invoke<void>("dismiss_sign_in_prompt"),
+  connectGoogle: (clientId: string, clientSecret: string) =>
+    invoke<Account>("connect_google", { clientId, clientSecret }),
   /** Resolves to what was opened, or `null` for an item with no source. */
   openItem: (id: string) => invoke<string | null>("open_item", { id }),
 };

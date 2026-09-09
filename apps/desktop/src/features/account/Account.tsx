@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 
 import { api, type Account as AccountData } from "../../lib/api";
-import { Empty } from "../../components/ItemList";
 
 /**
  * The Account page: who you are signed in as, and how to stop being.
@@ -60,11 +59,7 @@ export function Account({ revision, onChanged }: { revision: number; onChanged: 
       </p>
 
       {!account.available ? (
-        <Empty title="Sign-in is not configured">
-          This build has no identity provider set. Add an <code>auth</code> block to
-          <code> config.json</code> — see the Account section of the README — and this page
-          becomes a sign-in.
-        </Empty>
+        <Connect onConnected={(a) => { setAccount(a); onChanged(); }} />
       ) : (
         <div className="card">
           <h2>{account.signed_in ? "Signed in" : "Not signed in"}</h2>
@@ -111,6 +106,91 @@ export function Account({ revision, onChanged }: { revision: number; onChanged: 
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Paste the two credentials Google gave you, and nothing else.
+ *
+ * The endpoint URLs are filled in by the backend rather than asked for here:
+ * they are identical for every Google client in existence, so asking is a form
+ * to get wrong rather than a choice to offer. Only the two values that actually
+ * differ between projects are typed.
+ */
+function Connect({ onConnected }: { onConnected: (a: AccountData) => void }) {
+  const [id, setId] = useState("");
+  const [secret, setSecret] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const connect = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      onConnected(await api.connectGoogle(id, secret));
+    } catch (e) {
+      setError(String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card">
+      <h2>Connect Google</h2>
+      <p>
+        In the Google Cloud console: <b>APIs &amp; Services → Credentials → Create OAuth client
+        ID → Desktop app</b>. Paste what it gives you. Nothing else is needed — the endpoint
+        URLs are the same for every Google client and are filled in for you.
+      </p>
+
+      <div className="row">
+        <span className="bd">
+          <span className="k">Client ID</span>
+          <span className="v">Ends in <code>.apps.googleusercontent.com</code></span>
+        </span>
+        <input
+          className="cred"
+          value={id}
+          onChange={(e) => setId(e.target.value)}
+          placeholder="000000000000-xxxxxxxx.apps.googleusercontent.com"
+          spellCheck={false}
+        />
+      </div>
+
+      <div className="row last">
+        <span className="bd">
+          <span className="k">Client secret</span>
+          <span className="v">
+            Google issues one even for desktop clients and its token endpoint requires it.
+          </span>
+        </span>
+        <input
+          className="cred"
+          type="password"
+          value={secret}
+          onChange={(e) => setSecret(e.target.value)}
+          placeholder="GOCSPX-…"
+          spellCheck={false}
+        />
+      </div>
+
+      {error && (
+        <p className="signin-error" style={{ marginTop: 10 }}>
+          {error}
+        </p>
+      )}
+
+      <button
+        type="button"
+        className="btn primary"
+        style={{ marginTop: 14 }}
+        disabled={busy || !id.trim()}
+        onClick={() => void connect()}
+      >
+        {busy ? "Connecting…" : "Connect"}
+      </button>
     </div>
   );
 }
