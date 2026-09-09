@@ -357,6 +357,10 @@ impl Tier1 {
                     // of uptime would retire the tier for good.
                     self.restarts.store(0, Ordering::Relaxed);
                     tracing::info!(detail, "router ready");
+                    // The other three subsystems announce themselves in the
+                    // diagnostic log and this one did not, so "is Tier 1 up?"
+                    // was the single question the log could not answer.
+                    crate::hotkey::diag(&format!("router ready: {detail}"));
                 } else {
                     tracing::warn!(detail, "router unavailable");
                 }

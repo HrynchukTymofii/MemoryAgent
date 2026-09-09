@@ -18,12 +18,20 @@
 
 pub mod capture;
 pub mod readable;
+pub mod url;
 
 /// The Windows implementation, public so diagnostics can ask it direct
 /// questions — "what does this window actually expose" is not answerable from
 /// the trimmed [`Context`] alone.
 #[cfg(windows)]
 pub mod windows_impl;
+
+/// The macOS implementation, public for the same reason: "what does this
+/// application actually expose" is a question the trimmed [`Context`] cannot
+/// answer, and on this platform it is usually really asking whether
+/// Accessibility has been granted.
+#[cfg(target_os = "macos")]
+pub mod macos_impl;
 pub use capture::{collect, start, Pending};
 
 use serde::{Deserialize, Serialize};

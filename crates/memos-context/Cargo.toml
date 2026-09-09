@@ -13,6 +13,22 @@ chrono     = { workspace = true }
 tracing    = { workspace = true }
 thiserror  = { workspace = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# The Accessibility API is plain C called through CoreFoundation types; only
+# the clipboard needs AppKit. Both already arrive with the desktop app on this
+# platform, so neither is a new download.
+core-foundation = "0.10"
+objc2           = "0.6"
+objc2-app-kit   = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSPasteboard",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSString",
+    "NSArray",
+] }
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
     "Win32_Foundation",

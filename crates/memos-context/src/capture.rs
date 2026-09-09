@@ -243,10 +243,69 @@ fn collect_blocking(perms: ContextPermissions) -> Context {
     ctx
 }
 
-#[cfg(not(windows))]
+/// The macOS collection, in one pass.
+///
+/// No staging, unlike Windows. The staged shape exists to publish the cheap
+/// fields before a page read that can block for hundreds of milliseconds while
+/// Chromium builds its accessibility tree — and `page_text` is not read here, so
+/// there is no expensive second half to hide. Every lookup below is bounded by
+/// the messaging timeout the element carries, and the whole set costs a few
+/// milliseconds when the application answers and nothing when it does not.
+///
+/// `page_text` stays `None` on this platform. Reading it means walking the web
+/// area's accessibility tree, and doing that *correctly* means solving the lazy
+/// tree problem the Windows path documents at length — a partial read is not a
+/// smaller version of the feature, it is a memory that silently holds a
+/// paragraph of a page and looks fine until a search misses it a month later.
+/// A selection or a URL is a real referent, so capture stays useful without it.
+#[cfg(target_os = "macos")]
+fn collect_staged(perms: ContextPermissions, mut emit: impl FnMut(Context) -> bool) {
+    use crate::macos_impl as m;
+
+    let mut ctx = Context::default();
+
+    // Read once and cache: this is a lookup per capture either way, and the
+    // answer is what decides whether an empty context means "nothing to see" or
+    // "you have not granted the permission yet".
+    if !m::is_trusted() {
+        tracing::warn!(
+            "Accessibility not granted; context capture will be empty. \
+             System Settings > Privacy & Security > Accessibility."
+        );
+        if perms.clipboard {
+            ctx.clipboard_text = m::clipboard_text();
+        }
+        emit(ctx);
+        return;
+    }
+
+    let Some(app) = m::focused_application() else {
+        if perms.clipboard {
+            ctx.clipboard_text = m::clipboard_text();
+        }
+        emit(ctx);
+        return;
+    };
+
+    if perms.window {
+        ctx.active_application = m::application_name(&app);
+        ctx.active_window_title = m::window_title(&app);
+    }
+    if perms.selection {
+        ctx.selected_text = m::selected_text(&app);
+    }
+    if perms.url {
+        ctx.current_url = m::current_url(&app);
+    }
+    if perms.clipboard {
+        ctx.clipboard_text = m::clipboard_text();
+    }
+
+    emit(ctx);
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn collect_staged(_perms: ContextPermissions, mut emit: impl FnMut(Context) -> bool) {
-    // macOS lands at M7: the Accessibility API plus an explicit permission
-    // prompt. Only this function changes; `Context` is platform-neutral.
     emit(Context::default());
 }
 
