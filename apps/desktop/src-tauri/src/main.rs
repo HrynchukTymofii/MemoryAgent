@@ -1098,6 +1098,85 @@ fn never_activates<R: Runtime>(_w: &tauri::WebviewWindow<R>) {}
 ///
 /// Must run on the main thread: these are AppKit setters on a window, and the
 /// setup closure this is called from is the main thread.
+/// Turn the overlay's window into a non-activating panel.
+///
+/// The collection-behaviour flags decide how a window behaves across spaces
+/// *once it is allowed there*. They do not decide admission. A full-screen
+/// application's space admits panels from other applications and does not admit
+/// ordinary windows, which is why Spotlight and its kin are all panels, and why
+/// the flags alone left the pill stuck on the desktop it started on.
+///
+/// ## Why this is a class swap, and why that is not reckless here
+///
+/// Tauri does not create panels, so the window has to be changed into one after
+/// the fact. `object_setClass` on a live window is a blunt instrument with one
+/// real hazard: if the new class needs more storage than was allocated for the
+/// old one, every access past the end is memory corruption.
+///
+/// So the sizes are compared and the swap is refused if it would grow the
+/// object. This is not belt-and-braces — `tao`'s window class adds a
+/// `focusable` ivar to `NSWindow`, so it is *larger* than `NSPanel`, and the
+/// swap shrinks the object rather than growing it. The check is what turns that
+/// from a thing I believe into a thing the program verifies before it acts.
+///
+/// What is lost with the old class is `tao`'s two overrides:
+///
+/// - `canBecomeKeyWindow`, which returned a stored flag. A non-activating panel
+///   answers this correctly by construction, and better: it can take a click
+///   without activating the application, which is the property the overlay
+///   needed anyway and got on Windows through `WS_EX_NOACTIVATE`.
+/// - `sendEvent:`, which forwarded a background drag. The pill is dragged by
+///   the page through Tauri's own command, not by the window background, so
+///   nothing depended on it.
+#[cfg(target_os = "macos")]
+fn become_nonactivating_panel(ptr: *mut std::ffi::c_void) {
+    use objc2::runtime::{AnyClass, AnyObject};
+    use objc2::ClassType;
+    use objc2_app_kit::{NSPanel, NSWindowStyleMask};
+
+    let object = ptr as *mut AnyObject;
+    let panel_class: &AnyClass = NSPanel::class();
+
+    // SAFETY: the pointer is a live NSWindow handed over by Tauri.
+    let current = unsafe { (*object).class() };
+    if current == panel_class {
+        return; // already done
+    }
+
+    let (have, want) = (current.instance_size(), panel_class.instance_size());
+    if want > have {
+        crate::hotkey::diag(&format!(
+            "overlay: NOT converting to a panel — NSPanel needs {want} bytes, \
+             the window has {have}. It will not show over full-screen apps."
+        ));
+        return;
+    }
+
+    // SAFETY: NSPanel is a subclass of NSWindow, so every message the window
+    // already answers it still answers; and the size check above guarantees the
+    // new class fits inside the existing allocation.
+    unsafe { objc2::ffi::object_setClass(object, panel_class as *const AnyClass as *const _) };
+
+    let panel: &NSPanel = unsafe { &*(ptr as *const NSPanel) };
+    // The bit that means "take clicks without bringing the application
+    // forward". It exists only on panels, which is the other half of why this
+    // conversion is necessary rather than merely convenient.
+    panel.setStyleMask(panel.styleMask() | NSWindowStyleMask::NonactivatingPanel);
+    panel.setFloatingPanel(true);
+    // Take key status only when something actually needs typing into, so
+    // showing the overlay never pulls the caret out of the user's editor.
+    panel.setBecomesKeyOnlyIfNeeded(true);
+    // A panel hides itself when its application deactivates unless told not to,
+    // and this application is *always* the inactive one — that is the entire
+    // premise of an overlay you speak to while working somewhere else.
+    panel.setHidesOnDeactivate(false);
+
+    crate::hotkey::diag(&format!(
+        "overlay: converted to NSPanel ({have} -> {want} bytes), styleMask={:#x}",
+        panel.styleMask().0
+    ));
+}
+
 #[cfg(target_os = "macos")]
 fn floats_over_fullscreen<R: Runtime>(w: &tauri::WebviewWindow<R>) {
     use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
@@ -1112,6 +1191,10 @@ fn floats_over_fullscreen<R: Runtime>(w: &tauri::WebviewWindow<R>) {
 
     // SAFETY: `ns_window()` hands back this window's NSWindow, and this runs on
     // the main thread, which is the only thread AppKit permits these on.
+    // Become a panel first, because that is what decides admission; the flags
+    // below only decide behaviour once admitted.
+    become_nonactivating_panel(ptr);
+
     let window: &NSWindow = unsafe { &*(ptr as *const NSWindow) };
 
     // Stationary is deliberately *not* set alongside CanJoinAllSpaces. It means
