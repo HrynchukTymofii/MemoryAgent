@@ -10,6 +10,7 @@ members = [
     "crates/memos-retrieval",
     "crates/memos-llm",
     "crates/memos-auth",
+    "crates/memos-license",
     "apps/desktop/src-tauri",
 ]
 
@@ -31,6 +32,7 @@ memos-embed   = { path = "crates/memos-embed" }
 memos-retrieval = { path = "crates/memos-retrieval" }
 memos-llm       = { path = "crates/memos-llm" }
 memos-auth      = { path = "crates/memos-auth" }
+memos-license   = { path = "crates/memos-license" }
 
 anyhow             = "1"
 thiserror          = "1"

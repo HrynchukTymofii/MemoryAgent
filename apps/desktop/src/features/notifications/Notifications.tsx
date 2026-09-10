@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { api, type Notification } from "../../lib/api";
-import type { Page } from "../../hub/App";
 
 /** How many rows the panel will hold. Beyond this, the oldest simply age out. */
 const LIMIT = 50;
@@ -29,7 +28,9 @@ export function Notifications({
   offline: boolean;
   /** Bumped when something new lands, to re-fetch without waiting for a poll. */
   revision: number;
-  onGo: (p: Page) => void;
+  /** Takes the raw destination: the shell decides what is a page and what is
+      a modal, because "referral" is not one of the former. */
+  onGo: (p: string) => void;
   onClose: () => void;
   /** Told once the rows have been marked read, so the bell can drop its count. */
   onRead: () => void;
@@ -181,7 +182,7 @@ function Group({
 }: {
   label: string;
   rows: Notification[];
-  onGo: (p: Page) => void;
+  onGo: (p: string) => void;
   onDismiss: (id: string) => void;
 }) {
   return (
@@ -200,12 +201,12 @@ function Row({
   onDismiss,
 }: {
   n: Notification;
-  onGo: (p: Page) => void;
+  onGo: (p: string) => void;
   onDismiss: (id: string) => void;
 }) {
   // Only a row that leads somewhere is a button. A milestone is something to
   // read, and making it look pressable promises a page that does not exist.
-  const goes = n.goto !== null && n.goto !== "referral";
+  const goes = n.goto !== null;
   const cls = `note ${n.kind}${n.read ? "" : " unread"}${goes ? " goes" : ""}`;
 
   const body = (
@@ -224,7 +225,7 @@ function Row({
   return (
     <div className="note-wrap">
       {goes ? (
-        <button type="button" className={cls} onClick={() => onGo(n.goto as Page)}>
+        <button type="button" className={cls} onClick={() => onGo(n.goto as string)}>
           {body}
         </button>
       ) : (

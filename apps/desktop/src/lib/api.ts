@@ -156,6 +156,51 @@ export interface Stats {
   fortnight: number[];
 }
 
+/** One person the user brought in, as the API is willing to describe them. */
+export interface ReferralRow {
+  /** Masked by the server: `t…@gmail.com`. A count and a status, not an address. */
+  who: string;
+  /** `pending` until the referee has used the app enough, then `qualified`. */
+  status: string;
+  created_at: string;
+  qualified_at: string | null;
+}
+
+export interface ReferralStatus {
+  code: string;
+  link: string;
+  qualify_words: number;
+  months_per_referral: number;
+  referrals: ReferralRow[];
+  months_earned: number;
+  pro_until: string | null;
+  /** Whether this account may still be referred by somebody else. */
+  can_apply: boolean;
+  applied_code: string | null;
+}
+
+/**
+ * The referral screen's whole state, including the two reasons it cannot show
+ * anything: this build has no API, or nobody is signed in. Neither is an error.
+ */
+export interface Referrals {
+  available: boolean;
+  signed_in: boolean;
+  status: ReferralStatus | null;
+  error: string | null;
+}
+
+export interface Invited {
+  sent: string[];
+  failed: string[];
+}
+
+/** The plan, as this machine last understood it. */
+export interface Entitlement {
+  pro_until: string | null;
+  months_earned: number;
+}
+
 export interface LibrarySummary {
   items: number;
   collections: number;
@@ -207,7 +252,25 @@ export const api = {
   markNotificationsRead: () => invoke<number>("mark_notifications_read"),
   dismissNotification: (id: string) => invoke<void>("dismiss_notification", { id }),
   dismissAllNotifications: () => invoke<number>("dismiss_all_notifications"),
+  referralStatus: () => invoke<Referrals>("referral_status"),
+  applyReferral: (code: string) => invoke<ReferralStatus>("apply_referral", { code }),
+  sendInvites: (emails: string[]) => invoke<Invited>("send_invites", { emails }),
+  /** Read from the local cache; never touches the network. */
+  entitlement: () => invoke<Entitlement>("entitlement"),
+  /** Re-checks the plan with the API, and pays out a referral if one is due. */
+  refreshEntitlement: () => invoke<Entitlement>("refresh_entitlement"),
 };
 
-/** The free plan's weekly allowance (§16). */
+/** Whether a cached entitlement is live right now. */
+export function isPro(e: Entitlement | null): boolean {
+  return e?.pro_until != null && new Date(e.pro_until) > new Date();
+}
+
+/**
+ * The free plan's weekly allowance (§16).
+ *
+ * Still a constant, and still the right one to draw against: Pro has no limit
+ * at all rather than a larger one, so the meter is either this bar or the
+ * sentence that replaces it. See `memos-license`.
+ */
 export const CAPTURE_LIMIT = 50;

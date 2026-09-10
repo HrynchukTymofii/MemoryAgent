@@ -447,6 +447,134 @@
     .backdrop, .sheet { animation:none; }
   }
 
+  /* ---------------------------------------------------------- referrals */
+  /* The row above Settings. Not a NavItem: it opens a modal rather than
+     selecting a page, and giving it the selected state would be a lie. */
+  .gift-row { cursor:pointer; color:var(--acc); }
+  .gift-row:hover { background:rgba(255,255,255,.65); }
+  .gift-row .g { flex:none; display:grid; place-items:center; }
+  .gift-row .ic {
+    width:18px; height:18px; display:block; fill:none; stroke:currentColor;
+    stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round;
+  }
+
+  .meter.pro { background:var(--ink); border-color:var(--ink); color:#fff; }
+  .meter.pro .s { color:rgba(255,255,255,.7); }
+
+  .tabs { display:flex; gap:20px; border-bottom:1px solid var(--line); margin:14px 0 4px; }
+  .tab {
+    font:inherit; font-size:13px; font-weight:600; color:var(--ink2);
+    background:transparent; border:0; border-bottom:2px solid transparent;
+    padding:0 0 9px; margin-bottom:-1px; cursor:pointer;
+  }
+  .tab:hover { color:var(--ink); }
+  .tab.on { color:var(--ink); border-bottom-color:var(--ink); }
+  .tab:focus-visible { outline:2px solid var(--acc); outline-offset:3px; }
+
+  /* The thing being given, drawn as a thing rather than as a paragraph over a
+     link. Dark green against a page that is otherwise blue-grey and white: it
+     is the one element in the app that is meant to look like a physical object
+     somebody is handing over. */
+  .gift {
+    position:relative; overflow:hidden; margin:18px 0 4px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:9px;
+    min-height:172px; border-radius:16px; padding:26px 20px;
+    background:#0C4A3E; color:#fff;
+  }
+  .gift .wave {
+    position:absolute; inset:0 0 auto; width:100%; height:60px;
+    fill:none; stroke:#CBB7F5; stroke-width:2.5;
+  }
+  .gift-mark {
+    display:flex; align-items:center; gap:9px;
+    font-size:25px; font-weight:700; letter-spacing:-.03em;
+  }
+  .gift-mark .bars { display:flex; align-items:flex-end; gap:2.5px; height:19px; }
+  .gift-mark .bars i { width:4px; border-radius:1.5px; background:#fff; display:block; }
+  .gift-mark .bars i:last-child { background:#CBB7F5; }
+  .gift-mark .tier {
+    font-size:13px; font-weight:700; letter-spacing:-.01em; color:#0C4A3E;
+    background:#FBF7E4; border-radius:7px; padding:2px 9px; margin-left:2px;
+  }
+  .gift-what {
+    font-size:10px; font-weight:700; letter-spacing:.16em;
+    color:rgba(255,255,255,.72);
+  }
+
+  .how { margin:0; padding-left:19px; }
+  .how li { font-size:13px; color:var(--ink2); margin-bottom:5px; }
+  .how b { color:var(--ink); font-weight:600; }
+
+  /* One row: a field and the button that acts on it. The button is not inside
+     the field — a click that lands a pixel outside it has to still be a click
+     on the button, not a focus into the input. */
+  .field { display:flex; gap:9px; align-items:stretch; }
+  .field .cred { flex:1; min-width:0; margin:0; }
+  .field .btn { flex:none; }
+  .fieldnote { margin:8px 0 0; font-size:12px; color:var(--ink2); }
+  .fieldnote.bad { color:var(--bad); }
+  .sheet-lead.bad { color:var(--bad); }
+
+  .refs { display:flex; flex-direction:column; gap:6px; margin-top:12px; }
+  .ref {
+    display:flex; align-items:center; gap:11px;
+    background:var(--card2); border:1px solid var(--line); border-radius:12px;
+    padding:11px 13px;
+  }
+  .ref .bd { flex:1; min-width:0; }
+  .ref .t { display:block; font-size:13px; font-weight:600; }
+  .ref .s { display:block; font-size:11.5px; color:var(--ink2); margin-top:2px; }
+  .chip {
+    flex:none; font-size:10.5px; font-weight:700; letter-spacing:.04em;
+    color:var(--ink2); background:var(--card); border:1px solid var(--line2);
+    border-radius:20px; padding:3px 10px;
+  }
+  .chip.ok { color:var(--ok); border-color:#BFE3D6; background:#EFF9F5; }
+
+  /* ------------------------------------------------------ account menu */
+  /* Hangs off the second button in the title bar, on the left, where the old
+     Account page used to be reached from. */
+  .acct {
+    position:fixed; z-index:9; top:calc(var(--tb) - 4px); left:12px; width:340px;
+    padding:6px; background:var(--card); border:1px solid var(--line);
+    border-radius:16px; box-shadow:0 10px 34px rgba(31,35,40,.18);
+  }
+  .acct-who { display:flex; align-items:center; gap:12px; padding:12px 12px 14px; }
+  .acct-mark {
+    flex:none; display:grid; place-items:center; width:40px; height:40px;
+    border-radius:50%; background:var(--acc-soft); border:1px solid var(--acc-line);
+    color:var(--acc); font-size:17px; font-weight:700;
+  }
+  .acct-who .bd { flex:1; min-width:0; }
+  .acct-who .t {
+    display:block; font-size:14.5px; font-weight:700; letter-spacing:-.015em;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .acct-who .s {
+    display:block; font-size:12px; color:var(--ink2);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .acct-row {
+    display:flex; align-items:center; gap:12px;
+    padding:13px 12px; border-top:1px solid var(--line);
+  }
+  .acct-row .bd { flex:1; min-width:0; }
+  .acct-row .t { display:block; font-size:13px; font-weight:600; }
+  .acct-row .s { display:block; font-size:11.5px; color:var(--ink2); margin-top:2px; }
+  .acct-row .btn { flex:none; display:inline-flex; align-items:center; gap:6px; }
+  .acct-row .btn .g { display:grid; place-items:center; }
+  .acct-row .btn .ic {
+    width:15px; height:15px; display:block; fill:none; stroke:currentColor;
+    stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round;
+  }
+  .acct-manage {
+    display:block; width:100%; text-align:left; font:inherit; font-size:13px;
+    color:var(--ink); background:transparent; border:0; border-top:1px solid var(--line);
+    padding:13px 12px; cursor:pointer;
+  }
+  .acct-manage:hover { background:var(--card2); }
+  .acct-manage:focus-visible { outline:2px solid var(--acc); outline-offset:-2px; }
+
   /* ------------------------------------------------------------- page */
   main { flex:1; min-width:0; padding:0 14px 14px; overflow-y:auto; }
   .panel {

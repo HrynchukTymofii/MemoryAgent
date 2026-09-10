@@ -589,6 +589,150 @@ fn announce(app: &tauri::AppHandle, earned: &[memos_db::Notification]) {
     let _ = app.emit_to("main", "notification:new", earned.to_vec());
 }
 
+// ----------------------------------------------------------------- referrals
+
+/// What the referral screen needs, plus whether it can be shown at all.
+///
+/// `signed_in` is separate from an error because "sign in first" is not a
+/// failure — it is the screen's other state, and rendering it as a red message
+/// under a broken form would be reporting a problem the user does not have.
+#[derive(serde::Serialize)]
+struct Referrals {
+    /// False when this build has no API configured; the screen says so.
+    available: bool,
+    signed_in: bool,
+    status: Option<memos_auth::backend::ReferralStatus>,
+    /// Set when the API was reachable and refused, or unreachable.
+    error: Option<String>,
+}
+
+impl Referrals {
+    fn offer(available: bool, signed_in: bool) -> Self {
+        Referrals { available, signed_in, status: None, error: None }
+    }
+}
+
+/// The caller's code, invites and rewards.
+#[tauri::command]
+async fn referral_status(app: tauri::AppHandle) -> Referrals {
+    let auth = app.state::<AppState>().auth.clone();
+    let available = auth.email_available();
+    let signed_in = auth.has_api_session();
+    if !available || !signed_in {
+        return Referrals::offer(available, signed_in);
+    }
+    // Blocking HTTP, off the UI thread. Every call below does the same.
+    match tauri::async_runtime::spawn_blocking(move || auth.referral_status()).await {
+        Ok(Ok(status)) => Referrals {
+            available,
+            signed_in,
+            status: Some(status),
+            error: None,
+        },
+        Ok(Err(e)) => Referrals {
+            available,
+            signed_in,
+            status: None,
+            error: Some(e.to_string()),
+        },
+        Err(e) => Referrals {
+            available,
+            signed_in,
+            status: None,
+            error: Some(e.to_string()),
+        },
+    }
+}
+
+/// Be referred by somebody.
+///
+/// The error is returned rather than swallowed: every way this can fail is
+/// something the user typed and can retype.
+#[tauri::command]
+async fn apply_referral(
+    app: tauri::AppHandle,
+    code: String,
+) -> Result<memos_auth::backend::ReferralStatus, String> {
+    let auth = app.state::<AppState>().auth.clone();
+    let status = tauri::async_runtime::spawn_blocking(move || auth.apply_referral(&code))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    cache_entitlement(&app, status.pro_until, status.months_earned);
+    Ok(status)
+}
+
+/// Mail an invite to each address.
+#[tauri::command]
+async fn send_invites(
+    app: tauri::AppHandle,
+    emails: Vec<String>,
+) -> Result<memos_auth::backend::Invited, String> {
+    let auth = app.state::<AppState>().auth.clone();
+    tauri::async_runtime::spawn_blocking(move || auth.send_invites(&emails))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// The plan, as this machine last understood it.
+///
+/// Read from the cache, never from the network. The sidebar draws this on every
+/// render and the app has to work with no network at all — see `entitlement` in
+/// `config.rs`.
+#[tauri::command]
+fn entitlement(state: tauri::State<'_, AppState>) -> memos_license::Entitlement {
+    state.config.lock().entitlement.clone()
+}
+
+/// Ask the API to re-check the plan, and pay out a referral if it is due.
+///
+/// One call does both because they are the same question from the server's side:
+/// here is how much this account has used the app, tell me what it is entitled
+/// to. Called when the referral screen opens and after a milestone lands, not on
+/// a timer — a background poll would be a request per user per interval to
+/// discover a number that changes twice a year.
+#[tauri::command]
+async fn refresh_entitlement(app: tauri::AppHandle) -> Result<memos_license::Entitlement, String> {
+    let state = app.state::<AppState>();
+    let auth = state.auth.clone();
+    if !auth.has_api_session() {
+        return Ok(state.config.lock().entitlement.clone());
+    }
+    let words = state.db.totals().map(|t| t.words).unwrap_or(0);
+
+    let progress = tauri::async_runtime::spawn_blocking(move || auth.report_progress(words))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+
+    if progress.qualified {
+        tracing::info!("a referral qualified; the plan has been extended");
+    }
+    // `months_earned` is not on this response and must not be guessed at: the
+    // cached figure stays until the referral screen fetches the real one.
+    let held = app.state::<AppState>().config.lock().entitlement.months_earned;
+    Ok(cache_entitlement(&app, progress.pro_until, held))
+}
+
+/// Write the plan down, so the meter is right the next time it is drawn.
+fn cache_entitlement(
+    app: &tauri::AppHandle,
+    pro_until: Option<chrono::DateTime<chrono::Utc>>,
+    months_earned: u32,
+) -> memos_license::Entitlement {
+    let state = app.state::<AppState>();
+    let mut cfg = state.config.lock();
+    cfg.entitlement = memos_license::Entitlement { pro_until, months_earned };
+    let held = cfg.entitlement.clone();
+    if let Err(e) = cfg.save() {
+        // Not fatal. The plan is right for this run and will be re-fetched on
+        // the next one; losing the cache costs a request, not an entitlement.
+        tracing::warn!(?e, "could not cache the entitlement");
+    }
+    held
+}
+
 #[derive(serde::Serialize)]
 struct Library {
     items: u32,
@@ -1629,7 +1773,12 @@ fn main() {
             unread_notifications,
             mark_notifications_read,
             dismiss_notification,
-            dismiss_all_notifications
+            dismiss_all_notifications,
+            referral_status,
+            apply_referral,
+            send_invites,
+            entitlement,
+            refresh_entitlement
         ])
         .setup(move |app| {
             tray::install(app.handle())?;

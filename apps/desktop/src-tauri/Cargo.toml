@@ -35,6 +35,7 @@ memos-llm  = { workspace = true }
 # Sign-in. Nothing on the capture path touches this crate: an account is for
 # knowing who is using the product and, at M5, for sync — never for permission
 # to use it.
+memos-license = { workspace = true }
 memos-auth = { workspace = true }
 
 tauri      = { version = "2", features = ["macos-private-api", "tray-icon", "image-png"] }

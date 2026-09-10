@@ -311,6 +311,51 @@ impl Auth {
         self.backend.is_configured()
     }
 
+    // -------------------------------------------------------- referrals
+
+    /// The API session token, or a refusal a user can act on.
+    ///
+    /// Every referral call needs one, and "you are not signed in" is the only
+    /// honest answer when there is none: a referral belongs to an account, and
+    /// there is no account to attach one to.
+    fn api_token(&self) -> AuthResult<String> {
+        if !self.backend.is_configured() {
+            return Err(AuthError::NotConfigured);
+        }
+        self.store
+            .load()
+            .and_then(|s| s.api_token)
+            .ok_or_else(|| AuthError::Denied("sign in to use referrals".into()))
+    }
+
+    /// This account's code, its invites, and what they have earned.
+    pub fn referral_status(&self) -> AuthResult<backend::ReferralStatus> {
+        backend::referral_status(&self.http, &self.backend, &self.api_token()?)
+    }
+
+    /// Be referred by somebody else.
+    pub fn apply_referral(&self, code: &str) -> AuthResult<backend::ReferralStatus> {
+        backend::apply_referral(&self.http, &self.backend, &self.api_token()?, code.trim())
+    }
+
+    /// Mail an invite to each address.
+    pub fn send_invites(&self, emails: &[String]) -> AuthResult<backend::Invited> {
+        backend::send_invites(&self.http, &self.backend, &self.api_token()?, emails)
+    }
+
+    /// Report lifetime words, which is what pays a pending referral out.
+    pub fn report_progress(&self, words: u64) -> AuthResult<backend::Progress> {
+        backend::report_progress(&self.http, &self.backend, &self.api_token()?, words)
+    }
+
+    /// Whether there is an API session to spend on any of the above.
+    ///
+    /// Asked before showing the referral screen, so a signed-out user gets a
+    /// sign-in prompt rather than a spinner that ends in an error.
+    pub fn has_api_session(&self) -> bool {
+        self.store.load().and_then(|s| s.api_token).is_some()
+    }
+
     /// Forget the session locally.
     ///
     /// Deliberately local-only. Revoking at the provider needs an endpoint not

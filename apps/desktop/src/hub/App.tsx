@@ -7,6 +7,8 @@ import {
   CAPTURE_LIMIT,
   type Account as AccountData,
   type HookStats,
+  isPro,
+  type Entitlement,
   type LibrarySummary,
   type Notification,
 } from "../lib/api";
@@ -15,6 +17,8 @@ import { Library } from "../features/library/Library";
 import { Collections } from "../features/collections/Collections";
 import { Tasks } from "../features/tasks/Tasks";
 import { Account } from "../features/account/Account";
+import { AccountMenu } from "../features/account/AccountMenu";
+import { Referral } from "../features/referral/Referral";
 import { SignIn } from "../features/account/SignIn";
 import { Settings } from "../features/settings/Settings";
 import { HelpMenu } from "../features/help/HelpMenu";
@@ -23,6 +27,7 @@ import { Toasts } from "../features/notifications/Toast";
 import { TitleBar } from "../components/TitleBar";
 import {
   CollectionsIcon,
+  GiftIcon,
   DictionaryIcon,
   HistoryIcon,
   HomeIcon,
@@ -54,6 +59,10 @@ export function App() {
   const [drawer, setDrawer] = useState(true);
   const [bell, setBell] = useState(false);
   const [unread, setUnread] = useState(0);
+  /** The two things the title bar's account button and the sidebar open. */
+  const [acct, setAcct] = useState(false);
+  const [referral, setReferral] = useState(false);
+  const [plan, setPlan] = useState<Entitlement | null>(null);
   /** Bumped when a milestone lands, so the open panel re-fetches at once. */
   const [notes, setNotes] = useState(0);
   /** What just arrived, for the toast. Cleared as each one times out. */
@@ -149,6 +158,27 @@ export function App() {
     };
   }, []);
 
+  // The cached plan, and — once, on launch — a re-check with the API. Not on a
+  // timer: this is a number that changes twice a year, and polling it would be
+  // a request per user per interval to discover that nothing happened.
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      try {
+        const held = await api.entitlement();
+        if (live) setPlan(held);
+        const fresh = await api.refreshEntitlement();
+        if (live) setPlan(fresh);
+      } catch {
+        // No API, or no session. The cached plan stands, which is the point of
+        // caching it.
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [revision]);
+
   const openCollection = useCallback((path: string | null) => {
     setFilter(path);
     setPage("library");
@@ -187,8 +217,8 @@ export function App() {
       <TitleBar
         drawerOpen={drawer}
         onToggleDrawer={() => setDrawer((d) => !d)}
-        onAccount={() => go("account")}
-        accountOn={page === "account"}
+        onAccount={() => setAcct((a) => !a)}
+        accountOn={acct || page === "account"}
         notifications={unread + openTasks + (offline ? 1 : 0)}
         onNotifications={() => setBell((b) => !b)}
         bellOn={bell}
@@ -199,9 +229,44 @@ export function App() {
           openTasks={openTasks}
           offline={offline}
           revision={notes}
-          onGo={go}
+          onGo={(p) => {
+            if (p === "referral") {
+              setBell(false);
+              setReferral(true);
+            } else {
+              go(p as Page);
+            }
+          }}
           onClose={() => setBell(false)}
           onRead={() => setUnread(0)}
+        />
+      )}
+
+      {acct && (
+        <AccountMenu
+          used={used}
+          onClose={() => setAcct(false)}
+          onManage={() => {
+            setAcct(false);
+            go("account");
+          }}
+          onRefer={() => {
+            setAcct(false);
+            setReferral(true);
+          }}
+        />
+      )}
+
+      {referral && (
+        <Referral
+          onClose={() => {
+            setReferral(false);
+            refresh();
+          }}
+          onSignIn={() => {
+            setReferral(false);
+            go("account");
+          }}
         />
       )}
 
@@ -209,7 +274,8 @@ export function App() {
         earned={earned}
         onGo={(p) => {
           setEarned([]);
-          go(p as Page);
+          if (p === "referral") setReferral(true);
+          else go(p as Page);
         }}
       />
 
@@ -276,17 +342,40 @@ export function App() {
               to. Account is not here — it is the second button in the title
               bar, next to the one that hides this drawer. */}
           <div className="foot">
-            <div className="meter">
-              <div className="n">
-                {used} of {CAPTURE_LIMIT} captures
+            {/* Pro has no limit rather than a larger one, so there is no bar
+                to draw: the meter becomes the one sentence that is true. */}
+            {isPro(plan) ? (
+              <div className="meter pro">
+                <div className="n">Pro</div>
+                <div className="s">
+                  Unlimited captures
+                  {plan?.pro_until &&
+                    ` · until ${new Date(plan.pro_until).toLocaleDateString()}`}
+                </div>
               </div>
-              <div className="s">Free plan · resets Monday</div>
-              <div className="bar">
-                <i style={{ width: `${quota}%` }} />
+            ) : (
+              <div className="meter">
+                <div className="n">
+                  {used} of {CAPTURE_LIMIT} captures
+                </div>
+                <div className="s">Free plan · resets Monday</div>
+                <div className="bar">
+                  <i style={{ width: `${quota}%` }} />
+                </div>
               </div>
-            </div>
+            )}
             <nav>
               <ul>
+                {/* Above Settings, and not a page: it opens the modal. Worth a
+                    permanent row rather than only living in the account menu —
+                    it is the one thing here a user can act on that costs them
+                    nothing. */}
+                <li className="gift-row" onClick={() => setReferral(true)}>
+                  <span className="g">
+                    <GiftIcon />
+                  </span>
+                  <span className="lbl">Get a free month</span>
+                </li>
                 <NavItem
                   page="settings"
                   current={page}

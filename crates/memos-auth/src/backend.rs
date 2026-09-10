@@ -159,6 +159,177 @@ pub fn email_verify(
         .map_err(|e| AuthError::Protocol(format!("unreadable response from the API: {e}")))
 }
 
+// ----------------------------------------------------------------- referrals
+
+/// One person the user brought in, as the API is willing to describe them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReferralRow {
+    /// Masked by the server: `t…@gmail.com`. The referrer is owed a count and a
+    /// status, not somebody else's address.
+    pub who: String,
+    /// `pending` until the referee has used the app enough, then `qualified`.
+    pub status: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub qualified_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Everything the referral screen draws.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReferralStatus {
+    pub code: String,
+    pub link: String,
+    pub qualify_words: u32,
+    pub months_per_referral: u32,
+    pub referrals: Vec<ReferralRow>,
+    pub months_earned: u32,
+    pub pro_until: Option<chrono::DateTime<chrono::Utc>>,
+    /// Whether this account may still be referred by somebody else.
+    pub can_apply: bool,
+    pub applied_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Progress {
+    /// True only on the call that actually paid out, never on the ones after.
+    pub qualified: bool,
+    pub pro_until: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Invited {
+    pub sent: Vec<String>,
+    pub failed: Vec<String>,
+}
+
+/// The caller's referral code, invites and rewards.
+pub fn referral_status(
+    http: &reqwest::blocking::Client,
+    backend: &Backend,
+    api_token: &str,
+) -> AuthResult<ReferralStatus> {
+    get_json(http, backend, api_token, "/v1/referrals/me")
+}
+
+/// Be referred by somebody.
+///
+/// The refusals here are worth distinguishing, unlike the sign-in ones: every
+/// single one is something the user can act on — a code that does not exist, a
+/// code that is their own, an account already referred, an account too old.
+/// Telling them which is not telling an attacker anything they did not type.
+pub fn apply_referral(
+    http: &reqwest::blocking::Client,
+    backend: &Backend,
+    api_token: &str,
+    code: &str,
+) -> AuthResult<ReferralStatus> {
+    post_json(
+        http,
+        backend,
+        api_token,
+        "/v1/referrals/apply",
+        &serde_json::json!({ "code": code }),
+    )
+}
+
+/// Mail an invite to each address.
+pub fn send_invites(
+    http: &reqwest::blocking::Client,
+    backend: &Backend,
+    api_token: &str,
+    emails: &[String],
+) -> AuthResult<Invited> {
+    post_json(
+        http,
+        backend,
+        api_token,
+        "/v1/referrals/invite",
+        &serde_json::json!({ "emails": emails }),
+    )
+}
+
+/// Report lifetime words, which is what pays a pending referral out.
+///
+/// Sent from the client because the server has no other way to know: transcripts
+/// never leave the machine, and shipping them somewhere so a month of Pro can be
+/// awarded honestly would be a far worse trade than the one this makes. The
+/// constraints that matter — one referral per account, one payout per side —
+/// are in the database and are not client-side at all.
+pub fn report_progress(
+    http: &reqwest::blocking::Client,
+    backend: &Backend,
+    api_token: &str,
+    words: u64,
+) -> AuthResult<Progress> {
+    post_json(
+        http,
+        backend,
+        api_token,
+        "/v1/referrals/progress",
+        &serde_json::json!({ "words": words }),
+    )
+}
+
+fn get_json<T: serde::de::DeserializeOwned>(
+    http: &reqwest::blocking::Client,
+    backend: &Backend,
+    api_token: &str,
+    path: &str,
+) -> AuthResult<T> {
+    if !backend.is_configured() {
+        return Err(AuthError::NotConfigured);
+    }
+    let url = format!("{}{path}", backend.api_url.trim_end_matches('/'));
+    let response = http
+        .get(&url)
+        .bearer_auth(api_token)
+        .send()
+        .map_err(|e| AuthError::Network(e.to_string()))?;
+    read(response)
+}
+
+fn post_json<T: serde::de::DeserializeOwned>(
+    http: &reqwest::blocking::Client,
+    backend: &Backend,
+    api_token: &str,
+    path: &str,
+    body: &serde_json::Value,
+) -> AuthResult<T> {
+    if !backend.is_configured() {
+        return Err(AuthError::NotConfigured);
+    }
+    let url = format!("{}{path}", backend.api_url.trim_end_matches('/'));
+    let response = http
+        .post(&url)
+        .bearer_auth(api_token)
+        .json(body)
+        .send()
+        .map_err(|e| AuthError::Network(e.to_string()))?;
+    read(response)
+}
+
+/// Turn a response into a value, or into a message worth showing.
+///
+/// The API's own `detail` is preferred over anything invented here, because it
+/// is the only party that knows *which* rule refused: "that is your own code"
+/// and "this account has already been referred" are both 400-shaped and mean
+/// completely different things to the person reading them.
+fn read<T: serde::de::DeserializeOwned>(response: reqwest::blocking::Response) -> AuthResult<T> {
+    let status = response.status();
+    let body = response.text().unwrap_or_default();
+    if !status.is_success() {
+        let detail = serde_json::from_str::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v.get("detail").and_then(|d| d.as_str().map(str::to_string)));
+        return Err(match status.as_u16() {
+            401 => AuthError::Denied("sign in again to do that".into()),
+            501 => AuthError::NotConfigured,
+            other => AuthError::Protocol(detail.unwrap_or_else(|| explain(other))),
+        });
+    }
+    serde_json::from_str(&body)
+        .map_err(|e| AuthError::Protocol(format!("unreadable response from the API: {e}")))
+}
+
 /// Turn a refusal into something a developer can act on.
 ///
 /// The failures that actually happen during setup are indistinguishable in a

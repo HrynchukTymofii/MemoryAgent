@@ -169,6 +169,21 @@ pub struct Config {
     #[serde(default)]
     pub debug_keys: bool,
 
+    /// The plan, as the API last reported it.
+    ///
+    /// Cached rather than fetched on demand, because the meter in the sidebar
+    /// is drawn on every render and the app is expected to work with no
+    /// network at all. A user who earned a month of Pro and then got on a plane
+    /// is still on it; asking the server before drawing a progress bar would
+    /// mean they were not.
+    ///
+    /// Trusted locally. It is a date this machine's own app wrote down, and
+    /// anybody willing to edit it could as easily edit the binary that reads
+    /// it — what it guards is a free month of a product with no price yet, and
+    /// the rules that matter are the ones in the database.
+    #[serde(default)]
+    pub entitlement: memos_license::Entitlement,
+
     /// Keep a small pill on screen when nothing is being captured.
     ///
     /// On by default: a shortcut with no visible affordance is a shortcut
@@ -230,6 +245,9 @@ impl Default for Config {
             hotkey: "ctrl+win".into(),
             hold_threshold_ms: 120,
             debug_keys: false,
+            // Free until the API says otherwise. A fresh install that assumed
+            // Pro would give it away to anyone who deleted this file.
+            entitlement: memos_license::Entitlement::free(),
             idle_pill: true,
             pill_x: None,
             pill_y: None,

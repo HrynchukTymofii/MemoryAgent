@@ -2667,6 +2667,7 @@ dependencies = [
  "memos-core",
  "memos-db",
  "memos-embed",
+ "memos-license",
  "memos-llm",
  "memos-retrieval",
  "memos-stt",
@@ -2696,6 +2697,15 @@ dependencies = [
  "thiserror 1.0.69",
  "tokenizers",
  "tracing",
+]
+
+[[package]]
+name = "memos-license"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
