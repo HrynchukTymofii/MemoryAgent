@@ -7,6 +7,7 @@
 pub mod actions;
 pub mod commands;
 mod migrate;
+pub mod notes;
 pub mod notifications;
 pub mod repo;
 pub mod stats;
@@ -20,6 +21,7 @@ use rusqlite::Connection;
 pub use actions::{Task, Undone, UNDO_WINDOW};
 pub use commands::{Correction, LoggedCommand, RoutingStats};
 pub use migrate::SCHEMA_VERSION;
+pub use notes::Note;
 pub use notifications::Notification;
 pub use stats::{count_words, ActivityKind};
 pub use vectors::VectorHit;

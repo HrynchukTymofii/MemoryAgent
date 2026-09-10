@@ -208,6 +208,22 @@ memos-core        domain types, intents, errors - no I/O
 implementation — behind a trait it already defines. That is what makes the
 Windows -> macOS move cheap.
 
+## 9b. What a collection holds (ADR-0010)
+
+Two objects, not one, and they answer different questions.
+
+```
+collection
+  |-- note            one Markdown document. What you read and edit.
+  \-- knowledge_items every capture, append-only. Where the note came from.
+```
+
+A capture is integrated into its collection's note as a section — matched
+against the existing headings, appended, never rewriting a line already there —
+and keeps its own row as the record. Search and undo run on the rows; the
+person reads the note. `notes::integrate` is the whole merge rule and is pure,
+which is what lets Tier 2 replace it later without touching the capture path.
+
 ## 10. Deliberate deviations from the spec
 
 | Spec | Decision | ADR |
@@ -218,3 +234,4 @@ Windows -> macOS move cheap.
 | 19: Fish Speech local TTS | Dropped; OS built-in TTS behind a trait | 0008 |
 | 17: model-reported confidence | Derived from logprobs + retrieval margin | 0005 |
 | 21: LoRA as the personalization plan | Correction log + kNN first, LoRA later | 0006 |
+| 9: a collection is a list of items | A collection has one note; items are its provenance | 0010 |

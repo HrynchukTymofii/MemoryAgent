@@ -319,6 +319,8 @@ fn save(
         item.collection_id = db.collection_id_by_path(path)?;
     }
     db.capture(&item, Some(cmd.id))?;
+    // And into the document, which is the half of this a person reads.
+    integrate(db, &item, cmd.slots.collection.as_deref(), note_provenance(ctx, &item));
 
     let where_to = cmd
         .slots
@@ -344,8 +346,15 @@ fn note(db: &Db, cmd: &RoutedCommand, started: std::time::Instant) -> DbResult<O
         .title
         .clone()
         .unwrap_or_else(|| cmd.transcript.clone());
-    let item = KnowledgeItem::capture(truncate(&text, 200), text.clone());
+    let mut item = KnowledgeItem::capture(truncate(&text, 200), text.clone());
+    // A spoken note is filed like anything else when the command said where.
+    // Without this it is a thought with nowhere to live, which is the shape
+    // the note model exists to get rid of.
+    if let Some(path) = &cmd.slots.collection {
+        item.collection_id = db.collection_id_by_path(path)?;
+    }
     db.capture(&item, Some(cmd.id))?;
+    integrate(db, &item, cmd.slots.collection.as_deref(), None);
 
     Ok(Outcome {
         kind: "note",
@@ -502,6 +511,47 @@ fn undo(db: &Db, started: std::time::Instant) -> DbResult<Outcome> {
         open: None,
         took_ms: started.elapsed().as_millis() as u32,
     })
+}
+
+/// Fold a capture into its collection's note (ADR-0010).
+///
+/// After the capture commits, never inside it. The memory is already durable
+/// and the document can be rebuilt from the rows, so a failure here is a
+/// warning and nothing more — the opposite ordering would let a bad heading
+/// lose a thought.
+fn integrate(db: &Db, item: &KnowledgeItem, path: Option<&str>, provenance: Option<String>) {
+    let (Some(collection), Some(path)) = (item.collection_id, path) else {
+        return;
+    };
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let text = if item.content.trim().is_empty() {
+        &item.title
+    } else {
+        &item.content
+    };
+    if let Err(e) = db.integrate_capture(
+        collection,
+        name,
+        item.id,
+        &item.title,
+        text,
+        provenance.as_deref(),
+    ) {
+        tracing::warn!(?e, "captured, but not integrated into the note");
+    }
+}
+
+/// The line under an integrated block: when it was captured, and what it came
+/// from when that is somewhere you can go back to.
+///
+/// Markdown rather than prose — it lands inside a document the user edits, and
+/// a link they can click is the whole reason the note is worth reading later.
+fn note_provenance(ctx: &Context, item: &KnowledgeItem) -> Option<String> {
+    let mut line = item.captured_at.format("%-d %b %Y").to_string();
+    if let Some(url) = &ctx.current_url {
+        line.push_str(&format!(" \u{00b7} [{}]({url})", domain_of(url)));
+    }
+    Some(line)
 }
 
 /// What the capture came from, if anything durable enough to reopen.
@@ -661,6 +711,63 @@ mod tests {
         let hits = db.search_keyword("snapshot", 5).unwrap();
         assert_eq!(hits.len(), 1, "the item must be findable immediately");
         assert!(hits[0].collection_id.is_some(), "and filed, not orphaned");
+    }
+
+    /// ADR-0010: the capture is the record, and the note is what you read.
+    /// Both, from one command.
+    #[test]
+    fn saving_grows_the_collection_note_and_links_the_source() {
+        let db = Db::open_in_memory().unwrap();
+        db.create_collection("React", None).unwrap();
+        let ctx = Context {
+            selected_text: Some("Setting state queues a re-render".into()),
+            current_url: Some("https://react.dev/learn/state-as-a-snapshot".into()),
+            active_window_title: Some("State as a Snapshot - React".into()),
+            ..Default::default()
+        };
+        let slots = || Slots {
+            collection: Some("React".into()),
+            ..Default::default()
+        };
+
+        execute(&db, &cmd(Intent::Save, slots(), "save this to react"), &ctx).unwrap();
+        let note = db.note_for_path("React").unwrap().expect("a note was started");
+        assert!(note.body.contains("## State as a Snapshot"), "{}", note.body);
+        assert!(
+            note.body.contains("[react.dev](https://react.dev/learn/state-as-a-snapshot)"),
+            "the resource has to be reachable from the note: {}",
+            note.body,
+        );
+
+        // The same subject a second time joins the section rather than opening
+        // a second one — the whole point of a note over a list of rows.
+        execute(&db, &cmd(Intent::Save, slots(), "save this to react"), &ctx).unwrap();
+        let note = db.note_for_path("React").unwrap().unwrap();
+        assert_eq!(note.body.matches("## ").count(), 1, "{}", note.body);
+        assert_eq!(db.note_sources(note.id).unwrap(), 2, "both captures are recorded");
+    }
+
+    #[test]
+    fn a_note_command_with_a_destination_lands_in_that_document() {
+        let db = Db::open_in_memory().unwrap();
+        db.create_collection("Household", None).unwrap();
+        let out = execute(
+            &db,
+            &cmd(
+                Intent::Note,
+                Slots {
+                    title: Some("Hold the reset pin for ten seconds".into()),
+                    collection: Some("Household".into()),
+                    ..Default::default()
+                },
+                "note that the router resets by holding the pin",
+            ),
+            &Context::default(),
+        )
+        .unwrap();
+        assert_eq!(out.kind, "note");
+        let note = db.note_for_path("Household").unwrap().expect("filed");
+        assert!(note.body.contains("Hold the reset pin"), "{}", note.body);
     }
 
     #[test]
