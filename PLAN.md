@@ -1,13 +1,14 @@
-# The document gets its own page, its full width, and a slash menu
+# A four-cube mark, a spinning tetrahedron loader, and the public site
 
-- apps/desktop/src/features/notes/Knowledge.tsx — the page: one document, no
-  chrome around it.
-- apps/desktop/src/features/notes/slash.ts — the `/` trigger and the blocks it
-  offers, each one something Markdown can hold.
-- apps/desktop/src/features/notes/NoteEditor.tsx — full width, every heading
-  level, to-do lists, and the menu's keyboard handling.
-- apps/desktop/src/hub/App.tsx — Knowledge in the sidebar; Collections can send
-  the reader to a heading.
-- apps/desktop/src/features/collections/Collections.tsx — the editor comes out;
-  "Read in the file" goes in.
-- apps/desktop/src/lib/api.ts, styles/hub.css — `book`/`startBook`, the page.
+- scripts/gen_icons.py — render the mark (three cubes in a triangle, one
+  centred, edges between them) in place of the four bars.
+- apps/desktop/src/components/Logo.tsx — `Logo`, the flat mark; `Loader`, the
+  same four cubes as a tetrahedron rotated in 3D and projected each frame.
+- apps/desktop/src/hub/App.tsx — the boot blank becomes the loader.
+- apps/desktop/src/features/home/Home.tsx — the loader beside "loading the
+  model…".
+- apps/desktop/src/features/account/SignIn.tsx — the mark above the title, the
+  loader in the button while waiting.
+- apps/desktop/src/styles/hub.css — sizing for both.
+- apps/web/ — Vite + React landing site: hero, demo video, feature cards, a
+  recall chart, CTA, plus /terms and /privacy.

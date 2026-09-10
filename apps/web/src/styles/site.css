@@ -1,0 +1,613 @@
+/* The site, in one stylesheet.
+
+   The page is a drawing sheet: a cool paper ground with a faint grid ruled on
+   it, hairline borders instead of drop shadows, and corner ticks where a card
+   needs to be registered against that grid. It comes from the mark — four
+   isometric cubes — and it is the reason there are no soft rounded shadows
+   anywhere: this is a drafting sheet, not a stack of app cards.
+
+   Two panels are dark. They are the two places the reader is asked to look up
+   from the sheet: the recorded demonstration, and the download. */
+
+:root {
+  --paper: #EDF0F5;
+  --sheet: #FFFFFF;
+  --ink: #171C22;
+  --ink2: #55606C;
+  --ink3: #8894A2;
+  --line: #DCE3EB;
+  --line2: #C6D1DC;
+  --amber: #E8850C;
+  --amber-soft: #FCF1E1;
+  --night: #14181D;
+  --night2: #1D232A;
+  --grid: rgba(23, 28, 34, 0.045);
+
+  --page: 1160px;
+  --pad: 28px;
+
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background-color: var(--paper);
+  /* The ruled sheet. Two hairlines at 34px, faint enough to sit under text. */
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 34px 34px;
+  color: var(--ink);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 16.5px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-family: Archivo, system-ui, sans-serif;
+  font-variation-settings: "wdth" 112;
+  font-weight: 700;
+  letter-spacing: -0.028em;
+  line-height: 1.02;
+  margin: 0;
+  text-wrap: balance;
+}
+
+a { color: inherit; }
+p { margin: 0; }
+img, svg { max-width: 100%; }
+
+:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* --------------------------------------------------------------- controls */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 13px 22px;
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: Archivo, system-ui, sans-serif;
+  font-variation-settings: "wdth" 108;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+.btn:hover { background: #000; box-shadow: 3px 3px 0 var(--amber); transform: translate(-1px, -1px); }
+.btn:active { transform: translate(0, 0); box-shadow: 1px 1px 0 var(--amber); }
+.btn.ghost { background: transparent; color: var(--ink); border-color: var(--line2); }
+.btn.ghost:hover { background: var(--sheet); box-shadow: 3px 3px 0 var(--line2); }
+.btn.small { padding: 8px 15px; font-size: 13.5px; }
+.btn.big { padding: 16px 30px; font-size: 17px; background: var(--amber); border-color: var(--amber); color: #1A1204; }
+.btn.big:hover { background: #F79420; box-shadow: 4px 4px 0 rgba(255, 255, 255, 0.24); }
+
+/* ------------------------------------------------------------------- chrome */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: 20px var(--pad);
+}
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: Archivo, system-ui, sans-serif;
+  font-variation-settings: "wdth" 108;
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+.bar-nav { display: flex; gap: 22px; margin-left: auto; font-size: 14.5px; }
+.bar-nav a { color: var(--ink2); text-decoration: none; }
+.bar-nav a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
+
+.foot { border-top: 1px solid var(--line); margin-top: 8px; }
+.foot-in {
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: 26px var(--pad) 40px;
+  display: flex;
+  align-items: center;
+  gap: 20px 30px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  color: var(--ink2);
+}
+.foot-in nav { display: flex; gap: 20px; }
+.foot-in nav a { text-decoration: none; }
+.foot-in nav a:hover { text-decoration: underline; text-underline-offset: 4px; }
+.foot-in p { margin-left: auto; color: var(--ink3); }
+
+/* --------------------------------------------------------------------- hero */
+
+.hero {
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: 54px var(--pad) 96px;
+  display: grid;
+  grid-template-columns: 1.02fr 0.98fr;
+  gap: 64px;
+  align-items: center;
+}
+.hero h1 {
+  font-size: clamp(38px, 4.2vw, 58px);
+  line-height: 1;
+  max-width: 12em;
+  font-variation-settings: "wdth" 118;
+  letter-spacing: -0.035em;
+}
+.lede {
+  margin-top: 22px;
+  max-width: 34em;
+  font-size: 18px;
+  color: var(--ink2);
+}
+.hero-acts { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+.fine { margin-top: 16px; font-size: 13.5px; color: var(--ink3); }
+
+/* The stage. One data attribute on the frame drives every beat below, so the
+   sequence can be read here in order instead of assembled from four files. */
+.stage { position: relative; padding-bottom: 46px; }
+.stage-glass {
+  position: relative;
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 30px 28px 26px;
+  min-height: 256px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 18px;
+}
+/* Registration ticks in all four corners: two pseudo-elements, each drawing an
+   opposite pair, the way a sheet is squared up against a grid. */
+.stage-glass::before, .stage-glass::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 0 solid var(--line2);
+}
+.stage-glass::before { top: 9px; left: 9px; border-top-width: 1px; border-left-width: 1px; }
+.stage-glass::after { bottom: 9px; right: 9px; border-bottom-width: 1px; border-right-width: 1px; }
+
+.keycap {
+  display: inline-flex;
+  gap: 6px;
+  padding: 9px 12px;
+  border: 1px solid var(--line2);
+  border-radius: 5px;
+  background: var(--paper);
+  transition: border-color 200ms ease, box-shadow 200ms ease, background-color 200ms ease;
+}
+.keycap kbd {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink2);
+  letter-spacing: 0.01em;
+}
+.stage[data-beat="1"] .keycap,
+.stage[data-beat="2"] .keycap {
+  border-color: var(--amber);
+  background: var(--amber-soft);
+  box-shadow: 0 0 0 4px rgba(232, 133, 12, 0.13);
+}
+
+.wave { display: flex; align-items: center; gap: 5px; height: 54px; }
+.wave i {
+  display: block;
+  width: 5px;
+  height: 15px;
+  border-radius: 3px;
+  background: var(--line2);
+  transform: scaleY(calc(0.5 + var(--h) * 0.3));
+  transition: background-color 200ms ease;
+}
+.stage[data-beat="1"] .wave i,
+.stage[data-beat="2"] .wave i {
+  background: var(--amber);
+  animation: speak 620ms var(--d) ease-in-out infinite alternate;
+}
+@keyframes speak {
+  from { transform: scaleY(0.7); }
+  to { transform: scaleY(calc(1.1 + var(--h) * 2.6)); }
+}
+
+.said {
+  min-height: 3.2em;
+  max-width: 26em;
+  text-align: center;
+  font-size: 16.5px;
+  color: var(--ink);
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+.stage[data-beat="0"] .said, .stage[data-beat="2"] .said, .stage[data-beat="3"] .said { opacity: 1; }
+.said.hint { color: var(--ink3); font-size: 14px; }
+.caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.18em;
+  background: var(--amber);
+}
+.stage[data-beat="2"] .caret { animation: blink 900ms steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* What was said, filed. It arrives from under the sheet it came out of. */
+.filed {
+  position: absolute;
+  left: 34px;
+  right: 34px;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 15px;
+  background: var(--sheet);
+  border: 1px solid var(--line2);
+  border-left: 3px solid var(--amber);
+  border-radius: 5px;
+  box-shadow: 0 10px 24px rgba(23, 28, 34, 0.09);
+  opacity: 0;
+  transform: translateY(-18px) scale(0.97);
+  transition: opacity 320ms ease, transform 420ms cubic-bezier(0.16, 0.9, 0.3, 1);
+}
+.stage[data-beat="3"] .filed { opacity: 1; transform: translateY(0) scale(1); }
+.filed-mark { width: 8px; height: 8px; border-radius: 2px; background: var(--amber); flex: none; }
+.filed-text { display: flex; flex-direction: column; line-height: 1.3; }
+.filed-text strong { font-size: 14.5px; }
+.filed-text span { font-size: 12.5px; color: var(--ink3); }
+.filed-where {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ink2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 2px 8px;
+}
+
+/* --------------------------------------------------------------------- lost */
+
+.lost { max-width: var(--page); margin: 0 auto; padding: 30px var(--pad) 104px; }
+.lost-say { max-width: 760px; }
+.lost-say h2 { font-size: clamp(30px, 3.7vw, 46px); max-width: 13em; }
+.lost-say p { margin-top: 16px; color: var(--ink2); max-width: 30em; }
+
+.wall {
+  list-style: none;
+  margin: 44px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 18px 18px 20px;
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  /* Opacity, blur and offset are set inline from the scroll position; only the
+     colour changes are left to CSS. */
+  will-change: opacity, transform, filter;
+}
+.card strong { font-size: 15.5px; font-weight: 600; line-height: 1.3; }
+.card span { font-size: 13px; color: var(--ink3); }
+.card.kept {
+  border-color: var(--amber);
+  background: linear-gradient(180deg, var(--amber-soft), var(--sheet) 62%);
+}
+.card.kept em {
+  margin-top: 6px;
+  font-style: normal;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #A65A00;
+}
+
+/* --------------------------------------------------------------------- demo */
+
+.demo {
+  background: var(--night);
+  color: #E7ECF2;
+  padding: 84px var(--pad) 88px;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 34px 34px;
+}
+.demo-say { max-width: calc(var(--page) - var(--pad) * 2); margin: 0 auto 34px; }
+.demo-say h2 { font-size: clamp(30px, 3.7vw, 46px); }
+.demo-say p { margin-top: 14px; color: #97A3B1; max-width: 34em; }
+
+.frame {
+  position: relative;
+  max-width: calc(var(--page) - var(--pad) * 2);
+  margin: 0 auto;
+  aspect-ratio: 16 / 9;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: var(--night2);
+  overflow: hidden;
+}
+.frame-video { width: 100%; height: 100%; display: block; object-fit: cover; }
+.play {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 20px 12px 14px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--amber);
+  color: #1A1204;
+  font-family: Archivo, system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.play svg { width: 20px; height: 20px; fill: currentColor; }
+.play:hover { box-shadow: 3px 3px 0 rgba(255, 255, 255, 0.3); transform: translate(calc(-50% - 1px), -1px); }
+.play:disabled { background: rgba(255, 255, 255, 0.12); color: #97A3B1; cursor: default; box-shadow: none; }
+
+/* The still: the application, drawn, as the video's first frame. */
+.still { position: absolute; inset: 0; display: grid; grid-template-columns: 196px 1fr; font-size: 14.5px; }
+.still-side { border-right: 1px solid rgba(255, 255, 255, 0.09); padding: 18px 14px; display: flex; flex-direction: column; gap: 4px; }
+.still-brand { width: 74px; height: 8px; border-radius: 2px; background: rgba(255, 255, 255, 0.22); margin-bottom: 16px; }
+.still-row { padding: 7px 10px; border-radius: 5px; color: #8A97A6; }
+.still-row.on { background: rgba(255, 255, 255, 0.07); color: #E7ECF2; }
+.still-main { padding: 30px 34px; display: flex; flex-direction: column; gap: 18px; }
+.still-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 12.5px;
+  color: #7F8B99;
+}
+.still-foot span:first-child { color: #C6D0DB; }
+.still-dot { width: 5px; height: 5px; border-radius: 50%; background: #2E9E6B; }
+.still-ask {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  padding: 11px 14px;
+  color: #C6D0DB;
+  background: rgba(255, 255, 255, 0.03);
+  max-width: 460px;
+}
+.still-hits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; max-width: 680px; }
+.hit {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 14px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.hit b { font-weight: 600; }
+.hit b { grid-column: 1; grid-row: 1; }
+.hit i { grid-column: 1; grid-row: 2; font-style: normal; color: #7F8B99; font-size: 13px; }
+.hit em { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-style: normal; color: var(--amber); font-weight: 600; }
+.hit:first-child { border-color: rgba(232, 133, 12, 0.5); background: rgba(232, 133, 12, 0.06); }
+
+/* ----------------------------------------------------------------- features */
+
+.feats { max-width: var(--page); margin: 0 auto; padding: 96px var(--pad) 40px; }
+.feats-head { font-size: clamp(28px, 3.4vw, 42px); max-width: 14em; }
+.feat-grid { margin-top: 40px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.feat {
+  position: relative;
+  padding: 26px 26px 28px;
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+.feat::after {
+  /* A registration tick in the corner, which extends when the card is under
+     the pointer — the only thing that moves on hover besides the card. */
+  content: "";
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  width: 12px;
+  height: 12px;
+  border-top: 1px solid var(--line2);
+  border-right: 1px solid var(--line2);
+  transition: width 200ms ease, height 200ms ease, border-color 200ms ease;
+}
+.feat:hover { transform: translateY(-3px); border-color: var(--line2); box-shadow: 5px 5px 0 var(--line); }
+.feat:hover::after { width: 26px; height: 26px; border-color: var(--amber); }
+.feat h3 { font-size: 20px; margin-top: 20px; }
+.feat p { margin-top: 10px; color: var(--ink2); font-size: 15.5px; max-width: 32em; }
+
+.art { width: 120px; height: 72px; fill: none; stroke: var(--line2); stroke-width: 1.5; stroke-linecap: round; }
+.art .a-key, .art .a-box, .art .a-bin { stroke: var(--ink3); }
+.art .a-live path, .art .a-join, .art .a-drop, .art .a-loop { stroke: var(--amber); transition: transform 260ms ease, opacity 260ms ease; }
+.art .a-dot { fill: var(--amber); stroke: none; }
+.art .a-cut { stroke: var(--ink3); }
+.art .a-out { stroke: var(--ink3); stroke-dasharray: 3 4; }
+.feat:hover .art .a-live path { animation: talk 700ms ease-in-out infinite alternate; transform-origin: center; }
+.feat:hover .art .a-loop { animation: orbit 3.4s linear infinite; transform-origin: 60px 36px; }
+.feat:hover .art .a-drop { animation: drop 900ms ease-in-out infinite alternate; }
+@keyframes talk { from { transform: scaleY(0.6); } to { transform: scaleY(1.15); } }
+@keyframes orbit { to { transform: rotate(360deg); } }
+@keyframes drop { to { transform: translate(3px, 3px); } }
+
+/* -------------------------------------------------------------------- curve */
+
+.curve {
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: 76px var(--pad) 96px;
+  display: grid;
+  grid-template-columns: 0.86fr 1.14fr;
+  gap: 56px;
+  align-items: center;
+}
+.curve-say h2 { font-size: clamp(28px, 3.4vw, 44px); }
+.curve-say p { margin-top: 16px; color: var(--ink2); }
+.facts { margin: 26px 0 0; display: flex; flex-direction: column; gap: 0; }
+.facts div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 0;
+  border-top: 1px solid var(--line);
+}
+.facts div:last-child { border-bottom: 1px solid var(--line); }
+.facts dt { font-size: 14px; color: var(--ink2); }
+.facts dd {
+  margin: 0;
+  font-family: Archivo, system-ui, sans-serif;
+  font-variation-settings: "wdth" 112;
+  font-weight: 600;
+  font-size: 17px;
+}
+
+.plot { margin: 0; }
+.plot svg { width: 100%; height: auto; display: block; overflow: visible; }
+.plot .rule { stroke: var(--line); stroke-width: 1; }
+.plot .tick { fill: var(--ink3); font-size: 12px; font-family: "IBM Plex Sans", system-ui, sans-serif; }
+.plot .held { fill: rgba(23, 28, 34, 0.05); stroke: none; opacity: 0; transition: opacity 700ms ease 600ms; }
+.plot .you, .plot .app { fill: none; stroke-width: 2.5; stroke-linecap: round; }
+.plot .you { stroke: var(--ink2); }
+.plot .app { stroke: var(--amber); stroke-width: 3; }
+.plot .notes text { font-size: 13px; font-family: "IBM Plex Sans", system-ui, sans-serif; fill: var(--ink2); opacity: 0; transition: opacity 500ms ease 900ms; }
+.plot .notes text:last-child { fill: #A65A00; font-weight: 600; }
+/* The two lines draw themselves once, left to right, when the chart is first
+   reached. 1200 is comfortably longer than either path. */
+.plot .you, .plot .app { stroke-dasharray: 1200; stroke-dashoffset: 1200; }
+.plot.drawn .you { transition: stroke-dashoffset 1400ms cubic-bezier(0.4, 0, 0.2, 1); stroke-dashoffset: 0; }
+.plot.drawn .app { transition: stroke-dashoffset 1100ms cubic-bezier(0.4, 0, 0.2, 1) 300ms; stroke-dashoffset: 0; }
+.plot.drawn .held, .plot.drawn .notes text { opacity: 1; }
+.plot figcaption { margin-top: 14px; font-size: 13px; color: var(--ink3); max-width: 42em; }
+
+/* ---------------------------------------------------------------------- get */
+
+.get {
+  background: var(--night);
+  color: #E7ECF2;
+  text-align: center;
+  padding: 92px var(--pad) 96px;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 34px 34px;
+}
+.get h2 { font-size: clamp(34px, 4.6vw, 58px); }
+.get > p { margin: 18px auto 30px; max-width: 32em; color: #97A3B1; }
+.terms-of-trade {
+  list-style: none;
+  margin: 54px auto 0;
+  padding: 0;
+  max-width: 860px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.terms-of-trade li { background: var(--night); padding: 20px 18px; display: flex; flex-direction: column; gap: 5px; }
+.terms-of-trade strong {
+  font-family: Archivo, system-ui, sans-serif;
+  font-variation-settings: "wdth" 110;
+  font-size: 16px;
+}
+.terms-of-trade span { font-size: 13.5px; color: #8A97A6; }
+.terms-of-trade a { color: var(--amber); }
+
+/* --------------------------------------------------------------- documents */
+
+.doc { max-width: 720px; margin: 0 auto; padding: 30px var(--pad) 80px; }
+.doc h1 { font-size: clamp(34px, 5vw, 52px); }
+.doc-date { margin-top: 12px; color: var(--ink3); font-size: 14px; }
+.doc-lede { margin-top: 26px; font-size: 18.5px; color: var(--ink); }
+.doc h2 { font-size: 21px; margin-top: 42px; }
+.doc p { margin-top: 12px; color: var(--ink2); }
+.doc ul { margin-top: 12px; padding-left: 20px; color: var(--ink2); }
+.doc li { margin-top: 7px; }
+.doc a { color: var(--ink); text-decoration-color: var(--amber); text-underline-offset: 3px; }
+
+/* -------------------------------------------------------------- responsive */
+
+@media (max-width: 980px) {
+  .hero { grid-template-columns: 1fr; gap: 44px; padding-bottom: 72px; }
+  .curve { grid-template-columns: 1fr; gap: 36px; }
+  .feat-grid { grid-template-columns: 1fr; }
+  .wall { grid-template-columns: repeat(2, 1fr); }
+  .terms-of-trade { grid-template-columns: 1fr; }
+  .still { grid-template-columns: 108px 1fr; font-size: 11px; }
+}
+
+@media (max-width: 620px) {
+  :root { --pad: 18px; }
+  body { font-size: 16px; }
+  .bar { flex-wrap: wrap; gap: 12px 18px; }
+  .bar-nav { order: 3; width: 100%; margin-left: 0; justify-content: space-between; }
+  .wall { grid-template-columns: 1fr; }
+  .card[style] { grid-column: span 1 !important; }
+  .foot-in p { margin-left: 0; width: 100%; }
+  .filed { left: 12px; right: 12px; }
+  /* On a phone the frame is a strip, and the drawn window has to lose the
+     sidebar and the status line to keep its three results legible. */
+  .frame { aspect-ratio: 4 / 3; }
+  .still { grid-template-columns: 1fr; font-size: 12.5px; }
+  .still-side, .still-foot { display: none; }
+  .still-main { padding: 16px 16px 60px; gap: 12px; }
+  .still-ask { padding: 9px 11px; }
+  .hit { padding: 10px 12px; }
+  .hit i { font-size: 11.5px; }
+  .play { bottom: 14px; padding: 10px 16px 10px 12px; font-size: 14px; }
+}
+
+/* ---------------------------------------------------------- reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .plot .you, .plot .app { stroke-dashoffset: 0; }
+  .plot .held, .plot .notes text { opacity: 1; }
+  .filed { opacity: 1; transform: none; }
+  .said { opacity: 1; }
+}
