@@ -1,13 +1,10 @@
-# Ship the models inside the installer, so a fresh install works with no script
+# Unified window chrome, collapsible sidebar, simpler history rows
 
-- scripts/fetch-models.ps1, .sh — a `bundle` target: fetch tiny.en, the
-  embedding model and the ONNX Runtime, stage into src-tauri/resources/
-- apps/desktop/src-tauri/tauri.conf.json — bundle that directory
-- crates/memos-stt/src/transcribe.rs — find_model also looks in a bundled dir
-- crates/memos-embed/src/lib.rs — the same for find_model_dir and
-  use_bundled_runtime
-- apps/desktop/src-tauri/src/{main,transcription,embedding}.rs — pass Tauri's
-  resource_dir into all three
-- crates/memos-stt/examples/{transcribe_check,wav_check}.rs — the new argument
-- .gitignore — the staged weights
-- README.md — first run no longer needs a script
+- apps/desktop/src-tauri/tauri.conf.json — main window: decorations off, larger
+- apps/desktop/src-tauri/capabilities/default.json — drag/minimise/maximise/close
+- apps/desktop/src/components/TitleBar.tsx — new: drawer toggle, account, bell,
+  window buttons
+- apps/desktop/src/hub/App.tsx — title bar, sidebar collapse, Account out of the
+  nav list, Settings moved under the meter
+- apps/desktop/src/components/ItemList.tsx — row is time plus text; metadata gone
+- apps/desktop/src/styles/hub.css — chrome, collapse, new row shape, larger scale
