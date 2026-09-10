@@ -1555,12 +1555,26 @@ fn main() {
             // separate grant from Input Monitoring, which is the mistake this
             // line exists to catch.
             #[cfg(target_os = "macos")]
-            hotkey::diag(if memos_context::macos_impl::is_trusted() {
-                "Accessibility granted — window, selection and URL will be captured"
-            } else {
-                "Accessibility DENIED — captures will have no context. \
-                 System Settings > Privacy & Security > Accessibility"
-            });
+            {
+                hotkey::diag(if memos_context::macos_impl::is_trusted() {
+                    "Accessibility granted — window, selection and URL will be captured"
+                } else {
+                    "Accessibility DENIED — captures will have no context. \
+                     System Settings > Privacy & Security > Accessibility"
+                });
+                // The same walk a capture does, but not now: at startup the
+                // application that just launched is the frontmost one, and
+                // reading our own window says nothing about whether we can read
+                // anybody else's. Ten seconds in, the user is back in whatever
+                // they were doing, which is the case that matters.
+                //
+                // "Granted" and "works" turned out to be different things, and
+                // the AXError codes are the only place the difference shows.
+                std::thread::spawn(|| {
+                    std::thread::sleep(std::time::Duration::from_secs(10));
+                    hotkey::diag(&format!("  ax: {}", memos_context::macos_impl::probe()));
+                });
+            }
 
             let rx = hotkey::listen(cfg.chord());
             hotkey::report_health_after(std::time::Duration::from_secs(10));
@@ -1609,6 +1623,21 @@ fn main() {
                                                     ctx.current_url.as_deref().unwrap_or("-"),
                                                     ctx.selected_text.as_deref().map(str::len).unwrap_or(0),
                                                 ));
+                                                // Nothing at all came back, so
+                                                // ask the API why. Only in this
+                                                // case: the walk is a handful of
+                                                // extra calls and there is no
+                                                // reason to pay for them on a
+                                                // capture that worked.
+                                                #[cfg(target_os = "macos")]
+                                                if ctx.active_application.is_none()
+                                                    && ctx.active_window_title.is_none()
+                                                {
+                                                    hotkey::diag(&format!(
+                                                        "  why: {}",
+                                                        memos_context::macos_impl::probe()
+                                                    ));
+                                                }
                                                 if !stt_worker.submit(
                                                     audio,
                                                     hints.clone(),

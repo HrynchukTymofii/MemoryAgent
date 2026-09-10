@@ -63,11 +63,21 @@ pub fn looks_like_url(s: &str) -> bool {
 /// is a link that actually resolves.
 pub fn normalise_url(s: &str) -> String {
     let s = s.trim();
-    if s.starts_with("http://") || s.starts_with("https://") {
-        s.to_string()
-    } else {
-        format!("https://{s}")
+    // Anything that already names a scheme is left exactly as it is. This
+    // matters more than it looks: the Windows path only ever sees what a user
+    // could type into an address bar, but the macOS one reads the browser's own
+    // answer, which is fully-schemed and not always http — `chrome://newtab/`,
+    // `file:///Users/...`, `about:blank`. Prefixing those produced
+    // `https://chrome://newtab/`, a string that is not a URL of any kind.
+    if s.split_once("://").is_some_and(|(scheme, _)| {
+        !scheme.is_empty()
+            && scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.')
+    }) {
+        return s.to_string();
     }
+    format!("https://{s}")
 }
 
 #[cfg(test)]
@@ -102,5 +112,18 @@ mod tests {
         assert_eq!(normalise_url("react.dev"), "https://react.dev");
         assert_eq!(normalise_url("https://react.dev"), "https://react.dev");
         assert_eq!(normalise_url("http://x.com"), "http://x.com");
+    }
+
+    #[test]
+    fn a_scheme_that_is_not_http_survives_intact() {
+        // What a browser actually answers on macOS. Prefixing any of these
+        // produced a string that was not a URL at all.
+        assert_eq!(normalise_url("chrome://newtab/"), "chrome://newtab/");
+        assert_eq!(
+            normalise_url("file:///Users/x/notes.md"),
+            "file:///Users/x/notes.md"
+        );
+        // Not a scheme: a bare host that happens to contain a colon.
+        assert_eq!(normalise_url("localhost:1420"), "https://localhost:1420");
     }
 }
