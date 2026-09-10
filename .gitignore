@@ -26,8 +26,10 @@ venv/
 
 # Staged into the installer by `fetch-models.ps1 bundle` / `fetch-models.sh
 # bundle`. Copies of files that are already gitignored above, so they are
-# gitignored here too; the directories themselves are tracked, because the
-# bundler is pointed at them whether or not a build has staged anything yet.
+# gitignored here too. The directories themselves are tracked, by a .gitkeep
+# apiece: the bundler is pointed at this tree and treats a path that does not
+# exist as an error, so a checkout that has staged nothing yet must still find
+# the directories there.
 /apps/desktop/src-tauri/resources/**/*.bin
 /apps/desktop/src-tauri/resources/**/*.onnx
 /apps/desktop/src-tauri/resources/**/*.json
