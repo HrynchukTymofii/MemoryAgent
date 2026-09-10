@@ -1,12 +1,6 @@
-# Achievements, and a notification centre behind the bell
+# Sidebar collapses to an icon rail; plain nav icons; account mark fits
 
-- crates/memos-db/migrations/004_achievements.sql — daily_activity, achievements, notifications
-- crates/memos-db/src/migrate.rs — version 4
-- crates/memos-core/src/achieve.rs — new: the milestone ladder, pure
-- crates/memos-db/src/stats.rs — new: activity counters, totals, streaks
-- crates/memos-db/src/notifications.rs — new: evaluate, list, read, dismiss
-- apps/desktop/src-tauri/src/transcription.rs — count words, evaluate after execute
-- apps/desktop/src-tauri/src/main.rs — five commands, notification:new event
-- apps/desktop/src/features/notifications/ — new: centre, toast
-- apps/desktop/src/hub/App.tsx, components/TitleBar.tsx, features/home/Home.tsx — unread count, stat block
-- apps/desktop/src/lib/api.ts, styles/hub.css — wrappers, styling
+- apps/desktop/src/components/icons.tsx — new: stroke icons for the nav
+- apps/desktop/src/components/TitleBar.tsx — shoulders inside the circle
+- apps/desktop/src/hub/App.tsx — NavItem takes an icon; label wrapped for the rail
+- apps/desktop/src/styles/hub.css — rail width, labels hidden, icon chip gone
