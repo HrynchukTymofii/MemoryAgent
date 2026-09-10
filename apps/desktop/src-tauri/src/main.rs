@@ -521,7 +521,7 @@ fn collection_size(state: tauri::State<'_, AppState>, path: String) -> u32 {
     state.db.count_in_subtree(&path).unwrap_or(0)
 }
 
-/// A collection's document, flattened for the editor (ADR-0010).
+/// The document, flattened for the editor (ADR-0010).
 #[derive(serde::Serialize)]
 struct NoteRow {
     id: String,
@@ -531,44 +531,42 @@ struct NoteRow {
     updated_at: String,
     /// When a person last edited it, as opposed to a capture growing it.
     edited_at: Option<String>,
-    /// How many captures have been folded in — the note's own provenance.
+    /// How many captures have been folded in — the document's own provenance.
     sources: u32,
 }
 
-/// The note for a collection, if one has been started.
-///
-/// `None` is the ordinary answer for a collection nobody has captured into:
-/// an empty document is not conjured because somebody opened a page.
-#[tauri::command]
-fn note(state: tauri::State<'_, AppState>, path: String) -> Option<NoteRow> {
-    state.db.note_for_path(&path).ok().flatten().map(|n| NoteRow {
-        sources: state.db.note_sources(n.id).unwrap_or(0),
-        id: n.id.to_string(),
-        title: n.title,
-        body: n.body,
-        updated_at: n.updated_at.to_rfc3339(),
-        edited_at: n.edited_at.map(|d| d.to_rfc3339()),
-    })
+impl NoteRow {
+    fn of(db: &memos_db::Db, n: memos_db::Note) -> Self {
+        NoteRow {
+            sources: db.note_sources(n.id).unwrap_or(0),
+            id: n.id.to_string(),
+            title: n.title,
+            body: n.body,
+            updated_at: n.updated_at.to_rfc3339(),
+            edited_at: n.edited_at.map(|d| d.to_rfc3339()),
+        }
+    }
 }
 
-/// Begin one by hand, rather than waiting for a capture to begin it.
+/// The one document, if anything has started it.
+///
+/// `None` before the first capture: an empty file is not conjured because
+/// somebody opened the page.
 #[tauri::command]
-fn start_note(state: tauri::State<'_, AppState>, path: String) -> Result<NoteRow, String> {
-    let id = state
+fn book(state: tauri::State<'_, AppState>) -> Option<NoteRow> {
+    state
         .db
-        .collection_id_by_path(&path)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("no collection at {path}"))?;
-    let name = path.rsplit('/').next().unwrap_or(&path);
-    let n = state.db.start_note(id, name).map_err(|e| e.to_string())?;
-    Ok(NoteRow {
-        sources: state.db.note_sources(n.id).unwrap_or(0),
-        id: n.id.to_string(),
-        title: n.title,
-        body: n.body,
-        updated_at: n.updated_at.to_rfc3339(),
-        edited_at: n.edited_at.map(|d| d.to_rfc3339()),
-    })
+        .book()
+        .ok()
+        .flatten()
+        .map(|n| NoteRow::of(&state.db, n))
+}
+
+/// Begin it by hand, rather than waiting for a capture to begin it.
+#[tauri::command]
+fn start_book(state: tauri::State<'_, AppState>) -> Result<NoteRow, String> {
+    let n = state.db.ensure_book().map_err(|e| e.to_string())?;
+    Ok(NoteRow::of(&state.db, n))
 }
 
 /// Store what the editor produced.
@@ -582,7 +580,7 @@ fn save_note(state: tauri::State<'_, AppState>, id: String, body: String) -> Res
     state.db.save_note(id, &body).map_err(|e| e.to_string())
 }
 
-/// Open a link from inside a note.
+/// Open a link from inside a note./// Open a link from inside a note.
 ///
 /// The editor is a document, not a browser: a link in it has to leave the app.
 /// Guarded by the same scheme check as every other thing this app opens.
@@ -1897,8 +1895,8 @@ fn main() {
             rename_collection,
             delete_collection,
             collection_size,
-            note,
-            start_note,
+            book,
+            start_book,
             save_note,
             open_url,
             library_summary,

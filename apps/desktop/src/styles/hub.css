@@ -735,7 +735,7 @@
 .cr.on { color:var(--ink); font-weight:600; }
 .cr:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
 .crumbs .btn.ghost {
-  margin-left:auto; font-size:11.5px; padding:4px 10px;
+  font-size:11.5px; padding:4px 10px;
   background:transparent; color:var(--ink2);
 }
 .crumbs .btn.ghost:hover { background:var(--card); color:var(--ink); }
@@ -816,32 +816,33 @@
 .fold.asking .q span { display:block; margin-top:3px; }
 .fold.asking .acts { position:static; opacity:1; margin-top:8px; gap:6px; }
 
-/* ------------------------------------------------------------- note (doc) */
+/* --------------------------------------------------------- the document */
 
-/* The document a collection is (ADR-0010). It gets the page's widest measure
-   and its quietest chrome: everything else on this screen is furniture around
-   it, and a toolbar that competes with the prose is a toolbar in the way. */
-/* One measure for the document and the bar over it: a toolbar wider than
-   the prose it formats reads as belonging to the page, not to the note. */
-.doc { margin:16px 0 6px; max-width:70ch; }
+/* One file, and the screen belongs to it. No measure cap: this is a page a
+   person reads and writes in for an hour at a time, and a column of text with
+   a hand's width of empty panel either side reads as a widget on a page rather
+   than as the page. */
+.panel.wide { padding:18px 26px 30px; }
+.doc { position:relative; }
 .doc-bar {
   display:flex; align-items:center; gap:10px; flex-wrap:wrap;
   padding:0 0 8px; border-bottom:1px solid var(--line);
+  position:sticky; top:0; z-index:3; background:var(--card);
 }
 .marks { display:flex; align-items:center; gap:1px; flex-wrap:wrap; }
+.marks .bar { width:1px; height:16px; background:var(--line2); margin:0 6px; }
+.marks .hint { margin-left:8px; font-size:11px; color:var(--ink3); }
 .mk {
   min-width:26px; height:26px; padding:0 7px; border:1px solid transparent;
   border-radius:7px; background:transparent; color:var(--ink2); cursor:pointer;
-  font:inherit; font-size:12px; line-height:1;
+  font:inherit; font-size:12.5px; line-height:1;
 }
 .mk:hover { background:var(--card2); border-color:var(--line2); color:var(--ink); }
 .mk.on { background:var(--ink); border-color:var(--ink); color:#fff; }
 .mk:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
-.doc-bar .state {
-  margin-left:auto; font-size:11px; color:var(--ink3);
-}
+.doc-bar .state { margin-left:auto; font-size:11px; color:var(--ink3); }
 
-/* Said, not done: a capture landed in this file while somebody was typing in
+/* Said, not done: a capture landed in the file while somebody was typing in
    it. Reaching into the editor to merge it is how an editor eats a paragraph. */
 .doc-stale {
   display:flex; align-items:center; gap:8px; margin-top:10px;
@@ -849,43 +850,65 @@
   padding:8px 12px; font-size:11.5px; color:#8A5200;
 }
 
-/* The prose. One measure, generous leading, and headings that are a size
-   rather than a decoration — this is where the reading happens. */
+/* The prose. Generous leading, headings that are a size rather than a
+   decoration, and a left rule down the outline so the depth of a section is
+   visible without counting hashes. */
 .doc-body {
-  min-height:180px; padding:14px 0 8px;
-  font-size:14.5px; line-height:1.68; color:var(--ink); outline:none;
+  min-height:60vh; padding:18px 2px 40px;
+  font-size:15px; line-height:1.7; color:var(--ink); outline:none;
   user-select:text; -webkit-user-select:text; cursor:text;
 }
-.doc-body > * + * { margin-top:.85em; }
-.doc-body h2 {
-  font-size:17px; font-weight:700; letter-spacing:-.01em; margin-top:1.6em;
+.doc-body > * + * { margin-top:.8em; }
+.doc-body h1 {
+  font-size:24px; font-weight:700; letter-spacing:-.02em;
+  margin-top:1.5em; padding-bottom:6px; border-bottom:1px solid var(--line);
 }
-.doc-body h3 { font-size:14.5px; font-weight:700; margin-top:1.3em; }
+.doc-body h1:first-child { margin-top:0; }
+.doc-body h2 { font-size:18.5px; font-weight:700; letter-spacing:-.015em; margin-top:1.5em; }
+.doc-body h3 { font-size:15.5px; font-weight:700; margin-top:1.35em; }
+.doc-body h4, .doc-body h5, .doc-body h6 {
+  font-size:14px; font-weight:700; color:var(--ink2); margin-top:1.2em;
+}
+/* Where the reader was sent by a collection. Fades rather than sits, so the
+   page does not keep a highlight the reader never asked to keep. */
+.doc-body :is(h1,h2,h3,h4,h5,h6).landed {
+  background:var(--acc-soft); box-shadow:-8px 0 0 var(--acc-soft), 8px 0 0 var(--acc-soft);
+  border-radius:2px; transition:background .8s ease .6s;
+}
 .doc-body p { margin:0; }
-.doc-body ul, .doc-body ol { margin:0; padding-left:1.35em; }
-.doc-body li { margin:.25em 0; }
+.doc-body ul, .doc-body ol { margin:0; padding-left:1.4em; }
+.doc-body li { margin:.2em 0; }
 .doc-body li > p { margin:0; }
 .doc-body a { color:#1A5FB4; text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
 .doc-body a:hover { color:#0F3D75; }
 .doc-body blockquote {
-  border-left:2px solid var(--line2); padding-left:14px; color:var(--ink2); margin:0;
+  border-left:2px solid var(--line2); padding-left:15px; color:var(--ink2); margin:0;
 }
 .doc-body code {
   background:var(--card2); border:1px solid var(--line); border-radius:5px;
-  padding:1px 5px; font-family:"Cascadia Mono",Consolas,monospace; font-size:12.5px;
+  padding:1px 5px; font-family:"Cascadia Mono",Consolas,monospace; font-size:13px;
 }
 .doc-body pre {
   background:var(--card2); border:1px solid var(--line); border-radius:10px;
-  padding:12px 14px; overflow-x:auto;
+  padding:13px 15px; overflow-x:auto;
 }
-.doc-body pre code { background:none; border:0; padding:0; font-size:12.5px; }
-.doc-body hr { border:0; border-top:1px solid var(--line); margin:1.6em 0; }
+.doc-body pre code { background:none; border:0; padding:0; font-size:13px; }
+.doc-body hr { border:0; border-top:1px solid var(--line2); margin:1.7em 0; }
+
+/* To-do lists. The checkbox is real and clickable, and survives the Markdown
+   round trip as `- [ ]`, which is the only reason it is offered at all. */
+.doc-body ul[data-type="taskList"] { list-style:none; padding-left:.1em; }
+.doc-body ul[data-type="taskList"] li { display:flex; align-items:flex-start; gap:9px; }
+.doc-body ul[data-type="taskList"] li > label { margin-top:.32em; flex:none; }
+.doc-body ul[data-type="taskList"] li > div { flex:1; min-width:0; }
+.doc-body input[type="checkbox"] { width:14px; height:14px; accent-color:var(--ink); }
+
 /* The provenance line under an integrated block is a whole italic paragraph,
    and that convention is load-bearing: it is how you tell what you wrote from
    what the router filed, and where the resource behind it is. */
 .doc-body em { color:var(--ink2); }
 .doc-body p:has(> em:only-child) {
-  margin-top:.35em; font-size:11.5px; line-height:1.5; color:var(--ink3);
+  margin-top:.3em; font-size:12px; line-height:1.5; color:var(--ink3);
 }
 /* Placeholder, from the editor extension. */
 .doc-body p.is-editor-empty:first-child::before {
@@ -893,16 +916,40 @@
   color:var(--ink3);
 }
 
+/* The block menu. Fixed to the caret rather than to the page: the document
+   scrolls inside the panel, and an absolutely placed menu drifts away from the
+   slash that opened it. */
+.slash {
+  position:fixed; z-index:40; width:236px; max-height:264px; overflow-y:auto;
+  background:var(--card); border:1px solid var(--line2); border-radius:12px;
+  box-shadow:0 8px 28px rgba(31,35,40,.16); padding:5px;
+}
+.slash .row {
+  display:flex; align-items:center; gap:8px; width:100%; text-align:left;
+  background:transparent; border:0; border-radius:8px; padding:7px 9px;
+  font:inherit; font-size:13px; color:var(--ink); cursor:pointer;
+}
+.slash .row .t { flex:1; min-width:0; }
+.slash .row .k {
+  font-family:"Cascadia Mono",Consolas,monospace; font-size:11px; color:var(--ink3);
+}
+.slash .row.on { background:var(--card2); }
+.slash .row.on .k { color:var(--ink2); }
+
 /* Before there is a document. Not an error, and not a blank page either: the
    two ways one begins, stated. */
 .doc-start {
   display:flex; flex-direction:column; align-items:flex-start; gap:6px;
-  margin:16px 0 6px; padding:20px 22px;
+  margin:16px 0 6px; padding:22px 24px; max-width:64ch;
   border:1px dashed var(--line2); border-radius:12px;
   font-size:12.5px; color:var(--ink2);
 }
 .doc-start strong { color:var(--ink); font-size:13.5px; }
 .doc-start .btn { margin-top:6px; }
+
+/* Collections keeps two ways out: into the document, and into search. */
+.crumbs-acts { margin-left:auto; display:flex; align-items:center; gap:7px; }
+.crumbs-acts .btn { font-size:11.5px; padding:4px 11px; }
 
 /* ------------------------------------------------------------ empty state */
 /* An empty screen has to say which of two very different things is true: the

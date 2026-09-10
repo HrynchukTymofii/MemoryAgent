@@ -14,8 +14,11 @@
     "@tauri-apps/api": "^2",
     "@tiptap/extension-link": "^2.27.3",
     "@tiptap/extension-placeholder": "^2.27.3",
+    "@tiptap/extension-task-item": "^2.27.3",
+    "@tiptap/extension-task-list": "^2.27.3",
     "@tiptap/react": "^2.27.3",
     "@tiptap/starter-kit": "^2.27.3",
+    "@tiptap/suggestion": "^2.27.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tiptap-markdown": "^0.8.10"
