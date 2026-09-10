@@ -3,11 +3,13 @@
 //! This crate performs no I/O and depends on no platform. If something here
 //! needs a database, a model or a Windows API, it belongs in another crate.
 
+pub mod achieve;
 pub mod error;
 pub mod ids;
 pub mod intent;
 pub mod model;
 
+pub use achieve::{Earned, Kind, Recap, Streak, Totals};
 pub use error::{Error, Result};
 pub use ids::Id;
 pub use intent::{Confidence, Intent, RoutedCommand, Slots, Tier};
