@@ -75,8 +75,8 @@ export function TitleBar({
             type="button"
             className="tb-btn"
             onClick={onToggleDrawer}
-            title={drawerOpen ? "Hide the sidebar" : "Show the sidebar"}
-            aria-label={drawerOpen ? "Hide the sidebar" : "Show the sidebar"}
+            title={drawerOpen ? "Collapse the sidebar" : "Expand the sidebar"}
+            aria-label={drawerOpen ? "Collapse the sidebar" : "Expand the sidebar"}
             aria-expanded={drawerOpen}
           >
             <SidebarIcon />
@@ -167,12 +167,15 @@ function SidebarIcon() {
   );
 }
 
+/* The shoulders end on the rim rather than past it. Drawn wide enough to read
+   as a person and no wider — the arc used to run out either side of the circle,
+   which at 17px looked like a mistake rather than a crop. */
 function AccountIcon() {
   return (
     <svg viewBox="0 0 18 18" className="ic" aria-hidden="true">
       <circle cx="9" cy="9" r="7.2" />
-      <circle cx="9" cy="7.2" r="2.5" />
-      <path d="M3.9 15.4a5.4 5.4 0 0 1 10.2 0" />
+      <circle cx="9" cy="7.4" r="2.6" />
+      <path d="M5.1 14.8a4 4 0 0 1 7.8 0" />
     </svg>
   );
 }
