@@ -778,35 +778,94 @@ nav li.on .badge { background:var(--ink); }
   box-shadow:0 0 0 2px var(--side);
 }
 
-/* A task row is the item row's sibling, not a copy of it: same card, same
-   metadata line, but the whole surface is the checkbox rather than a link,
-   because ticking is the only thing you can do to a task from here. */
-.tasks { display:flex; flex-direction:column; gap:7px; margin-top:12px; }
+/* A task is a line: a box, the words, and — on the right, quiet until the
+   cursor arrives — when it is due, how old it is, and the way to remove it.
+   No card. Twelve cards read as twelve documents; twelve lines read as a list
+   of twelve things, which is what a task list is for. */
+.tasks { display:flex; flex-direction:column; margin-top:10px; }
 .task {
-  display:flex; align-items:flex-start; gap:11px; text-align:left; width:100%;
-  background:var(--card); border:1px solid var(--line); border-radius:12px;
-  padding:11px 13px; font-family:inherit; font-size:13px; color:var(--ink);
+  display:flex; align-items:center; gap:10px; min-height:34px;
+  padding:2px 8px 2px 6px; border-radius:9px; border:1px solid transparent;
+  font-size:13.5px; color:var(--ink);
+}
+.task:hover { background:var(--card); border-color:var(--line); }
+.task + .task { margin-top:1px; }
+.task .box {
+  width:16px; height:16px; flex:none; border-radius:5px; padding:0;
+  border:1.5px solid var(--line2); background:var(--card);
+  display:grid; place-items:center; font-size:10px; color:#fff; line-height:1;
   cursor:pointer;
 }
-.task:hover { background:#FFFFFF; border-color:var(--line2); box-shadow:var(--lift); }
-.task:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
-.task .box {
-  width:16px; height:16px; margin-top:1px; flex:none; border-radius:5px;
-  border:1.5px solid var(--line2); background:var(--card2);
-  display:grid; place-items:center; font-size:10px; color:#fff; line-height:1;
+.task .box:hover { border-color:var(--ink3); }
+.task .box:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+/* The words are the control that rewords them, so the whole line reads as
+   editable text rather than as a label with a pencil hidden somewhere. */
+.task .t {
+  flex:1; min-width:0; text-align:left; background:transparent; border:0;
+  padding:4px 6px; margin:0; font:inherit; color:inherit; cursor:text;
+  border-radius:7px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
-.task .bd { flex:1; min-width:0; }
-.task .t { display:block; font-weight:600; letter-spacing:-.01em; }
-.task .m {
-  display:flex; align-items:center; gap:7px; flex-wrap:wrap;
-  margin-top:4px; font-size:11px; color:var(--ink3);
+.task .t:hover { background:var(--card2); }
+.task .t.edit {
+  background:var(--card); border:1px solid var(--acc-line);
+  cursor:text; white-space:normal;
 }
+.task .t.edit:focus { outline:2px solid var(--acc); outline-offset:0; }
 
-/* Done is stated by the tick and the strike, not by hiding the row. Kept at
-   full contrast on hover so an accidental tick is easy to find and reverse. */
-.task.done { background:var(--card2); }
+.task .rt { display:flex; align-items:center; gap:2px; flex:none; }
+
+/* The chip *is* the date input — the native picker sits invisibly on top of
+   it, so reading the deadline and changing it are one target. */
+.task .due {
+  position:relative; display:inline-flex; align-items:center; gap:5px;
+  border:1px solid transparent; border-radius:999px; padding:3px 9px;
+  font-size:11.5px; color:var(--ink2); cursor:pointer; white-space:nowrap;
+}
+.task .due .ic { width:12px; height:12px; stroke-width:1.6; }
+.task .due:hover { background:var(--card2); border-color:var(--line2); color:var(--ink); }
+.task .due input {
+  position:absolute; inset:0; width:100%; height:100%;
+  opacity:0; border:0; padding:0; cursor:pointer;
+}
+.task .due input:focus-visible { opacity:0; outline:none; }
+.task .due:focus-within { outline:2px solid var(--acc); outline-offset:1px; border-radius:999px; }
+/* Undated: nothing to read, so nothing on screen until the row is hovered. */
+.task .due.none { opacity:0; }
+.task:hover .due.none, .task .due.none:focus-within { opacity:1; color:var(--ink3); }
+.task .due.today { background:var(--acc-soft); border-color:var(--acc-line); color:#8A5200; }
+.task .due.overdue { background:#FDECEA; border-color:#F3C4BE; color:var(--bad); }
+
+.task .made {
+  font-size:11px; color:var(--ink3); font-variant-numeric:tabular-nums;
+  min-width:30px; text-align:right; padding:0 4px;
+}
+/* The delete button appears with the cursor. It is the only destructive thing
+   on the screen, and a row that carries it at rest invites the accident. */
+.task .act {
+  display:grid; place-items:center; width:26px; height:26px; padding:0;
+  border:1px solid transparent; border-radius:8px; background:transparent;
+  color:var(--ink3); cursor:pointer; opacity:0;
+}
+.task .act .ic { width:14px; height:14px; stroke-width:1.5; }
+.task:hover .act, .task .act:focus-visible { opacity:1; }
+.task .act:hover { background:#FDECEA; border-color:#F3C4BE; color:var(--bad); }
+.task .act:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
+
+/* Asked, not warned. The question replaces the row's right-hand side rather
+   than covering the screen with a dialog about one line of text. */
+.task.confirming { background:#FDECEA; border-color:#F3C4BE; }
+.task .ask { display:flex; align-items:center; gap:8px; flex:none; font-size:11.5px; color:var(--bad); }
+.lnk {
+  background:transparent; border:0; padding:2px 4px; font:inherit; font-size:11.5px;
+  color:var(--ink2); cursor:pointer; border-radius:6px; text-decoration:underline;
+}
+.lnk:hover { color:var(--ink); background:rgba(255,255,255,.6); }
+.lnk.bad { color:var(--bad); font-weight:600; }
+.lnk:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
+
+/* Done is stated by the tick and the strike, not by hiding the row. */
 .task.done .box { background:var(--ok); border-color:var(--ok); }
-.task.done .t { text-decoration:line-through; color:var(--ink2); font-weight:500; }
+.task.done .t { text-decoration:line-through; color:var(--ink2); }
 
 /* ================================================================ sign-in */
 

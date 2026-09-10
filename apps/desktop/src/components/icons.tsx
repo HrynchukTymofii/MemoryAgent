@@ -177,3 +177,69 @@ export function GiftIcon() {
     </Icon>
   );
 }
+
+/* ------------------------------------------------------------ row actions */
+/* Smaller marks than the navigation ones, but drawn on the same grid: they sit
+   inside a row rather than beside a label, and appear on hover. */
+
+export function PencilIcon() {
+  return (
+    <Icon>
+      <path d="M12.1 3.4a1.6 1.6 0 0 1 2.3 2.3L6.6 13.5l-3 .8.8-3z" />
+    </Icon>
+  );
+}
+
+export function TrashIcon() {
+  return (
+    <Icon>
+      <path d="M3.6 5.2h10.8" />
+      <path d="M7.2 5.2V3.9h3.6v1.3" />
+      <path d="M5.1 5.2v8.4a1.3 1.3 0 0 0 1.3 1.3h5.2a1.3 1.3 0 0 0 1.3-1.3V5.2" />
+    </Icon>
+  );
+}
+
+export function ClockIcon() {
+  return (
+    <Icon>
+      <circle cx="9" cy="9" r="6.3" />
+      <path d="M9 5.3V9l2.5 1.6" />
+    </Icon>
+  );
+}
+
+export function PlusIcon() {
+  return (
+    <Icon>
+      <path d="M9 3.9v10.2" />
+      <path d="M3.9 9h10.2" />
+    </Icon>
+  );
+}
+
+export function FolderIcon() {
+  return (
+    <Icon>
+      <path d="M2.6 5.6a1.5 1.5 0 0 1 1.5-1.5h2.8l1.6 1.9h5.4a1.5 1.5 0 0 1 1.5 1.5v5.9a1.5 1.5 0 0 1-1.5 1.5H4.1a1.5 1.5 0 0 1-1.5-1.5z" />
+    </Icon>
+  );
+}
+
+export function ChevronIcon() {
+  return (
+    <Icon>
+      <path d="M7 4.2 11.8 9 7 13.8" />
+    </Icon>
+  );
+}
+
+export function MoreIcon() {
+  return (
+    <Icon>
+      <circle cx="4.4" cy="9" r=".9" />
+      <circle cx="9" cy="9" r=".9" />
+      <circle cx="13.6" cy="9" r=".9" />
+    </Icon>
+  );
+}

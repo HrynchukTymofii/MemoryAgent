@@ -116,8 +116,7 @@ export interface Account {
 export interface TaskRow {
   id: string;
   title: string;
-  /** The memory the task was spoken alongside, if there was one. */
-  about: string | null;
+  /** When it is due, if a deadline was ever put on it. RFC 3339. */
   due_at: string | null;
   done: boolean;
   created_at: string;
@@ -215,6 +214,11 @@ export const api = {
   tasks: (limit: number) => invoke<TaskRow[]>("tasks", { limit }),
   setTaskDone: (id: string, done: boolean) =>
     invoke<void>("set_task_done", { id, done }),
+  renameTask: (id: string, title: string) => invoke<void>("rename_task", { id, title }),
+  /** `null` clears the deadline. */
+  setTaskDue: (id: string, dueAt: string | null) =>
+    invoke<void>("set_task_due", { id, dueAt }),
+  deleteTask: (id: string) => invoke<void>("delete_task", { id }),
   openTaskCount: () => invoke<number>("open_task_count"),
   account: () => invoke<Account>("account"),
   /** Resolves when the browser round trip finishes — which can take minutes. */

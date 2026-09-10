@@ -701,15 +701,13 @@ fn library_summary(state: tauri::State<'_, AppState>) -> Library {
 
 /// A task, flattened for the interface.
 ///
-/// `about` is the memory the task was spoken alongside, resolved to its title
-/// here rather than in the view: a task that reads "finish this" is meaningless
-/// without it, and the Hub should not have to fetch a second list to find out
-/// what "this" was.
+/// No link back to a memory. Tasks stopped being attached to whatever was
+/// captured most recently, because that attachment was a guess — and a guess
+/// rendered as provenance reads as a fact.
 #[derive(serde::Serialize)]
 struct TaskRow {
     id: String,
     title: String,
-    about: Option<String>,
     due_at: Option<String>,
     done: bool,
     created_at: String,
@@ -730,10 +728,6 @@ fn tasks(state: tauri::State<'_, AppState>, limit: usize) -> Vec<TaskRow> {
         .map(|t| TaskRow {
             id: t.id.to_string(),
             title: t.title,
-            about: t
-                .item_id
-                .and_then(|i| state.db.get_item(i).ok().flatten())
-                .map(|i| i.title),
             due_at: t.due_at.map(|d| d.to_rfc3339()),
             done: t.status == "done",
             created_at: t.created_at.to_rfc3339(),
@@ -746,6 +740,52 @@ fn tasks(state: tauri::State<'_, AppState>, limit: usize) -> Vec<TaskRow> {
 fn set_task_done(state: tauri::State<'_, AppState>, id: String, done: bool) -> Result<(), String> {
     let id = memos_core::Id::parse(&id).map_err(|e| e.to_string())?;
     state.db.set_task_done(id, done).map_err(|e| e.to_string())
+}
+
+/// Reword a task.
+///
+/// Its own command rather than one `update_task` taking both fields: a Tauri
+/// argument that is absent and one that is `null` both arrive as `None`, so a
+/// single command could not tell "leave the deadline alone" from "clear it".
+#[tauri::command]
+fn rename_task(state: tauri::State<'_, AppState>, id: String, title: String) -> Result<(), String> {
+    let id = memos_core::Id::parse(&id).map_err(|e| e.to_string())?;
+    if title.trim().is_empty() {
+        return Err("a task needs words".into());
+    }
+    state
+        .db
+        .update_task(id, Some(&title), None)
+        .map_err(|e| e.to_string())
+}
+
+/// Set when a task is due, or clear it with `null`.
+#[tauri::command]
+fn set_task_due(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    due_at: Option<String>,
+) -> Result<(), String> {
+    let id = memos_core::Id::parse(&id).map_err(|e| e.to_string())?;
+    let due = match due_at {
+        None => None,
+        Some(iso) => Some(
+            chrono::DateTime::parse_from_rfc3339(&iso)
+                .map_err(|e| e.to_string())?
+                .with_timezone(&chrono::Utc),
+        ),
+    };
+    state
+        .db
+        .update_task(id, None, Some(due))
+        .map_err(|e| e.to_string())
+}
+
+/// Take a task off the list.
+#[tauri::command]
+fn delete_task(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    let id = memos_core::Id::parse(&id).map_err(|e| e.to_string())?;
+    state.db.delete_task(id).map_err(|e| e.to_string())
 }
 
 /// How many are still open, for the nav badge.
@@ -1716,6 +1756,9 @@ fn main() {
             library_summary,
             tasks,
             set_task_done,
+            rename_task,
+            set_task_due,
+            delete_task,
             open_task_count,
             open_item,
             notifications,

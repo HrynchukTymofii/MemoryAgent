@@ -253,7 +253,11 @@ impl Db {
         Ok(task)
     }
 
-    /// Tasks, open first and newest first within that.
+    /// Tasks, open first, then by deadline, then newest first.
+    ///
+    /// A dated task outranks an undated one whatever its age: the list is read
+    /// top-down to find out what is next, and "next" means the nearest
+    /// deadline, not the most recent thought.
     ///
     /// One query rather than two lists: a done task that vanishes the instant
     /// it is ticked gives no confirmation that the tick landed.
@@ -261,7 +265,9 @@ impl Db {
         self.with(|c| {
             let mut q = c.prepare(
                 "SELECT id, item_id, title, due_at, status, created_at FROM tasks
-                  ORDER BY (status = 'open') DESC, created_at DESC
+                  ORDER BY (status = 'open') DESC,
+                           (due_at IS NULL) ASC, due_at ASC,
+                           created_at DESC
                   LIMIT ?1",
             )?;
             let rows = q.query_map(params![limit as i64], |r| {
@@ -287,6 +293,47 @@ impl Db {
                 });
             }
             Ok(out)
+        })
+    }
+
+    /// Rewrite a task's words, its deadline, or both.
+    ///
+    /// The deadline is passed as `Some(None)` to clear it and `None` to leave
+    /// it alone — a task can lose its due date without losing its title, and
+    /// one nullable argument cannot say which of those was meant.
+    pub fn update_task(
+        &self,
+        id: Id,
+        title: Option<&str>,
+        due_at: Option<Option<Timestamp>>,
+    ) -> DbResult<()> {
+        self.with(|c| {
+            if let Some(title) = title {
+                c.execute(
+                    "UPDATE tasks SET title = ?2 WHERE id = ?1",
+                    params![id.to_string(), title.trim()],
+                )?;
+            }
+            if let Some(due) = due_at {
+                c.execute(
+                    "UPDATE tasks SET due_at = ?2 WHERE id = ?1",
+                    params![id.to_string(), due.map(|d| d.to_rfc3339())],
+                )?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Take a task off the list for good.
+    ///
+    /// No audit row, and so nothing for `undo_last` to reverse: the button that
+    /// calls this is next to the task it deletes, under a cursor, with a
+    /// confirmation in front of it. Voice undo exists because a spoken command
+    /// acts before you can stop it — a click does not.
+    pub fn delete_task(&self, id: Id) -> DbResult<()> {
+        self.with(|c| {
+            c.execute("DELETE FROM tasks WHERE id = ?1", params![id.to_string()])?;
+            Ok(())
         })
     }
 
@@ -553,6 +600,50 @@ mod tests {
         assert_eq!(listed[0].id, first.id, "open tasks come first");
         assert_eq!(listed[1].status, "done");
         assert_eq!(db.open_task_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_dated_task_is_listed_before_an_undated_one() {
+        let db = db();
+        // Created last, so age alone would put it at the bottom.
+        db.create_task("someday, learn the guitar", None, None).unwrap();
+        let due = db
+            .create_task(
+                "renew the domain",
+                None,
+                Some(memos_core::now() + chrono::Duration::days(2)),
+            )
+            .unwrap();
+        assert_eq!(db.tasks(10).unwrap()[0].id, due.id);
+    }
+
+    #[test]
+    fn a_task_can_be_reworded_and_dated_and_undated() {
+        let db = db();
+        let t = db.create_task("call the plumer", None, None).unwrap();
+        let when = memos_core::now() + chrono::Duration::days(1);
+
+        db.update_task(t.id, Some("call the plumber"), Some(Some(when)))
+            .unwrap();
+        let row = db.tasks(10).unwrap().remove(0);
+        assert_eq!(row.title, "call the plumber");
+        assert!(row.due_at.is_some());
+
+        // Clearing the deadline must leave the words alone, which is why the
+        // argument is a `Some(None)` and not a bare `None`.
+        db.update_task(t.id, None, Some(None)).unwrap();
+        let row = db.tasks(10).unwrap().remove(0);
+        assert_eq!(row.title, "call the plumber");
+        assert!(row.due_at.is_none());
+    }
+
+    #[test]
+    fn a_deleted_task_leaves_nothing_behind() {
+        let db = db();
+        let t = db.create_task("call the plumber", None, None).unwrap();
+        db.delete_task(t.id).unwrap();
+        assert!(db.tasks(10).unwrap().is_empty());
+        assert_eq!(db.open_task_count().unwrap(), 0);
     }
 
     #[test]
