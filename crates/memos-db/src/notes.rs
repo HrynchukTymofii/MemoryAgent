@@ -179,6 +179,40 @@ impl Db {
         })
     }
 
+    /// Start an empty note for a collection, or return the one it has.
+    ///
+    /// The way a document begins with a person writing rather than with a
+    /// capture arriving. Idempotent, so the button behind it cannot make two.
+    pub fn start_note(&self, collection: Id, title: &str) -> DbResult<Note> {
+        self.transaction(|tx| {
+            let existing: Option<String> = tx
+                .query_row(
+                    "SELECT id FROM notes WHERE collection_id = ?1",
+                    params![collection.to_string()],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let id = match existing {
+                Some(id) => Id::parse(&id).unwrap_or_default(),
+                None => {
+                    let id = Id::new();
+                    let now = memos_core::now().to_rfc3339();
+                    tx.execute(
+                        "INSERT INTO notes (id, collection_id, title, body, created_at, updated_at)
+                         VALUES (?1,?2,?3,'',?4,?4)",
+                        params![id.to_string(), collection.to_string(), title.trim(), now],
+                    )?;
+                    id
+                }
+            };
+            Ok(tx.query_row(
+                &format!("SELECT {COLUMNS} FROM notes WHERE id = ?1"),
+                params![id.to_string()],
+                row_to_note,
+            )?)
+        })
+    }
+
     /// Replace a note's body with what a person wrote.
     ///
     /// Stamps `edited_at`, which is what separates a document somebody has

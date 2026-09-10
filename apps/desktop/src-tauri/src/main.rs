@@ -521,6 +521,76 @@ fn collection_size(state: tauri::State<'_, AppState>, path: String) -> u32 {
     state.db.count_in_subtree(&path).unwrap_or(0)
 }
 
+/// A collection's document, flattened for the editor (ADR-0010).
+#[derive(serde::Serialize)]
+struct NoteRow {
+    id: String,
+    title: String,
+    /// Markdown. The editor round-trips through this and hands it straight back.
+    body: String,
+    updated_at: String,
+    /// When a person last edited it, as opposed to a capture growing it.
+    edited_at: Option<String>,
+    /// How many captures have been folded in — the note's own provenance.
+    sources: u32,
+}
+
+/// The note for a collection, if one has been started.
+///
+/// `None` is the ordinary answer for a collection nobody has captured into:
+/// an empty document is not conjured because somebody opened a page.
+#[tauri::command]
+fn note(state: tauri::State<'_, AppState>, path: String) -> Option<NoteRow> {
+    state.db.note_for_path(&path).ok().flatten().map(|n| NoteRow {
+        sources: state.db.note_sources(n.id).unwrap_or(0),
+        id: n.id.to_string(),
+        title: n.title,
+        body: n.body,
+        updated_at: n.updated_at.to_rfc3339(),
+        edited_at: n.edited_at.map(|d| d.to_rfc3339()),
+    })
+}
+
+/// Begin one by hand, rather than waiting for a capture to begin it.
+#[tauri::command]
+fn start_note(state: tauri::State<'_, AppState>, path: String) -> Result<NoteRow, String> {
+    let id = state
+        .db
+        .collection_id_by_path(&path)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("no collection at {path}"))?;
+    let name = path.rsplit('/').next().unwrap_or(&path);
+    let n = state.db.start_note(id, name).map_err(|e| e.to_string())?;
+    Ok(NoteRow {
+        sources: state.db.note_sources(n.id).unwrap_or(0),
+        id: n.id.to_string(),
+        title: n.title,
+        body: n.body,
+        updated_at: n.updated_at.to_rfc3339(),
+        edited_at: n.edited_at.map(|d| d.to_rfc3339()),
+    })
+}
+
+/// Store what the editor produced.
+///
+/// Whole-body, not a patch. The document is small, one machine writes it, and
+/// a patch protocol between two halves of the same process would be a second
+/// place for the text to be wrong.
+#[tauri::command]
+fn save_note(state: tauri::State<'_, AppState>, id: String, body: String) -> Result<(), String> {
+    let id = memos_core::Id::parse(&id).map_err(|e| e.to_string())?;
+    state.db.save_note(id, &body).map_err(|e| e.to_string())
+}
+
+/// Open a link from inside a note.
+///
+/// The editor is a document, not a browser: a link in it has to leave the app.
+/// Guarded by the same scheme check as every other thing this app opens.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    open_externally(&url)
+}
+
 /// How routing is actually going, from the correction log.
 ///
 /// ADR-0003 makes Tier 0 coverage a product metric rather than an assumption:
@@ -1827,6 +1897,10 @@ fn main() {
             rename_collection,
             delete_collection,
             collection_size,
+            note,
+            start_note,
+            save_note,
+            open_url,
             library_summary,
             tasks,
             set_task_done,

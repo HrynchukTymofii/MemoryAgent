@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, type CollectionRow, type Item } from "../../lib/api";
 import { Empty, ItemsByDay } from "../../components/ItemList";
+import { NoteEditor } from "../notes/NoteEditor";
 import { FolderIcon, PencilIcon, PlusIcon, TrashIcon } from "../../components/icons";
 
 /** Memories shown under the grid. A folder you have to scroll is a Library. */
@@ -222,14 +223,18 @@ export function Collections({
         )}
       </div>
 
+      {/* The document, and the reason the rest of this page exists. The grid
+          above it is navigation; this is the thing being navigated to. */}
+      {here !== null && <NoteEditor key={here} path={here} name={lastName(here)} />}
+
       {here !== null && (
         <>
           <div className="day">
-            Filed in {lastName(here)}
+            Captured into {lastName(here)}
             {items && items.length > 0 ? ` · ${items.length}` : ""}
           </div>
           {items === null ? null : items.length === 0 ? (
-            <Empty title="Nothing filed here yet">
+            <Empty title="Nothing captured into this collection yet">
               {children.length > 0
                 ? "Its collections may still have something in them."
                 : "Say “save this to " + lastName(here).toLowerCase() + "” while you have something on screen."}
