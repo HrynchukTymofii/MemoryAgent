@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use memos_agent::Tier0;
 use memos_context::Context;
-use memos_db::Db;
+use memos_db::{count_words, ActivityKind, Db, Notification};
 use memos_stt::{Hints, Transcriber, Transcript, Vad};
 use parking_lot::RwLock;
 
@@ -41,6 +41,13 @@ pub struct CaptureResult {
     pub outcome: Option<memos_agent::Outcome>,
     /// Candidate destinations when a slot was too ambiguous to act on.
     pub ask: Option<Ambiguity>,
+    /// Milestones this command crossed, if it crossed any.
+    ///
+    /// Carried on the result rather than emitted from the worker because the
+    /// worker has no window handle: it can only hand things back through here.
+    /// Almost always empty, which is the point — a milestone that arrived with
+    /// every capture would not be one.
+    pub earned: Vec<Notification>,
 }
 
 impl CaptureResult {
@@ -60,6 +67,9 @@ impl CaptureResult {
             empty: false,
             outcome: Some(outcome),
             ask: None,
+            // The answering path records its own use and emits what it earned
+            // directly; it has the app handle that the worker lacks.
+            earned: Vec::new(),
         }
     }
 }
@@ -188,6 +198,7 @@ impl Stt {
                             empty: true,
                             outcome: None,
                             ask: None,
+                            earned: Vec::new(),
                         });
                         continue;
                     }
@@ -203,6 +214,7 @@ impl Stt {
                             empty: true,
                             outcome: None,
                             ask: None,
+                            earned: Vec::new(),
                         });
                         continue;
                     };
@@ -218,10 +230,10 @@ impl Stt {
                             // Route and execute on this thread, before the
                             // result is reported: the receipt must state what
                             // actually happened, not what is about to.
-                            let (outcome, ask) = if empty {
-                                (None, None)
+                            let (outcome, ask, earned) = if empty {
+                                (None, None, Vec::new())
                             } else {
-                                me.route_and_execute(&text, &context)
+                                me.handle(&text, &context, audio_secs)
                             };
 
                             let total_ms = released.elapsed().as_millis() as u32;
@@ -241,6 +253,7 @@ impl Stt {
                                 empty,
                                 outcome,
                                 ask,
+                                earned,
                             });
                         }
                         Err(e) => {
@@ -254,12 +267,70 @@ impl Stt {
                                 empty: true,
                                 outcome: None,
                                 ask: None,
+                                earned: Vec::new(),
                             });
                         }
                     }
                 }
             })
             .expect("spawn transcription worker");
+    }
+
+    /// Route a transcript, execute it, and count that it happened.
+    ///
+    /// The counting is here rather than inside `route_and_execute` because it
+    /// must happen whatever routing decided — a search is use of the app and
+    /// belongs in the streak, and so does a command that ended in a question.
+    /// The only transcript that is not counted is one that was never said.
+    fn handle(
+        &self,
+        text: &str,
+        context: &Context,
+        audio_secs: f32,
+    ) -> (Option<memos_agent::Outcome>, Option<Ambiguity>, Vec<Notification>) {
+        let (outcome, ask) = self.route_and_execute(text, context);
+        let earned = self.record_use(text, audio_secs, outcome.as_ref());
+        (outcome, ask, earned)
+    }
+
+    /// Add this command to the day's tally, and award anything it just crossed.
+    ///
+    /// Never allowed to fail the command it describes, for the same reason the
+    /// correction log is not: a user whose disk is full should lose the badge,
+    /// not the memory.
+    fn record_use(
+        &self,
+        text: &str,
+        audio_secs: f32,
+        outcome: Option<&memos_agent::Outcome>,
+    ) -> Vec<Notification> {
+        let Some(db) = self.db.read().clone() else {
+            return Vec::new();
+        };
+        // Only a command that saved something counts as a capture, matching
+        // what the weekly meter counts. Everything else still counts as words
+        // spoken and as a day the app was used.
+        let kind = match outcome {
+            Some(o) if matches!(o.kind, "save" | "note") => ActivityKind::Capture,
+            _ => ActivityKind::Other,
+        };
+        let speech_ms = (audio_secs * 1000.0).round().max(0.0) as u32;
+        if let Err(e) = db.record_activity(count_words(text), speech_ms, kind) {
+            tracing::warn!(?e, "could not record the activity");
+            return Vec::new();
+        }
+        match db.evaluate() {
+            Ok(earned) => {
+                for e in &earned {
+                    tracing::info!(code = ?e.code, title = %e.title, "earned");
+                }
+                earned
+            }
+            Err(e) => {
+                tracing::warn!(?e, "could not evaluate achievements");
+                Vec::new()
+            }
+        }
     }
 
     /// Route a transcript and execute it.

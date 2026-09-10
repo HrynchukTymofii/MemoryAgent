@@ -328,6 +328,17 @@ fn answer_question(
     }
     tracing::info!(summary = %out.summary, accepted, "answered");
 
+    // The words were spoken on the capture this answers, and were counted
+    // then. What is new is the outcome: a question answered with "yes, save
+    // it" is the capture that command was always going to be, so the day's
+    // capture tally moves here and the words do not.
+    if matches!(out.kind, "save" | "note") {
+        let _ = state
+            .db
+            .record_activity(0, 0, memos_db::ActivityKind::Capture);
+    }
+    announce(&app, &state.db.evaluate().unwrap_or_default());
+
     // Same receipt the spoken path produces, so an answered command and a
     // command that never needed asking look identical once done.
     let _ = app.emit_to(
@@ -477,6 +488,105 @@ fn forget_command_log(state: tauri::State<'_, AppState>) -> Result<u32, String> 
     let n = state.db.forget_commands().map_err(|e| e.to_string())?;
     tracing::info!(commands = n, "erased the command log");
     Ok(n)
+}
+
+// --------------------------------------------------------------- achievements
+
+/// What the user has built up, for the Home page and the account menu.
+///
+/// Lifetime figures, deliberately. The weekly meter answers "what is left this
+/// week"; this answers "what have I done", and the second question is the one
+/// worth putting at the top of a page someone opens every day.
+#[derive(serde::Serialize)]
+struct Stats {
+    words: u64,
+    words_today: u32,
+    /// `None` until there is a minute of speech to average over — see
+    /// `Totals::wpm`.
+    wpm: Option<u32>,
+    streak: u32,
+    longest_streak: u32,
+    best_day: u32,
+    captures: u64,
+    items: u32,
+    collections: u32,
+    tasks_done: u32,
+    days_active: u32,
+    /// Words per day for the last fortnight, oldest first, zero-filled.
+    fortnight: Vec<u32>,
+}
+
+#[tauri::command]
+fn achievement_stats(state: tauri::State<'_, AppState>) -> Stats {
+    let totals = state.db.totals().unwrap_or_default();
+    let streak = state.db.streak().unwrap_or_default();
+    Stats {
+        words: totals.words,
+        words_today: state.db.words_today().unwrap_or(0),
+        wpm: totals.wpm(),
+        streak: streak.current,
+        longest_streak: streak.longest,
+        best_day: streak.best_day,
+        captures: totals.captures,
+        items: totals.items,
+        collections: totals.collections,
+        tasks_done: totals.tasks_done,
+        days_active: totals.days_active,
+        fortnight: state
+            .db
+            .recent_days(14)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(_, w)| w)
+            .collect(),
+    }
+}
+
+/// The list behind the bell.
+///
+/// Evaluated on the way out as well as on the capture path. Some milestones —
+/// a streak, a weekly recap — become true because a day passed, not because
+/// anything was said, and an app that only checks after a command would not
+/// notice a streak until the user had already broken it.
+#[tauri::command]
+fn notifications(state: tauri::State<'_, AppState>, limit: usize) -> Vec<memos_db::Notification> {
+    let _ = state.db.evaluate();
+    state.db.notifications(limit).unwrap_or_default()
+}
+
+#[tauri::command]
+fn unread_notifications(state: tauri::State<'_, AppState>) -> u32 {
+    state.db.unread_notifications().unwrap_or(0)
+}
+
+#[tauri::command]
+fn mark_notifications_read(state: tauri::State<'_, AppState>) -> u32 {
+    state.db.mark_notifications_read().unwrap_or(0)
+}
+
+#[tauri::command]
+fn dismiss_notification(state: tauri::State<'_, AppState>, id: String) {
+    if let Err(e) = state.db.dismiss_notification(&id) {
+        tracing::warn!(?e, "could not dismiss the notification");
+    }
+}
+
+#[tauri::command]
+fn dismiss_all_notifications(state: tauri::State<'_, AppState>) -> u32 {
+    state.db.dismiss_all_notifications().unwrap_or(0)
+}
+
+/// Tell the Hub about milestones that have just landed.
+///
+/// A separate event from the poll so a badge can appear the moment it is earned
+/// rather than up to a second later. The Hub is often not open — this is a tray
+/// app — and that is fine: the rows are already written, and the panel will
+/// have them next time it is.
+fn announce(app: &tauri::AppHandle, earned: &[memos_db::Notification]) {
+    if earned.is_empty() {
+        return;
+    }
+    let _ = app.emit_to("main", "notification:new", earned.to_vec());
 }
 
 #[derive(serde::Serialize)]
@@ -1513,7 +1623,13 @@ fn main() {
             tasks,
             set_task_done,
             open_task_count,
-            open_item
+            open_item,
+            achievement_stats,
+            notifications,
+            unread_notifications,
+            mark_notifications_read,
+            dismiss_notification,
+            dismiss_all_notifications
         ])
         .setup(move |app| {
             tray::install(app.handle())?;
@@ -1582,6 +1698,7 @@ fn main() {
             let result_handle = app.handle().clone();
             stt.start(None, move |res| {
                 let _ = result_handle.emit_to("overlay", "capture:result", res.clone());
+                announce(&result_handle, &res.earned);
 
                 // A question is the one time the overlay is something you point
                 // at rather than speak to, so for as long as one stands it stops

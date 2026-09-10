@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { listen } from "@tauri-apps/api/event";
+
 import {
   api,
   CAPTURE_LIMIT,
   type Account as AccountData,
   type HookStats,
   type LibrarySummary,
+  type Notification,
 } from "../lib/api";
 import { Home } from "../features/home/Home";
 import { Library } from "../features/library/Library";
@@ -14,7 +17,18 @@ import { Tasks } from "../features/tasks/Tasks";
 import { Account } from "../features/account/Account";
 import { SignIn } from "../features/account/SignIn";
 import { Settings } from "../features/settings/Settings";
+import { Notifications } from "../features/notifications/Notifications";
+import { Toasts } from "../features/notifications/Toast";
 import { TitleBar } from "../components/TitleBar";
+import {
+  CollectionsIcon,
+  DictionaryIcon,
+  HistoryIcon,
+  HomeIcon,
+  LibraryIcon,
+  SettingsIcon,
+  TasksIcon,
+} from "../components/icons";
 
 export type Page = "home" | "library" | "collections" | "tasks" | "account" | "settings";
 
@@ -38,6 +52,11 @@ export function App() {
   /** The sidebar is a drawer; the title bar's first button opens and shuts it. */
   const [drawer, setDrawer] = useState(true);
   const [bell, setBell] = useState(false);
+  const [unread, setUnread] = useState(0);
+  /** Bumped when a milestone lands, so the open panel re-fetches at once. */
+  const [notes, setNotes] = useState(0);
+  /** What just arrived, for the toast. Cleared as each one times out. */
+  const [earned, setEarned] = useState<Notification[]>([]);
 
   const [used, setUsed] = useState(0);
   const [summary, setSummary] = useState<LibrarySummary | null>(null);
@@ -84,17 +103,19 @@ export function App() {
     let live = true;
     const tick = async () => {
       try {
-        const [count, sum, stats, tasks] = await Promise.all([
+        const [count, sum, stats, tasks, waiting] = await Promise.all([
           api.captureCount(),
           api.summary(),
           api.hookStats(),
           api.openTaskCount(),
+          api.unreadNotifications(),
         ]);
         if (!live) return;
         setUsed(count);
         setSummary(sum);
         setHook(stats);
         setOpenTasks(tasks);
+        setUnread(waiting);
         if (seenTasks.current !== null && seenTasks.current !== tasks) refresh();
         seenTasks.current = tasks;
         setOffline(false);
@@ -112,6 +133,20 @@ export function App() {
       window.clearInterval(t);
     };
   }, [interval, revision, refresh]);
+
+  // The backend announces milestones as they land. Without this the badge
+  // waits on the poll, which means a congratulation arrives up to a second
+  // after the thing being congratulated — long enough to read as unrelated.
+  useEffect(() => {
+    const un = listen<Notification[]>("notification:new", (e) => {
+      setEarned(e.payload);
+      setUnread((n) => n + e.payload.length);
+      setNotes((n) => n + 1);
+    });
+    return () => {
+      void un.then((f) => f());
+    };
+  }, []);
 
   const openCollection = useCallback((path: string | null) => {
     setFilter(path);
@@ -153,7 +188,7 @@ export function App() {
         onToggleDrawer={() => setDrawer((d) => !d)}
         onAccount={() => go("account")}
         accountOn={page === "account"}
-        notifications={openTasks + (offline ? 1 : 0)}
+        notifications={unread + openTasks + (offline ? 1 : 0)}
         onNotifications={() => setBell((b) => !b)}
         bellOn={bell}
       />
@@ -162,10 +197,20 @@ export function App() {
         <Notifications
           openTasks={openTasks}
           offline={offline}
+          revision={notes}
           onGo={go}
           onClose={() => setBell(false)}
+          onRead={() => setUnread(0)}
         />
       )}
+
+      <Toasts
+        earned={earned}
+        onGo={(p) => {
+          setEarned([]);
+          go(p as Page);
+        }}
+      />
 
       <div className="body">
         <aside className="side">
@@ -176,11 +221,11 @@ export function App() {
               <i style={{ height: 10 }} />
               <i style={{ height: 15 }} />
             </span>
-            Memory OS
+            <span className="lbl">Memory OS</span>
           </div>
           <nav>
             <ul>
-              <NavItem page="home" current={page} onGo={go} glyph="◈" label="Home" />
+              <NavItem page="home" current={page} onGo={go} icon={<HomeIcon />} label="Home" />
               <NavItem
                 page="library"
                 current={page}
@@ -188,21 +233,21 @@ export function App() {
                   setFilter(null);
                   go(p);
                 }}
-                glyph="▤"
+                icon={<LibraryIcon />}
                 label="Library"
               />
               <NavItem
                 page="collections"
                 current={page}
                 onGo={go}
-                glyph="◱"
+                icon={<CollectionsIcon />}
                 label="Collections"
               />
               <NavItem
                 page="tasks"
                 current={page}
                 onGo={go}
-                glyph="◷"
+                icon={<TasksIcon />}
                 label="Tasks"
                 // Only when there is something to do. A badge that sits at zero
                 // is a permanent request for attention that has nothing to say.
@@ -211,11 +256,17 @@ export function App() {
             </ul>
             <div className="navh">Tools</div>
             <ul>
-              <li className="muted">
-                <span className="g">Aa</span> Dictionary
+              <li className="muted" title="Dictionary">
+                <span className="g">
+                  <DictionaryIcon />
+                </span>
+                <span className="lbl">Dictionary</span>
               </li>
-              <li className="muted">
-                <span className="g">↺</span> History
+              <li className="muted" title="History">
+                <span className="g">
+                  <HistoryIcon />
+                </span>
+                <span className="lbl">History</span>
               </li>
             </ul>
           </nav>
@@ -235,7 +286,13 @@ export function App() {
             </div>
             <nav>
               <ul>
-                <NavItem page="settings" current={page} onGo={go} glyph="⚙" label="Settings" />
+                <NavItem
+                  page="settings"
+                  current={page}
+                  onGo={go}
+                  icon={<SettingsIcon />}
+                  label="Settings"
+                />
               </ul>
             </nav>
           </div>
@@ -265,63 +322,18 @@ export function App() {
   );
 }
 
-/**
- * What the bell has to say.
- *
- * Only two things in this app ever want attention from a screen you are not
- * on: a task you spoke, and a backend that stopped answering. Anything the Hub
- * can already show you in place is not a notification.
- */
-function Notifications({
-  openTasks,
-  offline,
-  onGo,
-  onClose,
-}: {
-  openTasks: number;
-  offline: boolean;
-  onGo: (p: Page) => void;
-  onClose: () => void;
-}) {
-  return (
-    <>
-      {/* Clicking anywhere else shuts it — including on the bell, which sits
-          under this, so the bell's own toggle never sees that second click. */}
-      <div className="scrim" onClick={onClose} />
-      <div className="notes" role="dialog" aria-label="Notifications">
-        <div className="notes-h">Notifications</div>
-        {offline && (
-          <div className="note bad">
-            <span className="t">The backend stopped answering</span>
-            <span className="s">Nothing on screen is current until it comes back.</span>
-          </div>
-        )}
-        {openTasks > 0 && (
-          <button type="button" className="note" onClick={() => onGo("tasks")}>
-            <span className="t">
-              {openTasks} task{openTasks === 1 ? "" : "s"} still open
-            </span>
-            <span className="s">Spoken, and waiting on you. Open the list.</span>
-          </button>
-        )}
-        {!offline && openTasks === 0 && <div className="notes-empty">Nothing new.</div>}
-      </div>
-    </>
-  );
-}
-
 function NavItem({
   page,
   current,
   onGo,
-  glyph,
+  icon,
   label,
   badge,
 }: {
   page: Page;
   current: Page;
   onGo: (p: Page) => void;
-  glyph: string;
+  icon: React.ReactNode;
   label: string;
   badge?: number;
 }) {
@@ -330,8 +342,13 @@ function NavItem({
       className={page === current ? "on" : ""}
       data-page={page}
       onClick={() => onGo(page)}
+      // Collapsed to the rail there is no label to read, and the icon is all
+      // there is to go on. Kept when expanded too rather than swapped in and
+      // out: a tooltip that only sometimes appears is its own surprise.
+      title={label}
     >
-      <span className="g">{glyph}</span> {label}
+      <span className="g">{icon}</span>
+      <span className="lbl">{label}</span>
       {badge !== undefined && <span className="badge">{badge}</span>}
     </li>
   );

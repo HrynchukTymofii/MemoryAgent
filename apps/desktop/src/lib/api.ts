@@ -123,6 +123,39 @@ export interface TaskRow {
   created_at: string;
 }
 
+/** One row in the notification centre. */
+export interface Notification {
+  id: string;
+  /** `milestone` — earned. `nudge` — worth knowing. `alert` — wrong. */
+  kind: "milestone" | "nudge" | "alert";
+  /** The achievement behind it. Absent on alerts, which are not earned. */
+  code: string | null;
+  title: string;
+  body: string;
+  /** Page to open on click, when there is somewhere to go. */
+  goto: string | null;
+  created_at: string;
+  read: boolean;
+}
+
+/** Lifetime figures. The weekly meter answers a different question. */
+export interface Stats {
+  words: number;
+  words_today: number;
+  /** Null until there is a minute of speech to average over. */
+  wpm: number | null;
+  streak: number;
+  longest_streak: number;
+  best_day: number;
+  captures: number;
+  items: number;
+  collections: number;
+  tasks_done: number;
+  days_active: number;
+  /** Words per day for the last fortnight, oldest first. */
+  fortnight: number[];
+}
+
 export interface LibrarySummary {
   items: number;
   collections: number;
@@ -167,6 +200,13 @@ export const api = {
   dismissSignInPrompt: () => invoke<void>("dismiss_sign_in_prompt"),
   /** Resolves to what was opened, or `null` for an item with no source. */
   openItem: (id: string) => invoke<string | null>("open_item", { id }),
+  achievementStats: () => invoke<Stats>("achievement_stats"),
+  notifications: (limit: number) => invoke<Notification[]>("notifications", { limit }),
+  unreadNotifications: () => invoke<number>("unread_notifications"),
+  /** Resolves to how many were still unread. */
+  markNotificationsRead: () => invoke<number>("mark_notifications_read"),
+  dismissNotification: (id: string) => invoke<void>("dismiss_notification", { id }),
+  dismissAllNotifications: () => invoke<number>("dismiss_all_notifications"),
 };
 
 /** The free plan's weekly allowance (§16). */

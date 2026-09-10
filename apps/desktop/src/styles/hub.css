@@ -18,7 +18,7 @@
     --lift:0 1px 2px rgba(31,35,40,.05), 0 3px 10px rgba(31,35,40,.07);
     /* The width of the drawer, and the height of the window's own bar. Both
        are read from several rules; the collapse animates the first. */
-    --sw:232px; --tb:46px;
+    --sw:232px; --rail:60px; --tb:46px;
     color-scheme: light;
   }
   * { box-sizing: border-box; }
@@ -78,48 +78,186 @@
 
   /* ------------------------------------------------------- notifications */
   .scrim { position:fixed; inset:0; z-index:8; }
+  /* The notification centre. Wider than the two-row popover it replaces
+     because the rows now carry an icon and two lines of text, and capped in
+     height rather than allowed to grow past the bottom of the window. */
   .notes {
-    position:fixed; z-index:9; top:calc(var(--tb) - 4px); right:12px; width:296px;
-    background:var(--card); border:1px solid var(--line); border-radius:14px;
-    padding:6px; box-shadow:0 8px 28px rgba(31,35,40,.16);
+    position:fixed; z-index:9; top:calc(var(--tb) - 4px); right:12px; width:372px;
+    max-height:calc(100vh - var(--tb) - 24px); display:flex; flex-direction:column;
+    background:var(--card); border:1px solid var(--line); border-radius:16px;
+    padding:6px; box-shadow:0 10px 34px rgba(31,35,40,.18);
   }
+  .notes-top {
+    display:flex; align-items:center; gap:8px; padding:10px 8px 8px 12px; flex:none;
+  }
+  .notes-top h2 { flex:1; margin:0; font-size:16px; font-weight:700; letter-spacing:-.02em; }
+  .notes-acts { position:relative; display:flex; align-items:center; gap:2px; }
+  .notes-act {
+    display:grid; place-items:center; width:26px; height:26px; padding:0;
+    border:1px solid transparent; border-radius:8px; background:transparent;
+    color:var(--ink3); cursor:pointer;
+  }
+  .notes-act:hover { background:var(--card2); color:var(--ink); }
+  .notes-act.on { color:var(--acc); }
+  .notes-act:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
+  .notes-act .ic {
+    width:15px; height:15px; fill:none; stroke:currentColor;
+    stroke-width:1.5; stroke-linecap:round;
+  }
+  .notes-act .ic circle { fill:currentColor; stroke:none; }
+  .notes-menu {
+    position:absolute; top:30px; right:0; z-index:2; min-width:132px; padding:4px;
+    background:var(--card); border:1px solid var(--line); border-radius:10px;
+    box-shadow:var(--lift);
+  }
+  .notes-menu button {
+    display:block; width:100%; text-align:left; font:inherit; font-size:12.5px;
+    color:inherit; background:transparent; border:0; border-radius:7px;
+    padding:6px 9px; cursor:pointer;
+  }
+  .notes-menu button:hover { background:var(--card2); }
+  .notes-menu button.on { color:var(--acc); font-weight:600; }
+  .notes-list { overflow-y:auto; overscroll-behavior:contain; }
   .notes-h {
     font-size:9.5px; font-weight:700; letter-spacing:.13em; text-transform:uppercase;
     color:var(--ink3); padding:8px 10px 6px;
   }
+
+  /* The dismiss button sits over the row rather than inside it, so the row can
+     be a single button without nesting one inside another. */
+  .note-wrap { position:relative; }
+  .note-wrap:hover .note-x { opacity:1; }
   .note {
-    display:block; width:100%; text-align:left; font:inherit; color:inherit;
-    background:transparent; border:0; border-radius:10px; padding:9px 10px; cursor:pointer;
+    display:flex; align-items:flex-start; gap:11px; width:100%; text-align:left;
+    font:inherit; color:inherit; background:transparent; border:0;
+    border-radius:12px; padding:10px 34px 10px 10px; cursor:default;
   }
-  .note:hover { background:var(--card2); }
-  .note.bad { cursor:default; }
-  .note .t { display:block; font-size:13px; font-weight:600; }
+  .note.goes { cursor:pointer; }
+  .note.goes:hover { background:var(--card2); }
+  .note:focus-visible { outline:2px solid var(--acc); outline-offset:-2px; }
+  /* A tile, not a bare glyph. It is what makes a row scannable at a glance:
+     the shape says which kind of thing this is before any of it is read. */
+  .note .ic {
+    flex:none; display:grid; place-items:center; width:38px; height:38px;
+    border-radius:11px; background:var(--acc-soft); color:var(--acc);
+  }
+  .note .ic svg {
+    width:20px; height:20px; fill:none; stroke:currentColor;
+    stroke-width:1.35; stroke-linecap:round; stroke-linejoin:round;
+  }
+  .note.nudge .ic { background:#EEF3FA; color:#4A6C93; }
+  .note.alert .ic { background:#FBEEEC; color:var(--bad); }
+  .note .bd { flex:1; min-width:0; }
+  .note .t { display:block; font-size:13px; font-weight:600; letter-spacing:-.01em; }
   .note .s { display:block; font-size:11.5px; color:var(--ink2); margin-top:2px; }
-  .note.bad .t { color:var(--bad); }
-  .notes-empty { padding:6px 10px 12px; font-size:12.5px; color:var(--ink3); }
+  .note.alert .t { color:var(--bad); }
+  /* Unread is marked, not coloured. A different background for half the list
+     turns a panel into a barcode. */
+  .note .dot {
+    flex:none; align-self:center; width:7px; height:7px; border-radius:50%;
+    background:var(--acc);
+  }
+  .note-x {
+    position:absolute; top:9px; right:8px; display:grid; place-items:center;
+    width:20px; height:20px; padding:0; opacity:0;
+    border:0; border-radius:6px; background:transparent; color:var(--ink3);
+    cursor:pointer; transition:opacity .12s;
+  }
+  .note-x:hover { background:var(--line); color:var(--ink); }
+  .note-x:focus-visible { opacity:1; outline:2px solid var(--acc); outline-offset:1px; }
+  .note-x .ic { width:9px; height:9px; fill:none; stroke:currentColor; stroke-width:1.6; }
+  .notes-empty { padding:6px 12px 14px; font-size:12.5px; color:var(--ink3); }
+
+  /* ---------------------------------------------------------- milestones */
+  /* Toasts. Top right, under the bell they will end up behind: the panel is
+     where they live afterwards, and this is only the moment of arrival. */
+  .toasts {
+    position:fixed; z-index:7; top:calc(var(--tb) + 6px); right:14px;
+    display:flex; flex-direction:column; gap:8px; width:318px; pointer-events:none;
+  }
+  .toast {
+    display:flex; align-items:flex-start; gap:11px; width:100%; text-align:left;
+    font:inherit; color:inherit; pointer-events:auto; cursor:pointer;
+    background:var(--card); border:1px solid var(--line2); border-radius:14px;
+    padding:11px 13px; box-shadow:0 10px 30px rgba(31,35,40,.18);
+    animation:toast-in .26s cubic-bezier(.2,.8,.3,1);
+  }
+  .toast:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
+  .toast .ic {
+    flex:none; display:grid; place-items:center; width:34px; height:34px;
+    border-radius:10px; background:var(--acc-soft); color:var(--acc);
+  }
+  .toast .ic svg {
+    width:19px; height:19px; fill:none; stroke:currentColor;
+    stroke-width:1.35; stroke-linecap:round; stroke-linejoin:round;
+  }
+  .toast .bd { flex:1; min-width:0; }
+  .toast .t { display:block; font-size:13px; font-weight:700; letter-spacing:-.01em; }
+  .toast .s { display:block; font-size:11.5px; color:var(--ink2); margin-top:2px; }
+  @keyframes toast-in {
+    from { opacity:0; transform:translateX(14px) scale(.97); }
+    to   { opacity:1; transform:none; }
+  }
+  /* Honour the system setting. A panel that slides in from the edge is exactly
+     the kind of motion someone turns that setting on to stop. */
+  @media (prefers-reduced-motion:reduce) {
+    .toast { animation:none; }
+  }
+
+  /* The tally at the top of Home: what you have built up, in three figures. */
+  .tally {
+    display:flex; align-items:center; gap:26px; flex-wrap:wrap;
+    background:var(--card2); border:1px solid var(--line); border-radius:14px;
+    padding:15px 18px; margin-bottom:13px;
+  }
+  .tally .fig b {
+    display:block; font-size:26px; font-weight:700; letter-spacing:-.03em;
+    font-variant-numeric:tabular-nums; line-height:1.1;
+  }
+  .tally .fig span { font-size:11px; color:var(--ink2); }
+  .spark {
+    flex:1; min-width:120px; display:flex; align-items:flex-end; gap:3px;
+    height:34px; margin-left:auto;
+  }
+  .spark i {
+    flex:1; min-width:3px; border-radius:2px 2px 1px 1px; background:var(--acc);
+  }
+  /* A quiet day is drawn, not skipped. Faint enough to read as a gap, present
+     enough that the gap has a width. */
+  .spark i[data-quiet="true"] { background:var(--line2); }
 
   /* ---------------------------------------------------------- sidebar */
-  /* Slid out rather than shrunk: the drawer keeps its width and its contents
-     keep their shape, so nothing reflows on the way out and the page beside it
-     is the only thing that moves. */
+  /* Collapsed to a rail, not away. The icons are the point of a sidebar you
+     have learned — losing them costs you the map as well as the labels — so
+     what the toggle takes away is the words, and the column of marks stays
+     exactly where your eye already expects it. */
   .side {
     flex:none; width:var(--sw); padding:0 12px 12px; display:flex; flex-direction:column;
-    margin-left:0; transition:margin-left 180ms ease;
+    overflow:hidden; transition:width 180ms ease, padding 180ms ease;
   }
-  .shell.shut .side { margin-left:calc(var(--sw) * -1); }
+  .shell.shut .side { width:var(--rail); padding:0 10px 12px; }
   @media (prefers-reduced-motion: reduce) { .side { transition:none; } }
+  /* Nothing inside the drawer may reflow while it narrows: text that rewraps
+     mid-slide reads as the layout breaking rather than as a panel closing. */
+  .side .lbl { white-space:nowrap; }
+  .shell.shut .side .lbl,
+  .shell.shut .side .navh,
+  .shell.shut .side .meter { display:none; }
   .brand {
     display:flex; align-items:center; gap:9px; padding:0 8px 14px;
     font-weight:700; font-size:16px; letter-spacing:-.015em;
   }
+  .shell.shut .brand { padding:0 0 14px; justify-content:center; }
   .brand .bars { display:flex; align-items:flex-end; gap:2px; height:15px; }
   .brand .bars i { width:3px; border-radius:1px; background:var(--ink); display:block; }
   .brand .bars i:last-child { background:var(--acc); }
   nav ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:1px; }
   nav li {
-    display:flex; align-items:center; gap:11px; padding:9px 11px; border-radius:11px;
+    position:relative; display:flex; align-items:center; gap:11px;
+    padding:9px 11px; border-radius:11px;
     color:var(--ink2); font-size:13.5px; font-weight:500; border:1px solid transparent;
   }
+  .shell.shut nav li { justify-content:center; padding:9px 0; }
   nav li[data-page] { cursor:pointer; }
   nav li[data-page]:hover { background:rgba(255,255,255,.65); }
   nav li.muted { opacity:.45; }
@@ -129,19 +267,26 @@
     background:var(--card); border-color:var(--line); color:var(--ink);
     font-weight:600; box-shadow:var(--lift);
   }
-  nav li .g {
-    width:21px; height:21px; border-radius:7px; flex:none; display:grid; place-items:center;
-    font-size:10px; color:var(--ink2);
-    background:linear-gradient(155deg,#FFFFFF,#DFE7EE);
-    box-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 1px 1.5px rgba(31,50,72,.13);
+  /* The mark itself, with nothing under it. The raised chip that used to sit
+     behind every icon gave each row a small permanent highlight, which left
+     nothing for the selected row to say. */
+  nav li .g { flex:none; display:grid; place-items:center; color:inherit; }
+  nav li .ic {
+    width:18px; height:18px; display:block; fill:none; stroke:currentColor;
+    stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round;
   }
+  nav li.on .g { color:var(--ink); }
   .navh {
     font-size:9px; font-weight:700; letter-spacing:.13em; text-transform:uppercase;
     color:var(--ink3); padding:14px 9px 5px;
   }
+  /* The heading is gone in the rail, but the break it marked still has to be
+     there, or Tools runs straight on from the pages above it. */
+  .shell.shut .navh + ul { margin-top:14px; }
   /* The foot of the drawer, pushed down by the nav above it and ordered plan
      first — Settings sits under the thing whose limits it explains. */
   .foot { margin-top:auto; padding-top:12px; }
+  .shell.shut .foot { padding-top:0; }
   .meter {
     margin:0 0 6px; background:var(--acc-soft); border:1px solid var(--acc-line);
     border-radius:13px; padding:12px 13px;
@@ -353,6 +498,11 @@
   font-variant-numeric:tabular-nums;
 }
 nav li.on .badge { background:var(--ink); }
+.shell.shut .badge {
+  position:absolute; top:5px; right:9px; min-width:0; width:7px; height:7px;
+  padding:0; border-radius:50%; font-size:0; line-height:0;
+  box-shadow:0 0 0 2px var(--side);
+}
 
 /* A task row is the item row's sibling, not a copy of it: same card, same
    metadata line, but the whole surface is the checkbox rather than a link,
