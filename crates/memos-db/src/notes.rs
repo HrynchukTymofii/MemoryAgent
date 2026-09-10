@@ -32,25 +32,35 @@ pub struct Note {
     pub edited_at: Option<Timestamp>,
 }
 
-/// Fold one capture into a Markdown document, under a heading.
+/// Fold one capture into the document, at the end of the section its
+/// collection names.
 ///
-/// The four rules of ADR-0010, and nothing else:
+/// `trail` is the collection path — `["Study", "Programming", "React"]` — and
+/// it becomes the heading trail: `# Study`, `## Programming`, `### React`. The
+/// user's own filing *is* the outline, so the one document reads as the shape
+/// they already think in, and a capture never needs a filename.
 ///
-/// 1. `heading` is matched against the document's `##` headings, ignoring case
-///    and punctuation — "State as a snapshot" finds "State as a Snapshot".
-/// 2. A match appends at the *end of that section*, after everything already
-///    under it and before the next heading.
-/// 3. No match appends a new section at the end of the document.
+/// The rules, and nothing else:
+///
+/// 1. Each level is matched against the headings already inside its parent's
+///    section, ignoring case and punctuation.
+/// 2. A level that is not there is created at the end of its parent's section.
+/// 3. The text is appended at the end of the deepest section, after everything
+///    already under it and before the next heading.
 /// 4. `provenance` follows the text as its own italic line.
 ///
 /// Nothing already in the document is edited, moved or removed. Every path
-/// through this function is an insertion.
-pub fn integrate(body: &str, heading: &str, text: &str, provenance: Option<&str>) -> String {
-    let heading = heading.trim();
+/// through this function is an insertion — which is what makes it safe to let a
+/// model choose the trail later instead of the router.
+pub fn integrate(body: &str, trail: &[String], text: &str, provenance: Option<&str>) -> String {
     let text = text.trim();
     if text.is_empty() {
         return body.to_string();
     }
+    // A capture with nowhere to go still has to land somewhere a person will
+    // find it, and the bottom of the document is where they will look.
+    let unfiled = [String::from("Unfiled")];
+    let trail: &[String] = if trail.is_empty() { &unfiled } else { trail };
 
     let mut block: Vec<String> = vec![text.to_string()];
     if let Some(p) = provenance.map(str::trim).filter(|p| !p.is_empty()) {
@@ -59,28 +69,46 @@ pub fn integrate(body: &str, heading: &str, text: &str, provenance: Option<&str>
     }
 
     let mut lines: Vec<String> = body.lines().map(str::to_string).collect();
-    // A document that has never had anything in it starts at its first
-    // heading rather than with a blank line above it.
-    let empty = lines.iter().all(|l| l.trim().is_empty());
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
+    }
 
-    match section_of(&lines, heading) {
-        Some(at) => {
-            let mut insert = Vec::new();
-            insert.push(String::new());
-            insert.extend(block);
-            lines.splice(at..at, insert);
-        }
-        None => {
-            if !empty {
-                lines.push(String::new());
-            } else {
-                lines.clear();
+    // The span of the section we are currently inside, narrowing a level at a
+    // time. It starts as the whole document.
+    let (mut lo, mut hi) = (0usize, lines.len());
+
+    for (depth, name) in trail.iter().enumerate() {
+        // Markdown runs out of heading levels before a collection tree runs out
+        // of depth. Past the sixth, everything shares the last one rather than
+        // emitting `####### `, which is not a heading at all.
+        let level = (depth + 1).min(6);
+        match find_heading(&lines, lo, hi, level, name) {
+            Some(at) => {
+                hi = section_end(&lines, at, level, hi);
+                lo = at + 1;
             }
-            lines.push(format!("## {heading}"));
-            lines.push(String::new());
-            lines.extend(block);
+            None => {
+                let at = end_of_section(&lines, lo, hi);
+                let mut insert = Vec::new();
+                if at > 0 {
+                    insert.push(String::new());
+                }
+                insert.push(format!("{} {name}", "#".repeat(level)));
+                let added = insert.len();
+                lines.splice(at..at, insert);
+                lo = at + added;
+                hi = lo;
+            }
         }
     }
+
+    let at = end_of_section(&lines, lo, hi);
+    let mut insert = Vec::new();
+    if at > 0 {
+        insert.push(String::new());
+    }
+    insert.extend(block);
+    lines.splice(at..at, insert);
 
     let mut out = lines.join("\n");
     if !out.ends_with('\n') {
@@ -89,26 +117,40 @@ pub fn integrate(body: &str, heading: &str, text: &str, provenance: Option<&str>
     out
 }
 
-/// Where a new block belongs inside an existing section: the line after its
-/// last non-empty one. `None` when the document has no such heading.
-fn section_of(lines: &[String], heading: &str) -> Option<usize> {
-    let want = key(heading);
-    let start = lines
-        .iter()
-        .position(|l| l.strip_prefix("## ").is_some_and(|h| key(h) == want))?;
+/// `## Heading` -> `(2, "Heading")`. `None` for anything that is not one.
+fn heading(line: &str) -> Option<(usize, &str)> {
+    let hashes = line.chars().take_while(|c| *c == '#').count();
+    if hashes == 0 || hashes > 6 {
+        return None;
+    }
+    let rest = line[hashes..].strip_prefix(' ')?;
+    Some((hashes, rest.trim()))
+}
 
-    // The section runs to the next heading of the same level or higher.
-    let mut end = lines[start + 1..]
-        .iter()
-        .position(|l| l.starts_with("# ") || l.starts_with("## "))
-        .map(|i| start + 1 + i)
-        .unwrap_or(lines.len());
-    // Trailing blank lines belong to the gap before the next heading, not to
-    // the section — inserting after them would leave a hole in the middle.
-    while end > start + 1 && lines[end - 1].trim().is_empty() {
+/// A heading of exactly `level` and this name, somewhere in `lo..hi`.
+fn find_heading(lines: &[String], lo: usize, hi: usize, level: usize, name: &str) -> Option<usize> {
+    let want = key(name);
+    (lo..hi).find(|&i| heading(&lines[i]).is_some_and(|(l, h)| l == level && key(h) == want))
+}
+
+/// Where a section beginning at `start` ends: the next heading at the same
+/// level or shallower, or the end of the span it lives in.
+fn section_end(lines: &[String], start: usize, level: usize, hi: usize) -> usize {
+    (start + 1..hi)
+        .find(|&i| heading(&lines[i]).is_some_and(|(l, _)| l <= level))
+        .unwrap_or(hi)
+}
+
+/// The line a new block belongs on: after the section's last non-empty line.
+///
+/// Trailing blank lines belong to the gap before the next heading, not to the
+/// section — inserting after them would leave a hole in the middle of the page.
+fn end_of_section(lines: &[String], lo: usize, hi: usize) -> usize {
+    let mut end = hi;
+    while end > lo && lines[end - 1].trim().is_empty() {
         end -= 1;
     }
-    Some(end)
+    end
 }
 
 /// A heading reduced to what it means: lowercase, letters and digits only.
@@ -143,28 +185,48 @@ fn row_to_note(r: &rusqlite::Row<'_>) -> rusqlite::Result<Note> {
 
 const COLUMNS: &str = "id, collection_id, title, body, created_at, updated_at, edited_at";
 
+/// What the one document is called until somebody renames it.
+pub const BOOK_TITLE: &str = "Everything";
+
 impl Db {
-    /// The note for a collection path, if one has been started.
+    /// The document, if anything has started it.
     ///
-    /// `Ok(None)` for a collection nobody has captured into yet — an empty
-    /// document is not created just because somebody opened the page.
-    pub fn note_for_path(&self, path: &str) -> DbResult<Option<Note>> {
+    /// One row, found by having no collection: a note that belongs to a
+    /// collection is the old per-collection shape, and 006 folded those in.
+    /// `Ok(None)` before the first capture — an empty file is not conjured
+    /// because somebody opened a page.
+    pub fn book(&self) -> DbResult<Option<Note>> {
         self.with(|c| {
             Ok(c.query_row(
                 &format!(
-                    "SELECT {} FROM notes n
-                       JOIN collections c ON c.id = n.collection_id
-                      WHERE c.path = ?1",
-                    COLUMNS
-                        .split(", ")
-                        .map(|c| format!("n.{c}"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    "SELECT {COLUMNS} FROM notes WHERE collection_id IS NULL
+                      ORDER BY created_at LIMIT 1"
                 ),
-                params![path],
+                [],
                 row_to_note,
             )
             .optional()?)
+        })
+    }
+
+    /// The document, started if it does not exist yet.
+    pub fn ensure_book(&self) -> DbResult<Note> {
+        if let Some(book) = self.book()? {
+            return Ok(book);
+        }
+        self.transaction(|tx| {
+            let id = Id::new();
+            let now = memos_core::now().to_rfc3339();
+            tx.execute(
+                "INSERT INTO notes (id, collection_id, title, body, created_at, updated_at)
+                 VALUES (?1, NULL, ?2, '', ?3, ?3)",
+                params![id.to_string(), BOOK_TITLE, now],
+            )?;
+            Ok(tx.query_row(
+                &format!("SELECT {COLUMNS} FROM notes WHERE id = ?1"),
+                params![id.to_string()],
+                row_to_note,
+            )?)
         })
     }
 
@@ -179,41 +241,7 @@ impl Db {
         })
     }
 
-    /// Start an empty note for a collection, or return the one it has.
-    ///
-    /// The way a document begins with a person writing rather than with a
-    /// capture arriving. Idempotent, so the button behind it cannot make two.
-    pub fn start_note(&self, collection: Id, title: &str) -> DbResult<Note> {
-        self.transaction(|tx| {
-            let existing: Option<String> = tx
-                .query_row(
-                    "SELECT id FROM notes WHERE collection_id = ?1",
-                    params![collection.to_string()],
-                    |r| r.get(0),
-                )
-                .optional()?;
-            let id = match existing {
-                Some(id) => Id::parse(&id).unwrap_or_default(),
-                None => {
-                    let id = Id::new();
-                    let now = memos_core::now().to_rfc3339();
-                    tx.execute(
-                        "INSERT INTO notes (id, collection_id, title, body, created_at, updated_at)
-                         VALUES (?1,?2,?3,'',?4,?4)",
-                        params![id.to_string(), collection.to_string(), title.trim(), now],
-                    )?;
-                    id
-                }
-            };
-            Ok(tx.query_row(
-                &format!("SELECT {COLUMNS} FROM notes WHERE id = ?1"),
-                params![id.to_string()],
-                row_to_note,
-            )?)
-        })
-    }
-
-    /// Replace a note's body with what a person wrote.
+    /// Replace the document's body with what a person wrote.
     ///
     /// Stamps `edited_at`, which is what separates a document somebody has
     /// worked on from one that has only ever accumulated.
@@ -228,76 +256,35 @@ impl Db {
         })
     }
 
-    pub fn rename_note(&self, id: Id, title: &str) -> DbResult<()> {
-        self.with(|c| {
-            c.execute(
-                "UPDATE notes SET title = ?2, updated_at = ?3 WHERE id = ?1",
-                params![
-                    id.to_string(),
-                    title.trim(),
-                    memos_core::now().to_rfc3339()
-                ],
-            )?;
-            Ok(())
-        })
-    }
-
-    /// Fold a capture into its collection's note, starting the note if this is
-    /// the first thing ever filed there.
+    /// Fold a capture into the document, under the section its collection path
+    /// names, starting the document if this is the first thing ever captured.
     ///
-    /// Returns the note's id, which the caller records on the item. Failing
+    /// Returns the document's id, which the caller records on the item. Failing
     /// here must never fail a capture: the memory is already committed and the
-    /// note can be rebuilt from the rows, never the other way round.
+    /// document can be rebuilt from the rows, never the other way round.
     pub fn integrate_capture(
         &self,
-        collection: Id,
-        collection_name: &str,
         item: Id,
-        heading: &str,
+        trail: &[String],
         text: &str,
         provenance: Option<&str>,
     ) -> DbResult<Id> {
+        let book = self.ensure_book()?;
+        let body = integrate(&book.body, trail, text, provenance);
         self.transaction(|tx| {
-            let existing: Option<(String, String)> = tx
-                .query_row(
-                    "SELECT id, body FROM notes WHERE collection_id = ?1",
-                    params![collection.to_string()],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
-                )
-                .optional()?;
-
-            let now = memos_core::now().to_rfc3339();
-            let (id, body) = match existing {
-                Some((id, body)) => {
-                    let id = Id::parse(&id).unwrap_or_default();
-                    (id, integrate(&body, heading, text, provenance))
-                }
-                None => {
-                    let id = Id::new();
-                    let body = integrate("", heading, text, provenance);
-                    tx.execute(
-                        "INSERT INTO notes (id, collection_id, title, body, created_at, updated_at)
-                         VALUES (?1,?2,?3,'',?4,?4)",
-                        params![
-                            id.to_string(),
-                            collection.to_string(),
-                            collection_name,
-                            now
-                        ],
-                    )?;
-                    (id, body)
-                }
-            };
-
             tx.execute(
                 "UPDATE notes SET body = ?2, updated_at = ?3 WHERE id = ?1",
-                params![id.to_string(), body, now],
+                params![
+                    book.id.to_string(),
+                    body,
+                    memos_core::now().to_rfc3339()
+                ],
             )?;
             tx.execute(
                 "UPDATE knowledge_items SET note_id = ?2 WHERE id = ?1",
-                params![item.to_string(), id.to_string()],
+                params![item.to_string(), book.id.to_string()],
             )?;
-            Ok(id)
+            Ok(book.id)
         })
     }
 
@@ -318,55 +305,100 @@ mod tests {
     use super::*;
     use memos_core::KnowledgeItem;
 
+    fn trail(path: &str) -> Vec<String> {
+        path.split('/').map(str::to_string).collect()
+    }
+
     #[test]
-    fn the_first_capture_starts_the_document() {
-        let out = integrate("", "State as a Snapshot", "Setting state queues a re-render.", None);
-        assert_eq!(out, "## State as a Snapshot\n\nSetting state queues a re-render.\n");
+    fn the_first_capture_writes_the_outline_it_needs() {
+        let out = integrate(
+            "",
+            &trail("Study/Programming/React"),
+            "Setting state queues a re-render.",
+            None,
+        );
+        assert_eq!(
+            out,
+            "# Study\n\n## Programming\n\n### React\n\n\
+             Setting state queues a re-render.\n"
+        );
     }
 
     #[test]
     fn provenance_follows_the_text() {
         let out = integrate(
             "",
-            "Routers",
+            &trail("Household"),
             "Hold reset for ten seconds.",
             Some("10 Sep 2026 · [tp-link.com](https://tp-link.com/faq)"),
         );
-        assert!(out.ends_with("*10 Sep 2026 · [tp-link.com](https://tp-link.com/faq)*\n"), "{out}");
+        assert!(
+            out.ends_with("*10 Sep 2026 · [tp-link.com](https://tp-link.com/faq)*\n"),
+            "{out}"
+        );
+    }
+
+    /// The whole point of one document: the second fact about a subject lands
+    /// beside the first, not in another file.
+    #[test]
+    fn a_second_capture_on_the_same_subject_joins_that_section() {
+        let body = integrate("", &trail("Study/React"), "One.", None);
+        let out = integrate(&body, &trail("Study/React"), "Two.", None);
+        assert_eq!(out, "# Study\n\n## React\n\nOne.\n\nTwo.\n");
     }
 
     #[test]
-    fn a_second_capture_on_the_same_subject_joins_the_section() {
-        let body = "## Hooks\n\nuseEffect runs after paint.\n\n## Rendering\n\nReact batches.\n";
-        let out = integrate(body, "hooks", "useMemo is a cache, not a promise.", None);
+    fn a_sibling_subject_shares_the_parent_it_already_has() {
+        let body = integrate("", &trail("Study/React"), "One.", None);
+        let out = integrate(&body, &trail("Study/TypeScript"), "Two.", None);
         assert_eq!(
             out,
-            "## Hooks\n\nuseEffect runs after paint.\n\nuseMemo is a cache, not a promise.\n\n\
-             ## Rendering\n\nReact batches.\n",
-            "the addition lands under Hooks, not at the end of the file",
+            "# Study\n\n## React\n\nOne.\n\n## TypeScript\n\nTwo.\n",
+            "one Study, two subjects under it",
+        );
+    }
+
+    /// The insertion goes at the end of *its* section, not the end of the file.
+    #[test]
+    fn a_capture_lands_inside_its_section_rather_than_at_the_bottom() {
+        let body = "# Study\n\n## React\n\nOne.\n\n# Life\n\n## Household\n\nBins go out Thursday.\n";
+        let out = integrate(body, &trail("Study/React"), "Two.", None);
+        assert_eq!(
+            out,
+            "# Study\n\n## React\n\nOne.\n\nTwo.\n\n# Life\n\n## Household\n\n\
+             Bins go out Thursday.\n"
         );
     }
 
     #[test]
     fn a_heading_matches_through_case_and_punctuation() {
-        let body = "## State as a Snapshot!\n\nOne.\n";
-        let out = integrate(body, "state as a snapshot", "Two.", None);
+        let body = "# Study\n\n## React!\n\nOne.\n";
+        let out = integrate(body, &trail("study/react"), "Two.", None);
         assert_eq!(out.matches("## ").count(), 1, "no second section: {out}");
+        assert_eq!(out.matches("# Study").count(), 1, "{out}");
     }
 
     #[test]
-    fn an_unrelated_capture_starts_its_own_section() {
-        let body = "## Hooks\n\nuseEffect runs after paint.\n";
-        let out = integrate(body, "Suspense", "It is not a loading spinner.", None);
-        assert!(out.starts_with("## Hooks\n\nuseEffect runs after paint.\n"));
-        assert!(out.ends_with("## Suspense\n\nIt is not a loading spinner.\n"), "{out}");
+    fn a_capture_with_nowhere_to_go_still_has_somewhere_to_land() {
+        let out = integrate("# Study\n\nOne.\n", &[], "Loose thought.", None);
+        assert!(out.contains("# Unfiled"), "{out}");
+        assert!(out.trim_end().ends_with("Loose thought."), "{out}");
+    }
+
+    /// Markdown runs out of levels before a collection tree runs out of depth.
+    #[test]
+    fn a_tree_deeper_than_markdown_stops_at_the_sixth_level() {
+        let deep = trail("A/B/C/D/E/F/G");
+        let out = integrate("", &deep, "Bottom.", None);
+        assert!(out.contains("###### F"), "{out}");
+        assert!(!out.contains("####### "), "there is no seventh level: {out}");
     }
 
     /// The whole safety argument in one assertion.
     #[test]
     fn nothing_a_person_wrote_is_ever_changed() {
-        let mine = "# React\n\nMy own paragraph, in my own words.\n\n## Hooks\n\nAlso mine.\n";
-        let out = integrate(mine, "Hooks", "Something the router heard.", None);
+        let mine = "# Study\n\nMy own paragraph, in my own words.\n\n## React\n\nAlso mine.\n";
+        let out = integrate(mine, &trail("Study/React"), "Something the router heard.", None);
         for line in mine.lines().filter(|l| !l.trim().is_empty()) {
             assert!(out.contains(line), "lost: {line:?}");
         }
@@ -375,8 +407,8 @@ mod tests {
 
     #[test]
     fn an_empty_capture_leaves_the_document_alone() {
-        let body = "## Hooks\n\nOne.\n";
-        assert_eq!(integrate(body, "Hooks", "   ", None), body);
+        let body = "# Study\n\nOne.\n";
+        assert_eq!(integrate(body, &trail("Study"), "   ", None), body);
     }
 
     fn db() -> Db {
@@ -384,75 +416,67 @@ mod tests {
     }
 
     #[test]
-    fn integrating_starts_a_note_and_marks_the_capture_that_did_it() {
+    fn integrating_starts_the_document_and_marks_the_capture_that_did_it() {
         let db = db();
-        let react = db.create_collection("React", None).unwrap();
         let item = KnowledgeItem::capture("Hooks", "useEffect runs after paint.");
         db.capture(&item, None).unwrap();
 
-        let note = db
+        let book = db
             .integrate_capture(
-                react.id,
-                "React",
                 item.id,
-                "Hooks",
+                &trail("Study/React"),
                 "useEffect runs after paint.",
                 Some("10 Sep 2026"),
             )
             .unwrap();
 
-        let stored = db.note_for_path("React").unwrap().expect("a note exists");
-        assert_eq!(stored.id, note);
-        assert!(stored.body.contains("## Hooks"), "{}", stored.body);
+        let stored = db.book().unwrap().expect("a document exists");
+        assert_eq!(stored.id, book);
+        assert_eq!(stored.title, BOOK_TITLE);
+        assert!(stored.body.contains("## React"), "{}", stored.body);
         assert!(stored.edited_at.is_none(), "growing is not editing");
-        assert_eq!(db.note_sources(note).unwrap(), 1);
+        assert_eq!(db.note_sources(book).unwrap(), 1);
     }
 
     #[test]
-    fn a_second_capture_grows_the_same_note() {
+    fn every_capture_grows_the_same_document() {
         let db = db();
-        let react = db.create_collection("React", None).unwrap();
-        for (title, text) in [("Hooks", "One."), ("Hooks", "Two."), ("Suspense", "Three.")] {
-            let item = KnowledgeItem::capture(title, text);
+        for (path, text) in [
+            ("Study/React", "One."),
+            ("Study/React", "Two."),
+            ("Life/Household", "Three."),
+        ] {
+            let item = KnowledgeItem::capture("t", text);
             db.capture(&item, None).unwrap();
-            db.integrate_capture(react.id, "React", item.id, title, text, None)
-                .unwrap();
+            db.integrate_capture(item.id, &trail(path), text, None).unwrap();
         }
-        let note = db.note_for_path("React").unwrap().unwrap();
-        assert_eq!(note.body.matches("## ").count(), 2, "{}", note.body);
-        assert_eq!(db.note_sources(note.id).unwrap(), 3);
+        let all = db.book().unwrap().unwrap();
+        assert_eq!(all.body.matches("\n# ").count() + 1, 2, "two roots: {}", all.body);
+        assert_eq!(db.note_sources(all.id).unwrap(), 3);
     }
 
     #[test]
-    fn editing_stamps_the_note_as_written_rather_than_grown() {
+    fn editing_stamps_the_document_as_written_rather_than_grown() {
+        let db = db();
+        let book = db.ensure_book().unwrap();
+        db.save_note(book.id, "# Study\n\nRewritten by hand.\n").unwrap();
+        let after = db.note(book.id).unwrap().unwrap();
+        assert_eq!(after.body, "# Study\n\nRewritten by hand.\n");
+        assert!(after.edited_at.is_some());
+    }
+
+    /// ADR-0010: deleting the shelf must not burn the book — and now the book
+    /// was never on a shelf to begin with.
+    #[test]
+    fn the_document_outlives_any_collection() {
         let db = db();
         let react = db.create_collection("React", None).unwrap();
         let item = KnowledgeItem::capture("Hooks", "One.");
         db.capture(&item, None).unwrap();
-        let id = db
-            .integrate_capture(react.id, "React", item.id, "Hooks", "One.", None)
-            .unwrap();
-
-        db.save_note(id, "# React\n\nRewritten by hand.\n").unwrap();
-        let note = db.note(id).unwrap().unwrap();
-        assert_eq!(note.body, "# React\n\nRewritten by hand.\n");
-        assert!(note.edited_at.is_some());
-    }
-
-    /// ADR-0010: deleting the shelf must not burn the book.
-    #[test]
-    fn a_note_outlives_its_collection() {
-        let db = db();
-        let react = db.create_collection("React", None).unwrap();
-        let item = KnowledgeItem::capture("Hooks", "One.");
-        db.capture(&item, None).unwrap();
-        let id = db
-            .integrate_capture(react.id, "React", item.id, "Hooks", "One.", None)
-            .unwrap();
+        let id = db.integrate_capture(item.id, &trail("React"), "One.", None).unwrap();
 
         db.delete_collection(react.id).unwrap();
-        let note = db.note(id).unwrap().expect("the document survives");
-        assert!(note.collection_id.is_none(), "it is simply unshelved");
-        assert!(note.body.contains("One."));
+        let book = db.note(id).unwrap().expect("the document survives");
+        assert!(book.body.contains("One."));
     }
 }

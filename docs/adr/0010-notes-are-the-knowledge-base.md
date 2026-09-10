@@ -1,4 +1,4 @@
-# ADR-0010: The note is the knowledge base; the capture is its provenance
+# ADR-0010: One document is the knowledge base; captures are its history
 
 **Status:** Accepted · **Date:** 2026-09-10 · **Supersedes:** the spec's
 assumption that a collection is a list of items
@@ -23,17 +23,23 @@ was assuming one of them could do both jobs.
 
 ## Decision
 
-### A collection has at most one note, and the note is what you read
+### There is one document, and the collection tree is its outline
 
-A **note** is a Markdown document that belongs to a collection. Standing in a
-collection you read its note; the collections inside it are the sections of the
-subject that got big enough to move out. This is deliberately Notion's shape —
-a place is a page, and pages contain pages — because that shape is already what
-the Collections screen navigates.
+Not one note per collection — that is still a pile of files, and a pile of
+files is what a person has to organise rather than read. There is **one
+Markdown document**, and a capture's collection path becomes its heading trail:
+`Study/Programming/React` lands under `# Study` › `## Programming` › `###
+React`, creating whichever of those do not exist yet.
 
-Notes are nullable-collection on purpose: deleting a collection must not
-destroy the document that grew inside it. The note comes loose, exactly as its
-memories do.
+So filing and outlining are the same decision, made once. Collections keep
+their real job — the destinations the router is allowed to route to — and stop
+pretending to be folders full of documents. What the user opens is one file
+they can read top to bottom, in the structure they already think in.
+
+The document belongs to no collection, so deleting collections never touches
+it. More than one is possible — the table has no such constraint, and a
+document that outgrows one file will need it — but one is the default and the
+only one anything creates today.
 
 ### A capture is never rewritten. It becomes the note's provenance
 
@@ -51,13 +57,17 @@ lie, and losing the second is the state we are in today.
 
 The merge rule is one function, `notes::integrate`, and it is pure:
 
-1. The capture's title becomes a heading, matched against the note's existing
-   `##` headings case- and punctuation-insensitively.
-2. On a match, the new text is appended at the **end of that section** — after
-   everything already under the heading, before the next heading.
-3. On no match, a new section is appended at the end of the document.
+1. Each name in the trail is matched against the headings already inside its
+   parent's section, ignoring case and punctuation.
+2. A level that is not there is created at the end of its parent's section.
+3. The text is appended at the **end of the deepest section** — after
+   everything already under it, before the next heading.
 4. The text is followed by a provenance line: the date it was captured, and a
    link to where it came from when there was one.
+
+Markdown runs out of heading levels at six before a collection tree runs out of
+depth; past that, everything shares the sixth. A capture with no destination
+lands under `# Unfiled`, at the bottom, where somebody will find it.
 
 Nothing already in the file is edited, reordered, or deleted. This is what
 makes the document safe to hand to a person and to a model at the same time: a
@@ -76,10 +86,10 @@ can merge line by line.
 
 ## Consequences
 
-**The Collections screen becomes the product.** It was a filing cabinet you
-looked at; it is now where the writing is. The Library keeps its job as the
-record — every capture, newest first, searchable — and that is now a
-recognisably different job rather than a second view of the same list.
+**Three screens with three jobs, finally distinct.** The document is what you
+read and write. The Library is the history — every capture, newest first,
+searchable, in the order it happened. Collections are the outline and the
+router's vocabulary. Before this, all three were views of one list.
 
 **Search still indexes captures, not notes.** A note is composed of its
 captures, so indexing both would rank the same sentence twice. The cost is that
