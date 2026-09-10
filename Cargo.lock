@@ -2670,6 +2670,7 @@ dependencies = [
  "memos-llm",
  "memos-retrieval",
  "memos-stt",
+ "objc2-app-kit",
  "parking_lot",
  "serde",
  "serde_json",

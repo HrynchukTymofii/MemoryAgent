@@ -1074,6 +1074,60 @@ fn never_activates<R: Runtime>(w: &tauri::WebviewWindow<R>) {
 #[cfg(not(windows))]
 fn never_activates<R: Runtime>(_w: &tauri::WebviewWindow<R>) {}
 
+/// Let the overlay appear over a full-screen application.
+///
+/// `alwaysOnTop` raises the window's *level*, which settles what it sits above
+/// within a space and does nothing about which spaces it appears in. A
+/// full-screen application on macOS is not a maximised window — it is its own
+/// space, and an ordinary window belongs to the one it was created in. So the
+/// overlay was correct, on top, and on a different desktop: invisible over
+/// full-screen Code or Chrome, and perfectly fine over either one windowed.
+///
+/// Two behaviours are needed and they do different jobs:
+///
+/// - `CanJoinAllSpaces` — appear on whichever space is current, rather than
+///   dragging the user back to the one the app started in.
+/// - `FullScreenAuxiliary` — be allowed into another application's full-screen
+///   space at all. Without this the first flag alone still stops at the edge of
+///   a full-screen app, which is exactly the reported symptom.
+///
+/// The level goes up to the status-item level as well. Floating is above
+/// ordinary windows but below the things a full-screen app puts over itself,
+/// and being on the right space but underneath is the same result as not being
+/// there.
+///
+/// Must run on the main thread: these are AppKit setters on a window, and the
+/// setup closure this is called from is the main thread.
+#[cfg(target_os = "macos")]
+fn floats_over_fullscreen<R: Runtime>(w: &tauri::WebviewWindow<R>) {
+    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
+
+    let Ok(ptr) = w.ns_window() else {
+        tracing::warn!("no NSWindow; the overlay will not show over full-screen apps");
+        return;
+    };
+    if ptr.is_null() {
+        return;
+    }
+
+    // SAFETY: `ns_window()` hands back this window's NSWindow, and this runs on
+    // the main thread, which is the only thread AppKit permits these on.
+    let window: &NSWindow = unsafe { &*(ptr as *const NSWindow) };
+    window.setCollectionBehavior(
+        NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::FullScreenAuxiliary
+            // Stationary keeps it put during Mission Control rather than being
+            // swept aside with the ordinary windows.
+            | NSWindowCollectionBehavior::Stationary,
+    );
+    // NSStatusWindowLevel. Named by value because objc2 exposes the levels as
+    // plain integers, and this is the level the menu bar's own items use.
+    window.setLevel(25);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn floats_over_fullscreen<R: Runtime>(_w: &tauri::WebviewWindow<R>) {}
+
 /// Place the overlay near the bottom-centre of whichever monitor the pointer is
 /// on, so it appears where the user is actually working on a multi-monitor
 /// setup rather than always on the primary display.
@@ -1385,6 +1439,10 @@ fn main() {
             // Clicking an option must never pull focus out of whatever the user
             // was working in.
             never_activates(&overlay);
+            // And the overlay is useless if it cannot appear over the editor or
+            // the browser the user is actually looking at, which on this
+            // platform is usually full-screen.
+            floats_over_fullscreen(&overlay);
 
             let result_handle = app.handle().clone();
             stt.start(None, move |res| {
@@ -1477,6 +1535,21 @@ fn main() {
                 tracing::warn!(path = %log.display(), "key logging ENABLED (diagnostic)");
                 hotkey::start_key_log(log);
             }
+            // Said at startup, beside the models and the shortcut, because it
+            // decides the same kind of question they do. Without Accessibility
+            // every context lookup answers "nothing" — a saved memory keeps the
+            // words and loses what they were about — and that is indisplayable
+            // from an application that genuinely exposes nothing. It is also a
+            // separate grant from Input Monitoring, which is the mistake this
+            // line exists to catch.
+            #[cfg(target_os = "macos")]
+            hotkey::diag(if memos_context::macos_impl::is_trusted() {
+                "Accessibility granted — window, selection and URL will be captured"
+            } else {
+                "Accessibility DENIED — captures will have no context. \
+                 System Settings > Privacy & Security > Accessibility"
+            });
+
             let rx = hotkey::listen(cfg.chord());
             hotkey::report_health_after(std::time::Duration::from_secs(10));
 

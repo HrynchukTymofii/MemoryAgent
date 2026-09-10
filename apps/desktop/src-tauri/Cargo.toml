@@ -52,6 +52,13 @@ tauri-plugin-single-instance = "2"
 # platform, so binding to them costs nothing that is not already linked.
 core-graphics   = "0.25"
 core-foundation = "0.10"
+# Only for the overlay's window level and collection behaviour — the two AppKit
+# settings that decide whether it can appear over a full-screen application.
+objc2-app-kit   = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSWindow",
+    "NSResponder",
+] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
