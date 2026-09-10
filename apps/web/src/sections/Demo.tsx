@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { Loader } from "../components/Logo";
+
 /**
  * The recorded walkthrough.
  *
@@ -13,6 +15,7 @@ import { useState } from "react";
  */
 export function Demo() {
   const [playing, setPlaying] = useState(false);
+  const [ready, setReady] = useState(false);
   const [missing, setMissing] = useState(false);
 
   return (
@@ -27,17 +30,28 @@ export function Demo() {
 
       <div className="frame">
         {playing && !missing ? (
-          <video
-            className="frame-video"
-            src="/demo.mp4"
-            controls
-            autoPlay
-            playsInline
-            onError={() => {
-              setMissing(true);
-              setPlaying(false);
-            }}
-          />
+          <>
+            <video
+              className="frame-video"
+              src="/demo.mp4"
+              controls
+              autoPlay
+              playsInline
+              onCanPlay={() => setReady(true)}
+              onError={() => {
+                setMissing(true);
+                setPlaying(false);
+              }}
+            />
+            {/* The mark turning, over the frame, until there is a first frame
+                to show. It is the same figure as the logo, so a slow start
+                looks like the product thinking rather than a stalled page. */}
+            {!ready && (
+              <div className="frame-wait">
+                <Loader size={56} />
+              </div>
+            )}
+          </>
         ) : (
           <>
             <Still />

@@ -216,7 +216,7 @@ export function Loader({ size = 44, className }: { size?: number; className?: st
         ref={edges}
         stroke="currentColor"
         strokeOpacity={0.28}
-        strokeWidth={size * 0.045}
+        strokeWidth={size * 0.034}
         strokeLinecap="round"
         fill="none"
       />
