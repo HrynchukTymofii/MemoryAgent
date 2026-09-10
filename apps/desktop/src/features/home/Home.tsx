@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { api, type EmbedStatus, type Item, type LibrarySummary } from "../../lib/api";
 import { Empty, ItemsByDay } from "../../components/ItemList";
+import { Loader } from "../../components/Logo";
 import type { Page } from "../../hub/App";
 
 const RECENT = 20;
@@ -125,6 +126,11 @@ function EmbedVerdict({ embed }: { embed: EmbedStatus | null }) {
       <div className="verdict ok">semantic search ready</div>
     );
   }
-  if (embed.state === "loading") return <div className="verdict">loading the model…</div>;
+  if (embed.state === "loading")
+    return (
+      <div className="verdict">
+        <Loader size={14} /> loading the model…
+      </div>
+    );
   return <div className="verdict bad">keyword search only</div>;
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { api, type Account } from "../../lib/api";
+import { Logo, Loader } from "../../components/Logo";
 import { EmailSignIn } from "./EmailSignIn";
 
 /**
@@ -56,12 +57,7 @@ export function SignIn({
   return (
     <div className="signin">
       <div className="signin-card">
-        <span className="bars" aria-hidden="true">
-          <i style={{ height: 9 }} />
-          <i style={{ height: 17 }} />
-          <i style={{ height: 13 }} />
-          <i style={{ height: 20 }} />
-        </span>
+        <Logo size={52} className="signin-mark" />
 
         <h1>Memory OS</h1>
         <p className="lead">
@@ -79,7 +75,13 @@ export function SignIn({
             <span className="mark" aria-hidden="true">
               G
             </span>
-            {busy ? "Waiting for your browser…" : "Continue with Google"}
+            {busy ? (
+              <>
+                <Loader size={16} /> Waiting for your browser…
+              </>
+            ) : (
+              "Continue with Google"
+            )}
           </button>
         )}
 

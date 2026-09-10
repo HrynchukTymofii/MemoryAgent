@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api, type Referrals, type ReferralStatus } from "../../lib/api";
 import { Sheet } from "../help/Shortcuts";
+import { Logo } from "../../components/Logo";
 
 type Tab = "refer" | "past" | "apply";
 
@@ -162,12 +163,7 @@ function Refer({ status }: { status: ReferralStatus }) {
           <path d="M0 34C58 4 104 46 168 30 226 16 268 2 320 8" />
         </svg>
         <div className="gift-mark">
-          <span className="bars" aria-hidden="true">
-            <i style={{ height: 9 }} />
-            <i style={{ height: 16 }} />
-            <i style={{ height: 12 }} />
-            <i style={{ height: 19 }} />
-          </span>
+          <Logo size={24} />
           Memory OS
           <span className="tier">Pro</span>
         </div>

@@ -1,19 +1,133 @@
-"""Generate app icons: a dark rounded tile with the four-bar waveform mark.
+"""Generate app icons: a dark rounded tile carrying the four-cube mark.
 
-No third-party imaging deps — PNG is encoded by hand via zlib, and the .ico
-wraps PNG payloads (supported since Vista). Rerun after any brand change.
+Three cubes at the corners of a triangle, one in the middle, and a line between
+every pair — the same figure `apps/desktop/src/components/Logo.tsx` draws, at
+the same proportions, because the icon and the mark inside the window have to
+be recognisably one thing.
+
+No third-party imaging deps — polygons are rasterised below, PNG is encoded by
+hand via zlib, and the .ico wraps PNG payloads (supported since Vista). Rerun
+after any brand change.
 """
 import struct, zlib, os, math
 
-BG   = (0x1F, 0x23, 0x28, 255)   # cool near-black, matches --a-ink
-BAR  = (0xFF, 0xFF, 0xFF, 255)
-ACC  = (0xE8, 0x85, 0x0C, 255)   # amber accent, last bar only
+BG   = (0x1F, 0x23, 0x28)        # cool near-black, matches --a-ink
+INK  = (0xFF, 0xFF, 0xFF)        # the three corner cubes
+ACC  = (0xE8, 0x85, 0x0C)        # amber accent, the middle cube only
 
-# bar geometry as fractions of the canvas: (x, width, top, bottom)
-BARS = [(0.255, 0.085, 0.44, 0.62),
-        (0.395, 0.085, 0.32, 0.74),
-        (0.535, 0.085, 0.39, 0.67),
-        (0.675, 0.085, 0.26, 0.80)]
+# Face shading, one light source: top brightest, left in shadow. The same three
+# numbers as FACE in Logo.tsx.
+FACE = (1.0, 0.66, 0.42)         # top, right, left
+EDGE = 0.30                      # the six connecting lines
+
+# Geometry in fractions of the canvas, so every size is the same picture. The
+# triangle's centre sits below the middle of the tile: the mark hangs further
+# below that centre than above it, and the tile is a square.
+R      = 0.118                   # half a cube's height
+CENTRE = [(0.5000, 0.2788),      # top corner
+          (0.7555, 0.7213),      # right corner
+          (0.2445, 0.7213),      # left corner
+          (0.5000, 0.5738)]      # the middle
+PAIRS  = [(0, 1), (1, 2), (2, 0), (0, 3), (1, 3), (2, 3)]
+STROKE = 0.027                   # width of a connecting line
+
+W, H = 0.866, 0.5                # the isometric projection
+
+
+def cube_faces(cx, cy, r):
+    """Top, right and left faces of an isometric cube, as polygons."""
+    return [
+        [(cx, cy - r), (cx + W * r, cy - H * r), (cx, cy), (cx - W * r, cy - H * r)],
+        [(cx, cy), (cx + W * r, cy - H * r), (cx + W * r, cy + H * r), (cx, cy + r)],
+        [(cx - W * r, cy - H * r), (cx, cy), (cx, cy + r), (cx - W * r, cy + H * r)],
+    ]
+
+
+def segment_quad(a, b, width):
+    """A line as the rectangle it covers — everything downstream is polygons."""
+    (x0, y0), (x1, y1) = a, b
+    dx, dy = x1 - x0, y1 - y0
+    n = math.hypot(dx, dy) or 1.0
+    ox, oy = -dy / n * width / 2, dx / n * width / 2
+    return [(x0 + ox, y0 + oy), (x1 + ox, y1 + oy), (x1 - ox, y1 - oy), (x0 - ox, y0 - oy)]
+
+
+def shapes():
+    """Every polygon in the mark, back to front, as (points, rgb, alpha)."""
+    out = []
+    for a, b in PAIRS:
+        out.append((segment_quad(CENTRE[a], CENTRE[b], STROKE), INK, EDGE))
+    # The middle cube last: it is what the lines converge on, so nothing may be
+    # drawn over it.
+    for i in (0, 1, 2, 3):
+        colour = ACC if i == 3 else INK
+        for face, alpha in zip(cube_faces(*CENTRE[i], R), FACE):
+            out.append((face, colour, alpha))
+    return out
+
+
+# ------------------------------------------------------------- rasterising
+
+SS = 4      # subsamples per pixel, vertically and horizontally
+
+
+def _add_span(row, xa, xb, weight, size):
+    """Add horizontal coverage from xa to xb (pixel units) into one row."""
+    xa, xb = max(xa, 0.0), min(xb, float(size))
+    if xb <= xa:
+        return
+    ia, ib = int(xa), min(int(xb), size - 1)
+    if ia == ib:
+        row[ia] += (xb - xa) * weight
+        return
+    row[ia] += (ia + 1 - xa) * weight
+    for x in range(ia + 1, ib):
+        row[x] += weight
+    row[ib] += (xb - ib) * weight
+
+
+def fill(px, poly, colour, alpha, size):
+    """Scanline-fill a polygon over the image, antialiased and alpha-blended.
+
+    Coverage is accumulated one pixel row at a time from SS subsample rows, so
+    a shape costs its own area rather than the whole canvas, and no full-size
+    buffer is held per shape. Blending is per shape rather than per polygon
+    edge, which is why a cube's three faces are separate shapes: they meet
+    exactly, and blending each in turn leaves no seam because each is opaque
+    along the join.
+    """
+    pts = [(x * size, y * size) for x, y in poly]
+    y0 = max(int(min(p[1] for p in pts)), 0)
+    y1 = min(int(max(p[1] for p in pts)) + 1, size)
+    edges = [(pts[i], pts[(i + 1) % len(pts)]) for i in range(len(pts))]
+
+    for y in range(y0, y1):
+        row = [0.0] * size
+        touched = False
+        for s in range(SS):
+            yc = y + (s + 0.5) / SS
+            xs = []
+            for (ax, ay), (bx, by) in edges:
+                if (ay <= yc < by) or (by <= yc < ay):
+                    xs.append(ax + (yc - ay) / (by - ay) * (bx - ax))
+            if not xs:
+                continue
+            xs.sort()
+            for i in range(0, len(xs) - 1, 2):
+                _add_span(row, xs[i], xs[i + 1], 1.0 / SS, size)
+                touched = True
+        if not touched:
+            continue
+        for x in range(size):
+            a = row[x] * alpha
+            if a <= 0.001:
+                continue
+            a = min(a, 1.0)
+            r, g, b, oa = px[y][x]
+            px[y][x] = (int(r + (colour[0] - r) * a),
+                        int(g + (colour[1] - g) * a),
+                        int(b + (colour[2] - b) * a),
+                        max(oa, int(255 * a)) if oa < 255 else 255)
 
 
 def render(size):
@@ -28,14 +142,8 @@ def render(size):
             a = 1.0 if d <= r - 0.5 else max(0.0, min(1.0, r - d + 0.5))
             if a > 0:
                 px[y][x] = (BG[0], BG[1], BG[2], int(255 * a))
-    for i, (bx, bw, bt, bb) in enumerate(BARS):
-        col = ACC if i == len(BARS) - 1 else BAR
-        x0, x1 = int(bx * size), int((bx + bw) * size)
-        y0, y1 = int(bt * size), int(bb * size)
-        for y in range(y0, y1):
-            for x in range(x0, max(x1, x0 + 1)):
-                if 0 <= x < size and 0 <= y < size:
-                    px[y][x] = col
+    for poly, colour, alpha in shapes():
+        fill(px, poly, colour, alpha, size)
     return px
 
 

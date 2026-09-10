@@ -243,9 +243,7 @@
     font-weight:700; font-size:16px; letter-spacing:-.015em;
   }
   .shell.shut .brand { padding:0 0 14px; justify-content:center; }
-  .brand .bars { display:flex; align-items:flex-end; gap:2px; height:15px; }
-  .brand .bars i { width:3px; border-radius:1px; background:var(--ink); display:block; }
-  .brand .bars i:last-child { background:var(--acc); }
+  .brand svg { flex:none; }
   nav ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:1px; }
   nav li {
     position:relative; display:flex; align-items:center; gap:11px;
@@ -484,9 +482,9 @@
     display:flex; align-items:center; gap:9px;
     font-size:25px; font-weight:700; letter-spacing:-.03em;
   }
-  .gift-mark .bars { display:flex; align-items:flex-end; gap:2.5px; height:19px; }
-  .gift-mark .bars i { width:4px; border-radius:1.5px; background:#fff; display:block; }
-  .gift-mark .bars i:last-child { background:#CBB7F5; }
+  /* On the gift card the mark is white on plum, and its middle cube takes the
+     card's own highlight rather than the application accent. */
+  .gift-mark svg { flex:none; --acc:#CBB7F5; }
   .gift-mark .tier {
     font-size:13px; font-weight:700; letter-spacing:-.01em; color:#0C4A3E;
     background:#FBF7E4; border-radius:7px; padding:2px 9px; margin-left:2px;
@@ -1057,11 +1055,7 @@ nav li.on .badge { background:var(--ink); }
   background: var(--card); border: 1px solid var(--line); border-radius: 18px;
   padding: 34px 30px 26px; box-shadow: var(--lift);
 }
-.signin-card .bars {
-  display: inline-flex; align-items: flex-end; gap: 3px; height: 20px; margin-bottom: 16px;
-}
-.signin-card .bars i { width: 4px; border-radius: 2px; background: var(--ink); display: block; }
-.signin-card .bars i:last-child { background: var(--acc); }
+.signin-mark { margin-bottom: 14px; }
 .signin-card h1 { font-size: 19px; margin: 0 0 8px; letter-spacing: -.02em; }
 .signin-card .lead {
   margin: 0 0 22px; font-size: 12.5px; color: var(--ink2); line-height: 1.5;
@@ -1139,3 +1133,13 @@ nav li.on .badge { background:var(--ink); }
 }
 .email-sent { margin: 0 0 10px; font-size: 12px; color: var(--ink2); }
 .email-sent b { color: var(--ink); font-weight: 600; }
+
+/* ------------------------------------------------------------------ loader */
+/* The mark turning. It carries no colour of its own — every place it is used
+   sets the text colour first — and it sits on the text baseline so a line like
+   "loading the model…" stays one line rather than becoming a row. */
+.loader { flex: none; vertical-align: -0.18em; }
+.provider .loader { vertical-align: -0.22em; margin-right: 2px; }
+/* The one screen where it is the only thing on show: while the Hub works out
+   whether to ask who you are. */
+.boot { flex: 1; display: grid; place-items: center; color: var(--ink3); }

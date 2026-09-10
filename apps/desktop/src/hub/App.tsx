@@ -25,6 +25,7 @@ import { HelpMenu } from "../features/help/HelpMenu";
 import { Notifications } from "../features/notifications/Notifications";
 import { Toasts } from "../features/notifications/Toast";
 import { TitleBar } from "../components/TitleBar";
+import { Logo, Loader } from "../components/Logo";
 import {
   CollectionsIcon,
   GiftIcon,
@@ -195,8 +196,18 @@ export function App() {
     [used],
   );
 
-  // Held back until the question is answered — see `askToSignIn`.
-  if (askToSignIn === null) return null;
+  // Held back until the question is answered — see `askToSignIn`. A blank
+  // window for as long as that takes reads as a hang, so the mark turns.
+  if (askToSignIn === null) {
+    return (
+      <div className="shell">
+        <TitleBar bare />
+        <div className="boot">
+          <Loader size={56} />
+        </div>
+      </div>
+    );
+  }
   if (askToSignIn && signInAccount) {
     return (
       <div className="shell">
@@ -282,12 +293,7 @@ export function App() {
       <div className="body">
         <aside className="side">
           <div className="brand">
-            <span className="bars" aria-hidden="true">
-              <i style={{ height: 7 }} />
-              <i style={{ height: 13 }} />
-              <i style={{ height: 10 }} />
-              <i style={{ height: 15 }} />
-            </span>
+            <Logo size={22} />
             <span className="lbl">Memory OS</span>
           </div>
           <nav>
