@@ -63,3 +63,41 @@ async def send_code(settings: Settings, to: str, code: str) -> None:
         raise SendFailed("no SMTP server is configured")
     message = _compose(to, code, settings.smtp_from or settings.smtp_user)
     await asyncio.to_thread(_send_blocking, settings, message)
+
+
+def _compose_invite(to: str, sender: str, *, inviter: str, link: str, months: int) -> EmailMessage:
+    """The invite one user sends another.
+
+    Written as a message from a person, because that is what it is: somebody
+    chose to send this, and the address it goes to was typed by them. It says
+    who, it says what the link does, and it says how to stop — an invite that
+    does not name its sender is indistinguishable from spam, and would deserve
+    to be treated as such.
+    """
+    message = EmailMessage()
+    message["Subject"] = f"{inviter} sent you a month of Memory OS Pro"
+    message["From"] = sender
+    message["To"] = to
+    message.set_content(
+        f"{inviter} thinks you would get something out of Memory OS, and has "
+        f"sent you {months} month of Pro to try it with.\n\n"
+        f"{link}\n\n"
+        "Memory OS captures what you say — anywhere in Windows, by holding one "
+        "shortcut — and makes it searchable later.\n\n"
+        f"If you do not know {inviter}, nothing has happened: this link has to "
+        "be opened to do anything at all, and we have no other way to reach "
+        "you. Ignore it and you will not hear from us again.\n"
+    )
+    return message
+
+
+async def send_invite(
+    settings: Settings, to: str, *, inviter: str, link: str, months: int
+) -> None:
+    """Send one invite, off the event loop."""
+    if not settings.smtp_host:
+        raise SendFailed("no SMTP server is configured")
+    message = _compose_invite(
+        to, settings.smtp_from or settings.smtp_user, inviter=inviter, link=link, months=months
+    )
+    await asyncio.to_thread(_send_blocking, settings, message)

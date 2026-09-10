@@ -57,6 +57,35 @@ class Settings(BaseSettings):
     # and getting this wrong looks like a hang rather than an error.
     smtp_ssl: bool = False
 
+    # ------------------------------------------------------------ referrals
+
+    # Where an invite link sends someone who is not a user yet. Empty until
+    # there is a site to send them to; `GET /r/{code}` still records the click
+    # and says plainly that there is nowhere to go, rather than redirecting to
+    # a page that does not exist.
+    download_url: str = ""
+
+    # Where the desktop app reaches this service. Only used to build the invite
+    # link that is shown and shared, which is why it is a separate value from
+    # anything internal: the link has to work from a stranger's phone.
+    public_url: str = "https://api.memoryos.app"
+
+    # What a referee has to actually do before either side is paid. Anyone can
+    # create accounts; not everyone can dictate two thousand words through one.
+    referral_qualify_words: int = 2_000
+
+    # How long after signing up an account may still apply a code. A referral
+    # is a claim that somebody brought a new user in, and an account six months
+    # old was not brought in by the code it applied this morning.
+    referral_window_days: int = 30
+
+    # Months of Pro, per side, per qualifying referral.
+    referral_months: int = 1
+
+    # Invites one account may send in a day. High enough that nobody legitimate
+    # notices, low enough that this is not a mail cannon pointed at strangers.
+    referral_invites_per_day: int = 20
+
 
 @lru_cache
 def settings() -> Settings:
