@@ -1,10 +1,12 @@
-# Unified window chrome, collapsible sidebar, simpler history rows
+# Achievements, and a notification centre behind the bell
 
-- apps/desktop/src-tauri/tauri.conf.json — main window: decorations off, larger
-- apps/desktop/src-tauri/capabilities/default.json — drag/minimise/maximise/close
-- apps/desktop/src/components/TitleBar.tsx — new: drawer toggle, account, bell,
-  window buttons
-- apps/desktop/src/hub/App.tsx — title bar, sidebar collapse, Account out of the
-  nav list, Settings moved under the meter
-- apps/desktop/src/components/ItemList.tsx — row is time plus text; metadata gone
-- apps/desktop/src/styles/hub.css — chrome, collapse, new row shape, larger scale
+- crates/memos-db/migrations/004_achievements.sql — daily_activity, achievements, notifications
+- crates/memos-db/src/migrate.rs — version 4
+- crates/memos-core/src/achieve.rs — new: the milestone ladder, pure
+- crates/memos-db/src/stats.rs — new: activity counters, totals, streaks
+- crates/memos-db/src/notifications.rs — new: evaluate, list, read, dismiss
+- apps/desktop/src-tauri/src/transcription.rs — count words, evaluate after execute
+- apps/desktop/src-tauri/src/main.rs — five commands, notification:new event
+- apps/desktop/src/features/notifications/ — new: centre, toast
+- apps/desktop/src/hub/App.tsx, components/TitleBar.tsx, features/home/Home.tsx — unread count, stat block
+- apps/desktop/src/lib/api.ts, styles/hub.css — wrappers, styling
