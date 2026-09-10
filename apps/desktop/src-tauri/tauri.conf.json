@@ -46,6 +46,11 @@
   },
   "bundle": {
     "active": true,
+    "resources": {
+      "resources/models/*.bin": "models/",
+      "resources/models/embedding/*": "models/embedding/",
+      "resources/runtime/*": "runtime/"
+    },
     "targets": [
       "msi",
       "nsis",

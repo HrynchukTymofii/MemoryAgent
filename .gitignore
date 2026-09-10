@@ -24,6 +24,17 @@ venv/
 /models/**/*.onnx
 /models/**/*.safetensors
 
+# Staged into the installer by `fetch-models.ps1 bundle` / `fetch-models.sh
+# bundle`. Copies of files that are already gitignored above, so they are
+# gitignored here too; the directories themselves are tracked, because the
+# bundler is pointed at them whether or not a build has staged anything yet.
+/apps/desktop/src-tauri/resources/**/*.bin
+/apps/desktop/src-tauri/resources/**/*.onnx
+/apps/desktop/src-tauri/resources/**/*.json
+/apps/desktop/src-tauri/resources/**/*.dll
+/apps/desktop/src-tauri/resources/**/*.dylib
+/apps/desktop/src-tauri/resources/**/*.so
+
 # The ONNX Runtime is fetched by the same script. The Windows DLLs beside it
 # predate that script and stay tracked; nothing new joins them.
 /runtime/*.dylib

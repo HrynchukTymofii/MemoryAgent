@@ -6,6 +6,7 @@
 #   .\scripts\fetch-models.ps1 embedding    # ~33 MB, semantic search
 #   .\scripts\fetch-models.ps1 router       # ~609 MB, the Tier 1 intent router
 #   .\scripts\fetch-models.ps1 router-light # ~378 MB, same model, Q4
+#   .\scripts\fetch-models.ps1 bundle      # stage what the installer ships
 #
 # Weights are never committed - .gitignore excludes *.bin, *.onnx and friends.
 #
@@ -58,6 +59,50 @@ function Get-File($Url, $Dest, $ExpectedMb) {
         throw "Downloaded file is only $have MB, expected about $ExpectedMb MB. Removed the partial file."
     }
     Write-Host "Done: $Dest ($have MB)" -ForegroundColor Green
+}
+
+# What goes inside the installer.
+#
+# The point of this target is that a person who installs the app never runs a
+# script. tiny.en rather than base.en: 78 MB against 148 MB, and it is the floor
+# that makes the product work on first launch, not the ceiling - base.en is
+# offered later as an upgrade and wins over this one wherever both exist.
+#
+# The ONNX Runtime is shipped as well, and it is the one that is not optional to
+# bundle. It is a library the process dlopens, and on macOS the hardened runtime
+# only lets a signed process load code signed by the same team - so it has to be
+# signed with the app rather than downloaded afterwards.
+#
+# The layout below is the one the app looks for; see bundle_dir() in main.rs.
+if ($Model -eq "bundle") {
+    & $PSCommandPath tiny.en
+    & $PSCommandPath embedding
+
+    $root = Join-Path $PSScriptRoot ".."
+    $staging = Join-Path $root "apps\desktop\src-tauri\resources"
+    New-Item -ItemType Directory -Force -Path (Join-Path $staging "models\embedding") | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $staging "runtime") | Out-Null
+
+    $pairs = @(
+        @("models\stt\ggml-tiny.en.bin",     "models\ggml-tiny.en.bin"),
+        @("models\embedding\model.onnx",     "models\embedding\model.onnx"),
+        @("models\embedding\tokenizer.json", "models\embedding\tokenizer.json"),
+        @("runtime\onnxruntime.dll",         "runtime\onnxruntime.dll"),
+        @("runtime\onnxruntime_providers_shared.dll", "runtime\onnxruntime_providers_shared.dll")
+    )
+    foreach ($pair in $pairs) {
+        $src = Join-Path $root $pair[0]
+        $dst = Join-Path $staging $pair[1]
+        if (-not (Test-Path $src)) { throw "Missing $src - fetch it first." }
+        Copy-Item $src $dst -Force
+        $mb = [math]::Round((Get-Item $dst).Length / 1MB)
+        Write-Host "Staged: $($pair[1]) ($mb MB)" -ForegroundColor Green
+    }
+
+    $total = [math]::Round(((Get-ChildItem $staging -Recurse -File | Measure-Object Length -Sum).Sum) / 1MB)
+    Write-Host ""
+    Write-Host "Staged $total MB. 'npm run tauri build' now ships it." -ForegroundColor Green
+    exit 0
 }
 
 # The embedding model: bge-small-en-v1.5, int8-quantized ONNX export.

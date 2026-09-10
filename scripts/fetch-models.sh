@@ -10,6 +10,7 @@
 #   ./scripts/fetch-models.sh router-light  # ~378 MB, same model, Q4
 #   ./scripts/fetch-models.sh onnxruntime   # ~17 MB, the runtime on its own
 #   ./scripts/fetch-models.sh install       # put what is fetched where the app looks
+#   ./scripts/fetch-models.sh bundle        # stage what the installer ships
 #
 # Weights are never committed — .gitignore excludes *.bin, *.onnx and friends.
 set -euo pipefail
@@ -160,12 +161,62 @@ install_into_data_dir() {
     ok "Restart the app to pick these up."
 }
 
+# What goes inside the installer.
+#
+# The point of this target is that a person who installs the app never runs a
+# script. tiny.en rather than base.en: 78 MB against 148 MB, and it is the floor
+# that makes the product work on first launch, not the ceiling — base.en is
+# offered later as an upgrade and wins over this one wherever both exist.
+#
+# The ONNX Runtime is shipped as well, and it is the one that is not optional to
+# bundle. It is a library the process dlopens, and the hardened runtime only
+# lets a signed process load code signed by the same team — so it has to be
+# signed with the app, which happens only if it is inside the bundle when
+# `tauri build` signs it. Everything the `install` target works around at run
+# time stops being a problem here.
+#
+# The layout is the one the app looks for; see bundle_dir() in main.rs.
+stage_for_bundle() {
+    "$0" tiny.en
+    "$0" embedding
+
+    local staging="$root/apps/desktop/src-tauri/resources"
+    mkdir -p "$staging/models/embedding" "$staging/runtime"
+
+    stage() {
+        local src="$root/$1" dst="$staging/$2"
+        [ -f "$src" ] || fail "Missing $src — fetch it first."
+        # Copied, not linked: this file is about to be signed as part of the
+        # application, and signing follows a hard link back to the original.
+        cp -f "$src" "$dst"
+        ok "Staged: $2 ($(du -m "$dst" | cut -f1) MB)"
+    }
+
+    stage "models/stt/ggml-tiny.en.bin"      "models/ggml-tiny.en.bin"
+    stage "models/embedding/model.onnx"      "models/embedding/model.onnx"
+    stage "models/embedding/tokenizer.json"  "models/embedding/tokenizer.json"
+    # Only macOS has a fetch path for the runtime, and macOS is the platform
+    # where bundling it is load-bearing rather than a convenience. Elsewhere the
+    # app finds it beside the executable as it always has.
+    if [ "$(uname)" = "Darwin" ]; then
+        stage "runtime/libonnxruntime.dylib" "runtime/libonnxruntime.dylib"
+    fi
+
+    echo
+    ok "Staged $(du -sm "$staging" | cut -f1) MB. ./scripts/build-macos.sh now ships it."
+}
+
 case "$model" in
   # Fetching leaves everything in the repository, which is where a `cargo run`
   # looks and where the installed app never does. Without this step the app in
   # /Applications reports every model missing no matter how many were fetched.
   install)
     install_into_data_dir
+    exit 0
+    ;;
+
+  bundle)
+    stage_for_bundle
     exit 0
     ;;
 
@@ -220,7 +271,7 @@ case "$model" in
   small.en)  mb=488  ;;
   medium.en) mb=1533 ;;
   *)
-    fail "Unknown model '$model'. Choose one of: tiny.en, base.en, small.en, medium.en, embedding, router, router-light, onnxruntime"
+    fail "Unknown model '$model'. Choose one of: tiny.en, base.en, small.en, medium.en, embedding, router, router-light, onnxruntime, install, bundle"
     ;;
 esac
 
