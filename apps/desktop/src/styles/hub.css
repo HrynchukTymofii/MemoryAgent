@@ -30,7 +30,10 @@
     font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif;
     font-size:14px; line-height:1.45; user-select:none;
   }
-  .shell { display:flex; flex-direction:column; min-height:100vh; }
+  /* The window height, exactly. A min-height here lets a long page push the
+     shell past the bottom of the window, which drags the sidebar down with
+     it and buries its foot off screen; the scrolling belongs to main. */
+  .shell { display:flex; flex-direction:column; height:100vh; overflow:hidden; }
   .body { flex:1; min-height:0; display:flex; overflow:hidden; }
 
   /* ------------------------------------------------------- window chrome */
