@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { api } from "../../lib/api";
 import { Sheet, Shortcuts } from "./Shortcuts";
@@ -37,7 +37,6 @@ export function HelpMenu({ railed }: { railed: boolean }) {
   const [open, setOpen] = useState(false);
   const [sheet, setSheet] = useState<Panel>(null);
   const [note, setNote] = useState<string | null>(null);
-  const box = useRef<HTMLDivElement>(null);
 
   // Escape shuts the menu; clicking elsewhere is handled by the scrim.
   useEffect(() => {
@@ -65,7 +64,7 @@ export function HelpMenu({ railed }: { railed: boolean }) {
 
   return (
     <>
-      <div className="help" ref={box}>
+      <div className="help">
         {open && <div className="scrim" onClick={() => setOpen(false)} />}
 
         {open && (

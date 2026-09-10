@@ -158,26 +158,26 @@ export function App() {
     };
   }, []);
 
-  // The cached plan, and — once, on launch — a re-check with the API. Not on a
-  // timer: this is a number that changes twice a year, and polling it would be
-  // a request per user per interval to discover that nothing happened.
+  /**
+   * Re-read the plan, and let the API pay out a referral if one is due.
+   *
+   * Called on launch and when the referral sheet is shut — not on a timer. This
+   * is a number that changes twice a year, and polling it would be a request
+   * per user per interval to discover that nothing had happened.
+   */
+  const refreshPlan = useCallback(async () => {
+    try {
+      setPlan(await api.entitlement());
+      setPlan(await api.refreshEntitlement());
+    } catch {
+      // No API, or nobody signed in. The cached plan stands, which is the
+      // entire point of caching it.
+    }
+  }, []);
+
   useEffect(() => {
-    let live = true;
-    void (async () => {
-      try {
-        const held = await api.entitlement();
-        if (live) setPlan(held);
-        const fresh = await api.refreshEntitlement();
-        if (live) setPlan(fresh);
-      } catch {
-        // No API, or no session. The cached plan stands, which is the point of
-        // caching it.
-      }
-    })();
-    return () => {
-      live = false;
-    };
-  }, [revision]);
+    void refreshPlan();
+  }, [refreshPlan]);
 
   const openCollection = useCallback((path: string | null) => {
     setFilter(path);
@@ -261,7 +261,7 @@ export function App() {
         <Referral
           onClose={() => {
             setReferral(false);
-            refresh();
+            void refreshPlan();
           }}
           onSignIn={() => {
             setReferral(false);
