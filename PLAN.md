@@ -1,9 +1,9 @@
-# Help at the foot of the sidebar
+# Referrals: codes, invites, and a month of Pro for both sides
 
-- apps/desktop/src/features/help/HelpMenu.tsx — new: the popover, three groups
-- apps/desktop/src/features/help/Shortcuts.tsx — new: sheet, reads the bound chord
-- apps/desktop/src/features/help/VoiceCommands.tsx — new: sheet, phrases from the grammar
-- apps/desktop/src/features/help/whats-new.ts — new: release notes
-- apps/desktop/src/components/icons.tsx — help, book, mic, globe, mail, bug marks
-- apps/desktop/src/hub/App.tsx — Help under Settings; sheets over the page
-- apps/desktop/src/styles/hub.css — popover opening upward, sheet, key caps
+- cloud/migrations/003_referrals.sql — codes, referrals, rewards, users.pro_until
+- cloud/app/referrals.py — new: code generation, qualification, granting months
+- cloud/app/db.py — the queries behind them
+- cloud/app/mail.py — the invite mail
+- cloud/app/config.py — download_url, referral_qualify_words, reward_months
+- cloud/app/main.py — /v1/referrals/{me,apply,invite,progress}, GET /r/{code}
+- cloud/tests/test_referrals.py — self-referral, double-apply, granted once
