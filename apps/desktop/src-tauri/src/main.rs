@@ -492,56 +492,6 @@ fn forget_command_log(state: tauri::State<'_, AppState>) -> Result<u32, String> 
 
 // --------------------------------------------------------------- achievements
 
-/// What the user has built up, for the Home page and the account menu.
-///
-/// Lifetime figures, deliberately. The weekly meter answers "what is left this
-/// week"; this answers "what have I done", and the second question is the one
-/// worth putting at the top of a page someone opens every day.
-#[derive(serde::Serialize)]
-struct Stats {
-    words: u64,
-    words_today: u32,
-    /// `None` until there is a minute of speech to average over — see
-    /// `Totals::wpm`.
-    wpm: Option<u32>,
-    streak: u32,
-    longest_streak: u32,
-    best_day: u32,
-    captures: u64,
-    items: u32,
-    collections: u32,
-    tasks_done: u32,
-    days_active: u32,
-    /// Words per day for the last fortnight, oldest first, zero-filled.
-    fortnight: Vec<u32>,
-}
-
-#[tauri::command]
-fn achievement_stats(state: tauri::State<'_, AppState>) -> Stats {
-    let totals = state.db.totals().unwrap_or_default();
-    let streak = state.db.streak().unwrap_or_default();
-    Stats {
-        words: totals.words,
-        words_today: state.db.words_today().unwrap_or(0),
-        wpm: totals.wpm(),
-        streak: streak.current,
-        longest_streak: streak.longest,
-        best_day: streak.best_day,
-        captures: totals.captures,
-        items: totals.items,
-        collections: totals.collections,
-        tasks_done: totals.tasks_done,
-        days_active: totals.days_active,
-        fortnight: state
-            .db
-            .recent_days(14)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(_, w)| w)
-            .collect(),
-    }
-}
-
 /// The list behind the bell.
 ///
 /// Evaluated on the way out as well as on the capture path. Some milestones —
@@ -1768,7 +1718,6 @@ fn main() {
             set_task_done,
             open_task_count,
             open_item,
-            achievement_stats,
             notifications,
             unread_notifications,
             mark_notifications_read,

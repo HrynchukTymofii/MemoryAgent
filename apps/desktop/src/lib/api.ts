@@ -138,24 +138,6 @@ export interface Notification {
   read: boolean;
 }
 
-/** Lifetime figures. The weekly meter answers a different question. */
-export interface Stats {
-  words: number;
-  words_today: number;
-  /** Null until there is a minute of speech to average over. */
-  wpm: number | null;
-  streak: number;
-  longest_streak: number;
-  best_day: number;
-  captures: number;
-  items: number;
-  collections: number;
-  tasks_done: number;
-  days_active: number;
-  /** Words per day for the last fortnight, oldest first. */
-  fortnight: number[];
-}
-
 /** One person the user brought in, as the API is willing to describe them. */
 export interface ReferralRow {
   /** Masked by the server: `t…@gmail.com`. A count and a status, not an address. */
@@ -245,7 +227,6 @@ export const api = {
   dismissSignInPrompt: () => invoke<void>("dismiss_sign_in_prompt"),
   /** Resolves to what was opened, or `null` for an item with no source. */
   openItem: (id: string) => invoke<string | null>("open_item", { id }),
-  achievementStats: () => invoke<Stats>("achievement_stats"),
   notifications: (limit: number) => invoke<Notification[]>("notifications", { limit }),
   unreadNotifications: () => invoke<number>("unread_notifications"),
   /** Resolves to how many were still unread. */

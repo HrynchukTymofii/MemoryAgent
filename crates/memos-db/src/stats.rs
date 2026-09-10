@@ -11,7 +11,7 @@
 
 use chrono::{Datelike, Duration, Local, NaiveDate};
 use memos_core::achieve::{Recap, Streak, Totals};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::params;
 
 use crate::{Db, DbResult};
 
@@ -241,48 +241,6 @@ impl Db {
         })
     }
 
-    /// Words spoken on each of the last `n` days, oldest first, zero-filled.
-    ///
-    /// Zero-filled on purpose: a sparkline that skips quiet days draws a busy
-    /// fortnight and a scattered one identically.
-    pub fn recent_days(&self, n: u32) -> DbResult<Vec<(String, u32)>> {
-        let today = Local::now().date_naive();
-        let first = today - Duration::days(i64::from(n.saturating_sub(1)));
-        self.with(|c| {
-            let mut stmt = c.prepare(
-                "SELECT day, words FROM daily_activity WHERE day >= ?1 ORDER BY day",
-            )?;
-            let mut found = std::collections::HashMap::new();
-            for row in stmt.query_map(params![first.to_string()], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
-            })? {
-                let (day, words) = row?;
-                found.insert(day, words.max(0) as u32);
-            }
-            Ok((0..n)
-                .map(|i| {
-                    let d = (first + Duration::days(i64::from(i))).to_string();
-                    let w = found.get(&d).copied().unwrap_or(0);
-                    (d, w)
-                })
-                .collect())
-        })
-    }
-
-    /// Words said today. The one figure the Home page shows that moves while
-    /// you watch it.
-    pub fn words_today(&self) -> DbResult<u32> {
-        self.with(|c| {
-            Ok(c.query_row(
-                "SELECT words FROM daily_activity WHERE day = ?1",
-                params![today()],
-                |r| r.get::<_, i64>(0),
-            )
-            .optional()?
-            .unwrap_or(0)
-            .max(0) as u32)
-        })
-    }
 }
 
 #[cfg(test)]
@@ -327,7 +285,6 @@ mod tests {
         assert_eq!(t.commands, 2);
         assert_eq!(t.days_active, 1);
         assert_eq!(t.speech_ms, 12_000);
-        assert_eq!(db.words_today().unwrap(), 25);
     }
 
     #[test]
@@ -371,15 +328,6 @@ mod tests {
         day(&db, &ago(2), 1_800, 4);
         day(&db, &ago(1), 40, 1);
         assert_eq!(db.streak().unwrap().best_day, 1_800);
-    }
-
-    #[test]
-    fn recent_days_are_zero_filled() {
-        let db = Db::open_in_memory().unwrap();
-        day(&db, &ago(2), 50, 1);
-        let week = db.recent_days(5).unwrap();
-        assert_eq!(week.len(), 5);
-        assert_eq!(week.iter().map(|(_, w)| *w).collect::<Vec<_>>(), vec![0, 0, 50, 0, 0]);
     }
 
     #[test]

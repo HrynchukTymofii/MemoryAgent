@@ -207,7 +207,8 @@
     .toast { animation:none; }
   }
 
-  /* The tally at the top of Home: what you have built up, in three figures. */
+  /* Three figures in a row. Used by the referral sheet to report how many
+     people have been brought in and what that has earned. */
   .tally {
     display:flex; align-items:center; gap:26px; flex-wrap:wrap;
     background:var(--card2); border:1px solid var(--line); border-radius:14px;
@@ -218,16 +219,7 @@
     font-variant-numeric:tabular-nums; line-height:1.1;
   }
   .tally .fig span { font-size:11px; color:var(--ink2); }
-  .spark {
-    flex:1; min-width:120px; display:flex; align-items:flex-end; gap:3px;
-    height:34px; margin-left:auto;
-  }
-  .spark i {
-    flex:1; min-width:3px; border-radius:2px 2px 1px 1px; background:var(--acc);
-  }
-  /* A quiet day is drawn, not skipped. Faint enough to read as a gap, present
-     enough that the gap has a width. */
-  .spark i[data-quiet="true"] { background:var(--line2); }
+
 
   /* ---------------------------------------------------------- sidebar */
   /* Collapsed to a rail, not away. The icons are the point of a sidebar you
