@@ -445,19 +445,22 @@ fn tag(db: &Db, cmd: &RoutedCommand, started: std::time::Instant) -> DbResult<Ou
 /// and "next Tuesday" needs interpretation the grammar cannot do safely. A task
 /// is complete with nothing but its words.
 ///
-/// It links to the current memory when there is one, so "create a task to
-/// finish this" after a save reads back attached to what it was about.
+/// Nothing is attached to it. This used to link the newest capture on the
+/// theory that "create a task to finish this" follows a save — but it never
+/// checked that "this" had been said, or that the save was seconds rather than
+/// days ago, so every task came out stapled to whatever was saved last. A task
+/// arrives when a thought does, which is usually nowhere near the last thing
+/// the user filed. Task is task, memory is memory.
 fn task(db: &Db, cmd: &RoutedCommand, started: std::time::Instant) -> DbResult<Outcome> {
     let Some(title) = cmd.slots.title.clone().filter(|t| !t.trim().is_empty()) else {
         return Ok(Outcome::done("nothing", "A task to do what?".into(), started));
     };
 
-    let about = db.most_recent_capture()?;
-    let task = db.create_task(&truncate(&title, 200), about.as_ref().map(|i| i.id), None)?;
+    let task = db.create_task(&truncate(&title, 200), None, None)?;
     Ok(Outcome {
         kind: "task",
         summary: format!("Task: {}", truncate(&task.title, 70)),
-        provenance: about.map(|i| format!("about {}", truncate(&i.title, 70))),
+        provenance: None,
         item_id: None,
         results: Vec::new(),
         open: None,
@@ -1043,8 +1046,10 @@ mod tests {
         assert_eq!(db.tags_for_item(item.id).unwrap(), vec!["react"]);
     }
 
+    /// The newest memory is not what the task is about. It is merely the last
+    /// thing filed, which on any real timeline is days old and unrelated.
     #[test]
-    fn a_task_is_created_and_linked_to_what_was_on_screen() {
+    fn a_task_is_not_linked_to_whatever_was_saved_last() {
         let db = Db::open_in_memory().unwrap();
         let item = KnowledgeItem::capture("Hooks", "body");
         db.capture(&item, None).unwrap();
@@ -1062,10 +1067,10 @@ mod tests {
 
         assert_eq!(out.kind, "task");
         assert_eq!(out.summary, "Task: call the bank");
-        assert_eq!(out.provenance.as_deref(), Some("about Hooks"));
+        assert_eq!(out.provenance, None);
         let tasks = db.tasks(10).unwrap();
         assert_eq!(tasks.len(), 1);
-        assert_eq!(tasks[0].item_id, Some(item.id));
+        assert_eq!(tasks[0].item_id, None);
     }
 
     /// A task stands on its own. This is what separates it from a reminder,
