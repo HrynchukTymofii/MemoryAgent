@@ -131,9 +131,10 @@ impl Embeddings {
         // Done from here because this is the only place that knows the real data
         // directory — the embedder itself is handed the model directory, which
         // is somewhere else entirely.
-        memos_embed::use_bundled_runtime(&data);
+        let bundle = crate::bundle_dir();
+        memos_embed::use_bundled_runtime(&data, bundle.as_deref());
 
-        let Some(dir) = memos_embed::find_model_dir(None, &data) else {
+        let Some(dir) = memos_embed::find_model_dir(None, &data, bundle.as_deref()) else {
             *self.state.write() = ModelState::Missing;
             *self.detail.write() =
                 format!(

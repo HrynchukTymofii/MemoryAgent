@@ -5,7 +5,7 @@ use memos_stt::{find_model, AudioCapture, Hints, Transcriber, Vad, WhisperTransc
 use std::time::Instant;
 
 fn main() {
-    let model = match find_model(None, std::path::Path::new(".")) {
+    let model = match find_model(None, std::path::Path::new("."), None) {
         Some(m) => m,
         None => {
             println!("No model found. Run: {} base.en", memos_core::scripts::FETCH_MODELS);

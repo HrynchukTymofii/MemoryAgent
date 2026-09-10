@@ -76,7 +76,7 @@ fn main() {
         println!("WARNING: expected 16 kHz; transcription will be wrong");
     }
 
-    let model = find_model(None, std::path::Path::new(".")).expect("no model found");
+    let model = find_model(None, std::path::Path::new("."), None).expect("no model found");
     println!("model: {}", model.display());
 
     let t0 = Instant::now();

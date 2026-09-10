@@ -673,6 +673,32 @@ fn week_start() -> String {
     monday.to_string()
 }
 
+/// Where the models shipped inside the application live.
+///
+/// Read-only, and the same for every user on the machine — the opposite of
+/// [`data_dir`], which is per-user and writable. This is what makes a fresh
+/// install work without running a fetch script: the smallest speech model, the
+/// embedding model and the ONNX Runtime are in the installer.
+///
+/// Resolved from the executable rather than through Tauri, because the models
+/// start loading before the window exists and there is no `AppHandle` yet. The
+/// two layouts Tauri produces are the two branches below; `None` when the
+/// executable cannot be located, which leaves every lookup exactly as it was.
+pub fn bundle_dir() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    if cfg!(target_os = "macos") {
+        // PersonalMemoryOS.app/Contents/MacOS/<exe> -> Contents/Resources.
+        // Only inside a real bundle: a bare `cargo run` binary has no such
+        // sibling, and the development paths already cover that case.
+        let resources = dir.parent()?.join("Resources");
+        resources.is_dir().then_some(resources)
+    } else {
+        // Windows and Linux: resources are laid down beside the binary.
+        Some(dir.to_path_buf())
+    }
+}
+
 pub fn data_dir() -> std::path::PathBuf {
     // Per-user application data, so two accounts on one machine get separate
     // databases with no application logic (§12). The platforms disagree only

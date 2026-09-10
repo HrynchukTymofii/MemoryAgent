@@ -88,9 +88,14 @@ pub fn default_model_path() -> PathBuf {
 /// Search the likely locations for a model.
 ///
 /// Checked in order rather than assuming one: during development the model sits
-/// in the repo, and once installed it lives beside the user's data. Returning
-/// the first that exists keeps both working without a build-time switch.
-pub fn find_model(explicit: Option<&Path>, data_dir: &Path) -> Option<PathBuf> {
+/// in the repo, once installed it lives beside the user's data, and `bundled`
+/// is the copy shipped inside the application itself. Returning the first that
+/// exists keeps all three working without a build-time switch.
+pub fn find_model(
+    explicit: Option<&Path>,
+    data_dir: &Path,
+    bundled: Option<&Path>,
+) -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(p) = explicit {
         candidates.push(p.to_path_buf());
@@ -101,6 +106,14 @@ pub fn find_model(explicit: Option<&Path>, data_dir: &Path) -> Option<PathBuf> {
         candidates.push(PathBuf::from("models/stt").join(name));
         candidates.push(PathBuf::from("../../models/stt").join(name));
         candidates.push(PathBuf::from("../../../models/stt").join(name));
+    }
+    // Last, so anything the user fetched for themselves wins. The bundled model
+    // is the floor — the smallest one that works — and a downloaded base.en in
+    // the data directory is an upgrade that must not be shadowed by it.
+    if let Some(dir) = bundled {
+        for name in ["ggml-base.en.bin", "ggml-tiny.en.bin"] {
+            candidates.push(dir.join("models").join(name));
+        }
     }
     candidates.into_iter().find(|p| p.exists())
 }

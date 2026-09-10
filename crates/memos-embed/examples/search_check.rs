@@ -67,7 +67,7 @@ const QUERIES: &[(&str, &str)] = &[
 ];
 
 fn main() {
-    let Some(dir) = find_model_dir(None, std::path::Path::new(".")) else {
+    let Some(dir) = find_model_dir(None, std::path::Path::new("."), None) else {
         println!("No embedding model. Run: {} embedding", memos_core::scripts::FETCH_MODELS);
         std::process::exit(1);
     };

@@ -482,7 +482,9 @@ impl Stt {
     #[cfg(feature = "whisper")]
     fn load(&self, explicit: Option<PathBuf>) {
         let data = crate::data_dir();
-        let Some(path) = memos_stt::find_model(explicit.as_deref(), &data) else {
+        let bundle = crate::bundle_dir();
+        let Some(path) = memos_stt::find_model(explicit.as_deref(), &data, bundle.as_deref())
+        else {
             *self.state.write() = ModelState::Missing;
             *self.detail.write() =
                 format!(

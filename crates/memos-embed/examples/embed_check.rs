@@ -6,7 +6,7 @@ use memos_embed::{cosine, find_model_dir, Embedder, OnnxEmbedder};
 use std::time::Instant;
 
 fn main() {
-    let dir = match find_model_dir(None, std::path::Path::new(".")) {
+    let dir = match find_model_dir(None, std::path::Path::new("."), None) {
         Some(d) => d,
         None => {
             println!("No embedding model. Run: {} embedding", memos_core::scripts::FETCH_MODELS);

@@ -38,7 +38,7 @@ impl OnnxEmbedder {
         // this call cannot match; what it resolves here are the exe-relative and
         // development layouts. The application sets ORT_DYLIB_PATH from its real
         // data directory at start-up, and that takes precedence.
-        crate::use_bundled_runtime(dir);
+        crate::use_bundled_runtime(dir, None);
 
         // Refuse rather than let `ort` panic.
         //

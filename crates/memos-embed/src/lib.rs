@@ -73,9 +73,14 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
 
 /// Locate the model directory.
 ///
-/// Checked in order so the repository layout works during development and the
-/// installed layout works in production, with no build-time switch.
-pub fn find_model_dir(explicit: Option<&Path>, data_dir: &Path) -> Option<PathBuf> {
+/// Checked in order so the repository layout works during development, the
+/// installed layout works in production, and `bundled` — the copy shipped
+/// inside the application — works on a machine that has fetched nothing.
+pub fn find_model_dir(
+    explicit: Option<&Path>,
+    data_dir: &Path,
+    bundled: Option<&Path>,
+) -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(p) = explicit {
         candidates.push(p.to_path_buf());
@@ -84,6 +89,9 @@ pub fn find_model_dir(explicit: Option<&Path>, data_dir: &Path) -> Option<PathBu
     candidates.push(PathBuf::from("models/embedding"));
     candidates.push(PathBuf::from("../../models/embedding"));
     candidates.push(PathBuf::from("../../../models/embedding"));
+    if let Some(dir) = bundled {
+        candidates.push(dir.join("models/embedding"));
+    }
     candidates
         .into_iter()
         .find(|p| p.join("model.onnx").exists() && p.join("tokenizer.json").exists())
@@ -98,7 +106,7 @@ pub fn find_model_dir(explicit: Option<&Path>, data_dir: &Path) -> Option<PathBu
 /// absolute path is the only reliable answer.
 ///
 /// An existing `ORT_DYLIB_PATH` always wins: somebody who set it meant it.
-pub fn use_bundled_runtime(data_dir: &Path) -> Option<PathBuf> {
+pub fn use_bundled_runtime(data_dir: &Path, bundled: Option<&Path>) -> Option<PathBuf> {
     const DYLIB: &str = if cfg!(windows) {
         "onnxruntime.dll"
     } else if cfg!(target_os = "macos") {
@@ -120,6 +128,15 @@ pub fn use_bundled_runtime(data_dir: &Path) -> Option<PathBuf> {
             candidates.push(dir.join(DYLIB));
             candidates.push(dir.join("runtime").join(DYLIB));
         }
+    }
+    // Inside the application bundle, and ahead of the data directory. On macOS
+    // the hardened runtime enforces library validation — a process signed by a
+    // team may only load code signed by that same team — so a copy downloaded
+    // afterwards is refused, `ort` turns the refusal into a panic, and
+    // `panic = "abort"` turns the panic into a dead application. This copy was
+    // signed with the app, so it is the one that can actually be loaded.
+    if let Some(dir) = bundled {
+        candidates.push(dir.join("runtime").join(DYLIB));
     }
     candidates.push(data_dir.join("runtime").join(DYLIB));
     // Development layout, from a crate directory or the workspace root.
@@ -179,7 +196,7 @@ mod tests {
     fn an_explicit_runtime_path_is_respected() {
         // Somebody who sets ORT_DYLIB_PATH is overriding us on purpose.
         std::env::set_var("ORT_DYLIB_PATH", "C:/somewhere/onnxruntime.dll");
-        let got = use_bundled_runtime(Path::new("."));
+        let got = use_bundled_runtime(Path::new("."), None);
         assert_eq!(got, Some(PathBuf::from("C:/somewhere/onnxruntime.dll")));
         std::env::remove_var("ORT_DYLIB_PATH");
     }
