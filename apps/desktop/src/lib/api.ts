@@ -211,6 +211,16 @@ export const api = {
     invoke<Item[]>("items", { collection, limit, offset }),
   search: (query: string, limit: number) => invoke<Item[]>("search", { query, limit }),
   collections: () => invoke<CollectionRow[]>("collections"),
+  /** Resolves to the new collection's path. `parent` is a path, or null for a root. */
+  createCollection: (name: string, parent: string | null) =>
+    invoke<string>("create_collection", { name, parent }),
+  /** Resolves to the path it now has — which its children now sit under. */
+  renameCollection: (id: string, name: string) =>
+    invoke<string>("rename_collection", { id, name }),
+  /** Children go with it; the memories inside come loose rather than dying. */
+  deleteCollection: (id: string) => invoke<void>("delete_collection", { id }),
+  /** Memories filed here or anywhere below — what a delete would unfile. */
+  collectionSize: (path: string) => invoke<number>("collection_size", { path }),
   tasks: (limit: number) => invoke<TaskRow[]>("tasks", { limit }),
   setTaskDone: (id: string, done: boolean) =>
     invoke<void>("set_task_done", { id, done }),

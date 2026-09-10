@@ -451,6 +451,76 @@ fn collections(state: tauri::State<'_, AppState>) -> Vec<CollectionRow> {
         .collect()
 }
 
+/// Make a collection, under another one or at the top.
+///
+/// Addressed by path rather than id, because that is what the interface has in
+/// its hand: the breadcrumb it is standing in. Returns the new path, which is
+/// also the destination the router will accept from now on — the grammar is
+/// rebuilt from this table on the next command.
+#[tauri::command]
+fn create_collection(
+    state: tauri::State<'_, AppState>,
+    name: String,
+    parent: Option<String>,
+) -> Result<String, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("a collection needs a name".into());
+    }
+    if name.contains('/') {
+        return Err("a name cannot contain a slash".into());
+    }
+    let parent_id = match parent.as_deref() {
+        None => None,
+        Some(path) => Some(
+            state
+                .db
+                .collection_id_by_path(path)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| format!("no collection at {path}"))?,
+        ),
+    };
+    state
+        .db
+        .create_collection(&name, parent_id)
+        .map(|c| c.path)
+        .map_err(|e| e.to_string())
+}
+
+/// Rename one, and every path beneath it. Returns the new path.
+#[tauri::command]
+fn rename_collection(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    name: String,
+) -> Result<String, String> {
+    let id = memos_core::Id::parse(&id).map_err(|e| e.to_string())?;
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("a collection needs a name".into());
+    }
+    if name.contains('/') {
+        return Err("a name cannot contain a slash".into());
+    }
+    state
+        .db
+        .rename_collection(id, &name)
+        .map_err(|e| e.to_string())
+}
+
+/// Delete a collection and its children. The memories inside come loose.
+#[tauri::command]
+fn delete_collection(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    let id = memos_core::Id::parse(&id).map_err(|e| e.to_string())?;
+    state.db.delete_collection(id).map_err(|e| e.to_string())
+}
+
+/// How many memories a delete would unfile, for the confirmation.
+#[tauri::command]
+fn collection_size(state: tauri::State<'_, AppState>, path: String) -> u32 {
+    state.db.count_in_subtree(&path).unwrap_or(0)
+}
+
 /// How routing is actually going, from the correction log.
 ///
 /// ADR-0003 makes Tier 0 coverage a product metric rather than an assumption:
@@ -1753,6 +1823,10 @@ fn main() {
             items,
             recent,
             collections,
+            create_collection,
+            rename_collection,
+            delete_collection,
+            collection_size,
             library_summary,
             tasks,
             set_task_done,

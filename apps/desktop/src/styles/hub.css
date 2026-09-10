@@ -721,17 +721,102 @@
 .searchnote { font-size:11.5px; color:var(--ink2); min-height:17px; margin:9px 0 0; }
 
 /* ---------------------------------------------------------- collections */
-.tree { display:flex; flex-direction:column; gap:3px; margin-top:12px; }
-.node {
-  display:flex; align-items:center; gap:10px; width:100%; text-align:left;
-  background:transparent; border:1px solid transparent; border-radius:10px;
-  padding:8px 11px; font:inherit; color:var(--ink); cursor:pointer;
+
+/* The page is a place, not a picture of a tree: a crumb trail saying where you
+   are, a grid of what is directly inside, and the memories filed here beneath
+   it. The old indented list showed every level at once, which is legible at
+   nine collections and unreadable at forty. */
+.crumbs { display:flex; align-items:center; gap:2px; flex-wrap:wrap; margin:2px 0 14px; }
+.crumbs .crw { display:inline-flex; align-items:center; gap:2px; }
+.crumbs .sep { color:var(--ink3); font-size:13px; padding:0 1px; }
+.cr {
+  background:transparent; border:1px solid transparent; border-radius:8px;
+  padding:4px 8px; font:inherit; font-size:13px; color:var(--ink2); cursor:pointer;
 }
-.node:hover { background:var(--card2); border-color:var(--line); }
-.node:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
-.node.on { background:var(--card2); border-color:var(--line2); font-weight:600; }
-.node .n { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.node .c { font-size:11px; color:var(--ink3); font-variant-numeric:tabular-nums; }
+.cr:hover { background:var(--card); border-color:var(--line); color:var(--ink); }
+.cr.on { color:var(--ink); font-weight:600; }
+.cr:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
+.crumbs .btn.ghost {
+  margin-left:auto; font-size:11.5px; padding:4px 10px;
+  background:transparent; color:var(--ink2);
+}
+.crumbs .btn.ghost:hover { background:var(--card); color:var(--ink); }
+
+/* Cards wide enough for a real name and no wider. The grid reflows rather than
+   fixing a column count: the drawer collapses, and a three-up grid that stays
+   three-up would leave a hand's width of nothing down the side. */
+.folders {
+  display:grid; gap:9px; margin-bottom:6px;
+  grid-template-columns:repeat(auto-fill, minmax(178px, 1fr));
+}
+.fold {
+  position:relative; display:flex; flex-direction:column; align-items:flex-start;
+  gap:2px; min-height:96px; padding:13px 14px 12px; text-align:left;
+  background:var(--card); border:1px solid var(--line); border-radius:13px;
+  font:inherit; color:var(--ink); cursor:pointer;
+}
+.fold:hover { border-color:var(--line2); box-shadow:var(--lift); }
+/* The whole card opens it. A transparent hit layer rather than a button
+   wrapping the contents, so the rename and delete controls can sit above it
+   without being nested inside a control that would swallow their clicks. */
+.fold .hit {
+  position:absolute; inset:0; z-index:0; width:100%; height:100%;
+  background:transparent; border:0; border-radius:13px; padding:0; cursor:pointer;
+}
+.fold .hit:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+.fold .g { position:relative; z-index:1; display:block; color:var(--ink3); margin-bottom:5px; }
+.fold .g .ic {
+  width:19px; height:19px; fill:none; stroke:currentColor;
+  stroke-width:1.4; stroke-linecap:round; stroke-linejoin:round;
+}
+.fold:hover .g { color:var(--acc); }
+.fold .n {
+  position:relative; z-index:1; font-size:13.5px; font-weight:600;
+  letter-spacing:-.01em; max-width:100%;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.fold .n.edit {
+  width:100%; background:var(--card2); border:1px solid var(--acc-line);
+  border-radius:7px; padding:3px 6px; margin:-3px -6px; font:inherit;
+  font-weight:600; color:var(--ink);
+}
+.fold .n.edit:focus { outline:2px solid var(--acc); outline-offset:0; }
+.fold .m { position:relative; z-index:1; font-size:11px; color:var(--ink3); margin-top:auto; }
+
+.fold .acts { position:absolute; z-index:2; top:8px; right:8px; display:flex; gap:2px; opacity:0; }
+.fold:hover .acts, .fold:focus-within .acts { opacity:1; }
+.fold .act {
+  display:grid; place-items:center; width:24px; height:24px; padding:0;
+  border:1px solid transparent; border-radius:7px; background:transparent;
+  color:var(--ink3); cursor:pointer;
+}
+.fold .act .ic {
+  width:13px; height:13px; fill:none; stroke:currentColor;
+  stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round;
+}
+.fold .act:hover { background:var(--card2); border-color:var(--line2); color:var(--ink); }
+.fold .act:last-child:hover { background:#FDECEA; border-color:#F3C4BE; color:var(--bad); }
+.fold .act:focus-visible { outline:2px solid var(--acc); outline-offset:1px; }
+
+/* The new tile is a dashed outline rather than a card: it is the shape a
+   collection would take, not a collection. */
+.fold.new {
+  border-style:dashed; border-color:var(--line2); background:transparent;
+  color:var(--ink2); justify-content:center; gap:4px;
+}
+.fold.new:hover { background:var(--card); border-color:var(--acc-line); color:var(--ink); }
+.fold.new .m { margin-top:0; }
+.fold.new:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+
+/* The question replaces the card it is about, in place, so the answer is where
+   the cursor already is and no dialog covers the rest of the grid. */
+.fold.asking {
+  background:#FDECEA; border-color:#F3C4BE; cursor:default; justify-content:space-between;
+}
+.fold.asking .q { font-size:11.5px; color:var(--ink2); line-height:1.45; }
+.fold.asking .q b { color:var(--ink); }
+.fold.asking .q span { display:block; margin-top:3px; }
+.fold.asking .acts { position:static; opacity:1; margin-top:8px; gap:6px; }
 
 /* ------------------------------------------------------------ empty state */
 /* An empty screen has to say which of two very different things is true: the
@@ -741,6 +826,7 @@
   text-align:center; color:var(--ink2); font-size:12.5px; margin-top:14px;
 }
 .empty strong { display:block; color:var(--ink); font-size:13.5px; margin-bottom:5px; }
+.searchnote.err { color:var(--bad); }
 
 /* ---------------------------------------------------------------- status */
 .pillrow { display:flex; flex-wrap:wrap; gap:7px; margin-top:10px; }

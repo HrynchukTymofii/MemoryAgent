@@ -149,6 +149,73 @@ impl Db {
         })
     }
 
+    /// Rename a collection, and re-materialise every path beneath it.
+    ///
+    /// The path column is denormalised so the router grammar can be built from
+    /// one query (§9), which means a rename is not one row's business: every
+    /// descendant carries the old name inside its own path. Done in one
+    /// transaction, because a half-renamed tree is a set of destinations the
+    /// grammar would offer and the resolver could never find.
+    pub fn rename_collection(&self, id: Id, name: &str) -> DbResult<String> {
+        let name = name.trim().to_string();
+        self.transaction(|tx| {
+            let old: String = tx.query_row(
+                "SELECT path FROM collections WHERE id = ?1",
+                params![id.to_string()],
+                |r| r.get(0),
+            )?;
+            let new = match old.rfind('/') {
+                Some(cut) => format!("{}/{name}", &old[..cut]),
+                None => name.clone(),
+            };
+            tx.execute(
+                "UPDATE collections SET name = ?2, path = ?3 WHERE id = ?1",
+                params![id.to_string(), name, new],
+            )?;
+            // The prefix match is anchored with the separator so `Life/Housing`
+            // is not caught by a rename of `Life/House`.
+            tx.execute(
+                "UPDATE collections
+                    SET path = ?2 || substr(path, length(?1) + 1)
+                  WHERE path LIKE ?1 || '/%'",
+                params![old, new],
+            )?;
+            Ok(new)
+        })
+    }
+
+    /// Delete a collection and everything filed under it.
+    ///
+    /// Only the shelving goes. Child collections cascade, and the memories
+    /// inside them fall back to unfiled rather than following the folder into
+    /// the bin — deleting a name the user regrets must never be a way to lose
+    /// the words they said.
+    pub fn delete_collection(&self, id: Id) -> DbResult<()> {
+        self.with(|c| {
+            c.execute(
+                "DELETE FROM collections WHERE id = ?1",
+                params![id.to_string()],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// How many memories are filed in a collection or anywhere beneath it.
+    ///
+    /// What the confirmation before a delete has to state: the folders go, and
+    /// this many memories come loose.
+    pub fn count_in_subtree(&self, path: &str) -> DbResult<u32> {
+        self.with(|c| {
+            Ok(c.query_row(
+                "SELECT count(*) FROM knowledge_items k
+                   JOIN collections c ON c.id = k.collection_id
+                  WHERE c.path = ?1 OR c.path LIKE ?1 || '/%'",
+                params![path],
+                |r| r.get::<_, i64>(0),
+            )? as u32)
+        })
+    }
+
     /// Look up a collection by its materialised path.
     ///
     /// Returns `Ok(None)` for an unknown path rather than an error: the caller
@@ -463,6 +530,40 @@ mod tests {
         let react = db.create_collection("React", Some(prog.id)).unwrap();
         assert_eq!(react.path, "Study/Programming/React");
         assert_eq!(db.collection_paths().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn renaming_a_collection_rewrites_the_paths_below_it() {
+        let db = Db::open_in_memory().unwrap();
+        let life = db.create_collection("Life", None).unwrap();
+        let house = db.create_collection("House", Some(life.id)).unwrap();
+        db.create_collection("Router", Some(house.id)).unwrap();
+        // The sibling that starts with the same letters: the prefix match has
+        // to be anchored on the separator or this one moves too.
+        db.create_collection("Housing", Some(life.id)).unwrap();
+
+        db.rename_collection(house.id, "Home").unwrap();
+        let paths = db.collection_paths().unwrap();
+        assert!(paths.contains(&"Life/Home".to_string()), "{paths:?}");
+        assert!(paths.contains(&"Life/Home/Router".to_string()), "{paths:?}");
+        assert!(paths.contains(&"Life/Housing".to_string()), "{paths:?}");
+    }
+
+    #[test]
+    fn deleting_a_collection_unfiles_its_memories_rather_than_erasing_them() {
+        let db = Db::open_in_memory().unwrap();
+        let life = db.create_collection("Life", None).unwrap();
+        let house = db.create_collection("House", Some(life.id)).unwrap();
+
+        let mut item = KnowledgeItem::capture("Router", "hold reset for ten seconds");
+        item.collection_id = Some(house.id);
+        db.capture(&item, None).unwrap();
+        assert_eq!(db.count_in_subtree("Life").unwrap(), 1);
+
+        db.delete_collection(life.id).unwrap();
+        assert!(db.collection_paths().unwrap().is_empty(), "children go too");
+        let kept = db.get_item(item.id).unwrap().expect("the memory survives");
+        assert!(kept.collection_id.is_none(), "and comes loose");
     }
 
     #[test]
