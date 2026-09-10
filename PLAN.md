@@ -1,5 +1,7 @@
-# Pin the hub shell to the window height so the sidebar stops growing
+# Track silently: drop the words/streak block and its chart from Home
 
-- apps/desktop/src/styles/hub.css — `.shell` gets a fixed `height:100vh` plus
-  `overflow:hidden` instead of `min-height:100vh`, so the sidebar is exactly as
-  tall as the window and `main` does the scrolling.
+- apps/desktop/src/features/home/Home.tsx — tally block and Fortnight gone
+- apps/desktop/src/lib/api.ts — Stats and achievementStats gone
+- apps/desktop/src-tauri/src/main.rs — the achievement_stats command gone
+- crates/memos-db/src/stats.rs — recent_days and words_today, which only fed it
+- apps/desktop/src/styles/hub.css — .spark only; .tally stays for Past referrals
