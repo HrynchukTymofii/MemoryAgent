@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, type Item } from "../../lib/api";
-import { Empty, ItemRow } from "../../components/ItemList";
+import { Empty, ItemRow, ItemsByDay } from "../../components/ItemList";
 
 const PAGE = 60;
 const RESULTS = 25;
@@ -130,12 +130,16 @@ export function Library({
             Hold the shortcut and say something like “save this to reading”.
           </Empty>
         )
-      ) : (
+      ) : q ? (
+        // Ranked by relevance, so there is no day to group under — each row
+        // carries its own date instead.
         <div className="items">
           {items.map((i) => (
-            <ItemRow key={i.id} item={i} onOpened={onChanged} />
+            <ItemRow key={i.id} item={i} onOpened={onChanged} withDate />
           ))}
         </div>
+      ) : (
+        <ItemsByDay items={items} onOpened={onChanged} />
       )}
     </div>
   );

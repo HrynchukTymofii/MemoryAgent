@@ -8,8 +8,23 @@ import { api, type Item } from "../lib/api";
  * Home, Library and search results all render this. A memory that looks
  * different depending on how you arrived at it reads as a different object, and
  * the whole product is built on the idea that there is only one of each.
+ *
+ * The row is a time and what was said, and nothing else. Collection, source,
+ * open count and retriever were all true and all on screen at once, which made
+ * a list of memories read as a table of statistics about memories — you cannot
+ * skim your own words past four pieces of metadata. What a row is for is
+ * finding the thing you said; the rest belongs to the memory, not to the list.
  */
-export function ItemRow({ item, onOpened }: { item: Item; onOpened?: () => void }) {
+export function ItemRow({
+  item,
+  onOpened,
+  withDate,
+}: {
+  item: Item;
+  onOpened?: () => void;
+  /** For lists with no day heading over them — search results, ranked. */
+  withDate?: boolean;
+}) {
   const [error, setError] = useState<string | null>(null);
   const openable = Boolean(item.source_url);
 
@@ -34,43 +49,12 @@ export function ItemRow({ item, onOpened }: { item: Item; onOpened?: () => void 
       // A row with nowhere to go is not a control. Leaving it focusable but
       // inert would promise a click that does nothing.
       tabIndex={openable ? 0 : -1}
-      title={openable ? `Open ${item.source_url}` : "Captured by voice — no source to open"}
+      title={openable ? `Open ${item.source_url}` : undefined}
     >
-      <span className="bd">
-        <span className="t">{item.title}</span>
-        <span className="s">{item.snippet}</span>
-        <span className="m">
-          {item.collection ? (
-            <span className="tag">{item.collection.replace(/\//g, " / ")}</span>
-          ) : (
-            <span className="tag">Unfiled</span>
-          )}
-          <span>{when(item.captured_at)}</span>
-          {item.source_url && (
-            <>
-              <span className="dot">·</span>
-              <span>{domain(item.source_url)}</span>
-            </>
-          )}
-          {item.access_count > 0 && (
-            <>
-              <span className="dot">·</span>
-              <span>opened {item.access_count}×</span>
-            </>
-          )}
-          {item.why && (
-            <>
-              <span className="dot">·</span>
-              <span className="why">{item.why}</span>
-            </>
-          )}
-          {error && (
-            <>
-              <span className="dot">·</span>
-              <span style={{ color: "var(--bad)" }}>{error}</span>
-            </>
-          )}
-        </span>
+      <span className="at">{withDate ? stamp(item.captured_at) : clock(item.captured_at)}</span>
+      <span className="tx">
+        {item.snippet?.trim() || item.title}
+        {error && <span className="err">{error}</span>}
       </span>
     </button>
   );
@@ -121,7 +105,29 @@ function dayLabel(iso: string): string {
   return d.toLocaleDateString(undefined, { day: "numeric", month: "long" });
 }
 
-/** Relative age, shared with any screen that lists something time-stamped. */
+/**
+ * The clock time a memory was captured at.
+ *
+ * A wall-clock time rather than an age, now that the day is stated by the
+ * heading above the group: "11:40" and "Today" together say more than "3 h
+ * ago", and they say it without changing while you read the list.
+ */
+function clock(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+/** The same column where no heading says which day it is. */
+function stamp(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  const sameDay =
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate();
+  return sameDay ? clock(iso) : d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+/** Relative age, for the screens that list something without a day heading. */
 export function when(iso: string): string {
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
   if (mins < 1) return "just now";
@@ -129,13 +135,4 @@ export function when(iso: string): string {
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours} h ago`;
   return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
-}
-
-function domain(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    // A file path, or something the capture recorded verbatim.
-    return url.split(/[\\/]/).pop() ?? url;
-  }
 }

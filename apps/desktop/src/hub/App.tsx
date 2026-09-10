@@ -14,6 +14,7 @@ import { Tasks } from "../features/tasks/Tasks";
 import { Account } from "../features/account/Account";
 import { SignIn } from "../features/account/SignIn";
 import { Settings } from "../features/settings/Settings";
+import { TitleBar } from "../components/TitleBar";
 
 export type Page = "home" | "library" | "collections" | "tasks" | "account" | "settings";
 
@@ -34,6 +35,9 @@ export function App() {
   const [page, setPage] = useState<Page>("home");
   // Set when a collection is picked in Collections; the Library opens filtered.
   const [filter, setFilter] = useState<string | null>(null);
+  /** The sidebar is a drawer; the title bar's first button opens and shuts it. */
+  const [drawer, setDrawer] = useState(true);
+  const [bell, setBell] = useState(false);
 
   const [used, setUsed] = useState(0);
   const [summary, setSummary] = useState<LibrarySummary | null>(null);
@@ -114,6 +118,12 @@ export function App() {
     setPage("library");
   }, []);
 
+  /** Every navigation also shuts the bell, which is a popover over the page. */
+  const go = useCallback((p: Page) => {
+    setPage(p);
+    setBell(false);
+  }, []);
+
   const quota = useMemo(
     () => Math.min(100, (used / CAPTURE_LIMIT) * 100),
     [used],
@@ -123,100 +133,180 @@ export function App() {
   if (askToSignIn === null) return null;
   if (askToSignIn && signInAccount) {
     return (
-      <SignIn
-        account={signInAccount}
-        onDone={() => setAskToSignIn(false)}
-        onSignedIn={() => refresh()}
-      />
+      <div className="shell">
+        {/* Chrome only — but it has to be here, or the first screen anyone
+            sees is a window with no way to move or close it. */}
+        <TitleBar bare />
+        <SignIn
+          account={signInAccount}
+          onDone={() => setAskToSignIn(false)}
+          onSignedIn={() => refresh()}
+        />
+      </div>
     );
   }
 
   return (
-    <div className="shell">
-      <aside className="side">
-        <div className="brand">
-          <span className="bars" aria-hidden="true">
-            <i style={{ height: 7 }} />
-            <i style={{ height: 13 }} />
-            <i style={{ height: 10 }} />
-            <i style={{ height: 15 }} />
-          </span>
-          Memory OS
-        </div>
-        <nav>
-          <ul>
-            <NavItem page="home" current={page} onGo={setPage} glyph="◈" label="Home" />
-            <NavItem
-              page="library"
-              current={page}
-              onGo={(p) => {
-                setFilter(null);
-                setPage(p);
-              }}
-              glyph="▤"
-              label="Library"
-            />
-            <NavItem
-              page="collections"
-              current={page}
-              onGo={setPage}
-              glyph="◱"
-              label="Collections"
-            />
-            <NavItem
-              page="tasks"
-              current={page}
-              onGo={setPage}
-              glyph="◷"
-              label="Tasks"
-              // Only when there is something to do. A badge that sits at zero
-              // is a permanent request for attention that has nothing to say.
-              badge={openTasks > 0 ? openTasks : undefined}
-            />
-          </ul>
-          <div className="navh">Tools</div>
-          <ul>
-            <li className="muted">
-              <span className="g">Aa</span> Dictionary
-            </li>
-            <li className="muted">
-              <span className="g">↺</span> History
-            </li>
-            <NavItem page="account" current={page} onGo={setPage} glyph="◍" label="Account" />
-            <NavItem page="settings" current={page} onGo={setPage} glyph="⚙" label="Settings" />
-          </ul>
-        </nav>
-        <div className="meter">
-          <div className="n">
-            {used} of {CAPTURE_LIMIT} captures
-          </div>
-          <div className="s">Free plan · resets Monday</div>
-          <div className="bar">
-            <i style={{ width: `${quota}%` }} />
-          </div>
-        </div>
-      </aside>
+    <div className={drawer ? "shell" : "shell shut"}>
+      <TitleBar
+        drawerOpen={drawer}
+        onToggleDrawer={() => setDrawer((d) => !d)}
+        onAccount={() => go("account")}
+        accountOn={page === "account"}
+        notifications={openTasks + (offline ? 1 : 0)}
+        onNotifications={() => setBell((b) => !b)}
+        bellOn={bell}
+      />
 
-      <main>
-        {page === "home" && (
-          <Home summary={summary} offline={offline} revision={revision} onGo={setPage} />
-        )}
-        {page === "library" && (
-          <Library
-            filter={filter}
-            onFilter={setFilter}
-            revision={revision}
-            onChanged={refresh}
-          />
-        )}
-        {page === "collections" && (
-          <Collections revision={revision} onOpen={openCollection} />
-        )}
-        {page === "tasks" && <Tasks revision={revision} onChanged={refresh} />}
-        {page === "account" && <Account revision={revision} onChanged={refresh} />}
-        {page === "settings" && <Settings hook={hook} offline={offline} />}
-      </main>
+      {bell && (
+        <Notifications
+          openTasks={openTasks}
+          offline={offline}
+          onGo={go}
+          onClose={() => setBell(false)}
+        />
+      )}
+
+      <div className="body">
+        <aside className="side">
+          <div className="brand">
+            <span className="bars" aria-hidden="true">
+              <i style={{ height: 7 }} />
+              <i style={{ height: 13 }} />
+              <i style={{ height: 10 }} />
+              <i style={{ height: 15 }} />
+            </span>
+            Memory OS
+          </div>
+          <nav>
+            <ul>
+              <NavItem page="home" current={page} onGo={go} glyph="◈" label="Home" />
+              <NavItem
+                page="library"
+                current={page}
+                onGo={(p) => {
+                  setFilter(null);
+                  go(p);
+                }}
+                glyph="▤"
+                label="Library"
+              />
+              <NavItem
+                page="collections"
+                current={page}
+                onGo={go}
+                glyph="◱"
+                label="Collections"
+              />
+              <NavItem
+                page="tasks"
+                current={page}
+                onGo={go}
+                glyph="◷"
+                label="Tasks"
+                // Only when there is something to do. A badge that sits at zero
+                // is a permanent request for attention that has nothing to say.
+                badge={openTasks > 0 ? openTasks : undefined}
+              />
+            </ul>
+            <div className="navh">Tools</div>
+            <ul>
+              <li className="muted">
+                <span className="g">Aa</span> Dictionary
+              </li>
+              <li className="muted">
+                <span className="g">↺</span> History
+              </li>
+            </ul>
+          </nav>
+
+          {/* The foot of the drawer: the plan first, then the settings it leads
+              to. Account is not here — it is the second button in the title
+              bar, next to the one that hides this drawer. */}
+          <div className="foot">
+            <div className="meter">
+              <div className="n">
+                {used} of {CAPTURE_LIMIT} captures
+              </div>
+              <div className="s">Free plan · resets Monday</div>
+              <div className="bar">
+                <i style={{ width: `${quota}%` }} />
+              </div>
+            </div>
+            <nav>
+              <ul>
+                <NavItem page="settings" current={page} onGo={go} glyph="⚙" label="Settings" />
+              </ul>
+            </nav>
+          </div>
+        </aside>
+
+        <main>
+          {page === "home" && (
+            <Home summary={summary} offline={offline} revision={revision} onGo={go} />
+          )}
+          {page === "library" && (
+            <Library
+              filter={filter}
+              onFilter={setFilter}
+              revision={revision}
+              onChanged={refresh}
+            />
+          )}
+          {page === "collections" && (
+            <Collections revision={revision} onOpen={openCollection} />
+          )}
+          {page === "tasks" && <Tasks revision={revision} onChanged={refresh} />}
+          {page === "account" && <Account revision={revision} onChanged={refresh} />}
+          {page === "settings" && <Settings hook={hook} offline={offline} />}
+        </main>
+      </div>
     </div>
+  );
+}
+
+/**
+ * What the bell has to say.
+ *
+ * Only two things in this app ever want attention from a screen you are not
+ * on: a task you spoke, and a backend that stopped answering. Anything the Hub
+ * can already show you in place is not a notification.
+ */
+function Notifications({
+  openTasks,
+  offline,
+  onGo,
+  onClose,
+}: {
+  openTasks: number;
+  offline: boolean;
+  onGo: (p: Page) => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      {/* Clicking anywhere else shuts it — including on the bell, which sits
+          under this, so the bell's own toggle never sees that second click. */}
+      <div className="scrim" onClick={onClose} />
+      <div className="notes" role="dialog" aria-label="Notifications">
+        <div className="notes-h">Notifications</div>
+        {offline && (
+          <div className="note bad">
+            <span className="t">The backend stopped answering</span>
+            <span className="s">Nothing on screen is current until it comes back.</span>
+          </div>
+        )}
+        {openTasks > 0 && (
+          <button type="button" className="note" onClick={() => onGo("tasks")}>
+            <span className="t">
+              {openTasks} task{openTasks === 1 ? "" : "s"} still open
+            </span>
+            <span className="s">Spoken, and waiting on you. Open the list.</span>
+          </button>
+        )}
+        {!offline && openTasks === 0 && <div className="notes-empty">Nothing new.</div>}
+      </div>
+    </>
   );
 }
 

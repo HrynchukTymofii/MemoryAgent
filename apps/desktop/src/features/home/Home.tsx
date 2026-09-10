@@ -85,9 +85,8 @@ export function Home({
         </Empty>
       ) : (
         <>
-          <div className="day" style={{ marginTop: 22 }}>
-            Recent
-          </div>
+          {/* No "Recent" heading over this: the groups below already name the
+              day, and two headings stacked read as two lists. */}
           <ItemsByDay items={items} />
           {summary && summary.items > items.length && (
             <p className="searchnote">
