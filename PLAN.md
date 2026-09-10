@@ -1,6 +1,9 @@
-# Sidebar collapses to an icon rail; plain nav icons; account mark fits
+# Help at the foot of the sidebar
 
-- apps/desktop/src/components/icons.tsx — new: stroke icons for the nav
-- apps/desktop/src/components/TitleBar.tsx — shoulders inside the circle
-- apps/desktop/src/hub/App.tsx — NavItem takes an icon; label wrapped for the rail
-- apps/desktop/src/styles/hub.css — rail width, labels hidden, icon chip gone
+- apps/desktop/src/features/help/HelpMenu.tsx — new: the popover, three groups
+- apps/desktop/src/features/help/Shortcuts.tsx — new: sheet, reads the bound chord
+- apps/desktop/src/features/help/VoiceCommands.tsx — new: sheet, phrases from the grammar
+- apps/desktop/src/features/help/whats-new.ts — new: release notes
+- apps/desktop/src/components/icons.tsx — help, book, mic, globe, mail, bug marks
+- apps/desktop/src/hub/App.tsx — Help under Settings; sheets over the page
+- apps/desktop/src/styles/hub.css — popover opening upward, sheet, key caps
