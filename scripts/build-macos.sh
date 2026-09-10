@@ -29,6 +29,14 @@ if ! command -v cargo >/dev/null && [ -f "$HOME/.cargo/env" ]; then
 fi
 command -v cargo >/dev/null || fail "cargo is not on PATH. Install Rust: https://rustup.rs"
 
+# What the installer carries. An app bundled without these is not broken in any
+# way the build reports — it installs, launches, and then says every model is
+# missing, which is the failure this whole step exists to prevent.
+staged="$root/apps/desktop/src-tauri/resources"
+staged_ok() {
+    [ -f "$staged/models/ggml-tiny.en.bin" ]         && [ -f "$staged/models/embedding/model.onnx" ]         && [ -f "$staged/runtime/libonnxruntime.dylib" ]
+}
+
 # The local build exists because the distribution build cannot be run at all
 # without a Developer ID, and "I want to see it on my own Mac" is the first
 # thing anybody needs — including on the day the Apple account is still being
@@ -50,6 +58,12 @@ if [ "${1:-}" = "--local" ]; then
   unset APPLE_SIGNING_IDENTITY APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
   unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
   unset APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
+
+  # A note rather than a refusal: a bundle with nothing staged still works if
+  # `fetch-models.sh install` has put models in the data directory, which is how
+  # this was developed before the installer carried anything.
+  staged_ok || note "Nothing staged in resources/ — this build ships no models.
+  Run ./scripts/fetch-models.sh bundle first, or fetch-models.sh install after."
 
   note "Local build for $target — not notarised, so it stays on this Mac."
   cd apps/desktop
@@ -110,6 +124,10 @@ fi
 # Checked before the build rather than after. A notarisation that fails at the
 # end of a fifteen-minute compile because of a missing variable is fifteen
 # minutes spent finding that out.
+staged_ok || fail "Nothing staged in resources/. A build handed to somebody else
+must carry its own models — they have no repository to fall back on.
+Run: ./scripts/fetch-models.sh bundle"
+
 : "${APPLE_SIGNING_IDENTITY:?Set APPLE_SIGNING_IDENTITY, e.g. \"Developer ID Application: Your Name (TEAMID)\"}"
 : "${APPLE_TEAM_ID:?Set APPLE_TEAM_ID}"
 if [ -z "${APPLE_API_KEY:-}" ]; then
