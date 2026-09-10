@@ -17,6 +17,7 @@ import { Tasks } from "../features/tasks/Tasks";
 import { Account } from "../features/account/Account";
 import { SignIn } from "../features/account/SignIn";
 import { Settings } from "../features/settings/Settings";
+import { HelpMenu } from "../features/help/HelpMenu";
 import { Notifications } from "../features/notifications/Notifications";
 import { Toasts } from "../features/notifications/Toast";
 import { TitleBar } from "../components/TitleBar";
@@ -295,6 +296,9 @@ export function App() {
                 />
               </ul>
             </nav>
+            {/* Below Settings, and last of everything: it is the row you reach
+                for when the rest of the sidebar has not answered you. */}
+            <HelpMenu railed={!drawer} />
           </div>
         </aside>
 

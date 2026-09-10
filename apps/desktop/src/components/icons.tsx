@@ -87,3 +87,93 @@ export function SettingsIcon() {
     </Icon>
   );
 }
+
+/* ------------------------------------------------------------------ help */
+/* The same grid and stroke as the nav marks above, because they appear in the
+   same column: Help is the last row of the sidebar, and its menu sits directly
+   over the list these came from. */
+
+export function HelpIcon() {
+  return (
+    <Icon>
+      <circle cx="9" cy="9" r="6.9" />
+      <path d="M7 7.1a2 2 0 1 1 2.6 1.9c-.5.2-.8.6-.8 1.1v.5" />
+      <path d="M9 13.1v.1" />
+    </Icon>
+  );
+}
+
+export function MicIcon() {
+  return (
+    <Icon>
+      <rect x="6.7" y="1.9" width="4.6" height="8.4" rx="2.3" />
+      <path d="M3.9 8.5a5.1 5.1 0 0 0 10.2 0" />
+      <path d="M9 13.6v2.5" />
+    </Icon>
+  );
+}
+
+export function GlobeIcon() {
+  return (
+    <Icon>
+      <circle cx="9" cy="9" r="6.9" />
+      <path d="M2.1 9h13.8" />
+      <path d="M9 2.1a10.6 10.6 0 0 1 0 13.8 10.6 10.6 0 0 1 0-13.8z" />
+    </Icon>
+  );
+}
+
+export function BookIcon() {
+  return (
+    <Icon>
+      <path d="M3 3.4h4.1A2.2 2.2 0 0 1 9 4.6v10a1.7 1.7 0 0 0-1.5-.9H3z" />
+      <path d="M15 3.4h-4.1A2.2 2.2 0 0 0 9 4.6v10a1.7 1.7 0 0 1 1.5-.9H15z" />
+    </Icon>
+  );
+}
+
+export function MailIcon() {
+  return (
+    <Icon>
+      <rect x="2.1" y="4.2" width="13.8" height="9.6" rx="1.9" />
+      <path d="M2.6 5.4L9 9.9l6.4-4.5" />
+    </Icon>
+  );
+}
+
+export function BugIcon() {
+  return (
+    <Icon>
+      <rect x="5.4" y="5.9" width="7.2" height="8.6" rx="3.6" />
+      <path d="M6.9 5.4a2.1 2.1 0 0 1 4.2 0" />
+      <path d="M5.4 8.4H2.9M5.4 12h-2.2M12.6 8.4h2.5M12.6 12h2.2" />
+    </Icon>
+  );
+}
+
+export function StarIcon() {
+  return (
+    <Icon>
+      <path d="M9 2.4l2 4.2 4.5.6-3.3 3.2.8 4.5L9 12.8l-4 2.1.8-4.5L2.5 7.2 7 6.6z" />
+    </Icon>
+  );
+}
+
+export function SparkIcon() {
+  return (
+    <Icon>
+      <path d="M7.6 2.3l1.5 3.6 3.6 1.5-3.6 1.5-1.5 3.6-1.5-3.6L2.5 7.4l3.6-1.5z" />
+      <path d="M13.3 11.2l.7 1.7 1.7.7-1.7.7-.7 1.7-.7-1.7-1.7-.7 1.7-.7z" />
+    </Icon>
+  );
+}
+
+export function GiftIcon() {
+  return (
+    <Icon>
+      <rect x="2.5" y="7.6" width="13" height="7.9" rx="1.6" />
+      <path d="M1.8 5.1h14.4v2.5H1.8zM9 5.1v10.4" />
+      <path d="M9 5.1S8.2 2.2 6.4 2.2a1.5 1.5 0 0 0 0 2.9zM9 5.1s.8-2.9 2.6-2.9a1.5 1.5 0 0 1 0 2.9z" />
+    </Icon>
+  );
+}

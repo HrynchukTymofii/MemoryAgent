@@ -183,7 +183,7 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
         </p>
       )}
 
-      <div className="card">
+      <div className="card" id="capture">
         <h2>Capture</h2>
         <Shortcut settings={settings} hook={hook} onSaved={setSettings} />
 
@@ -267,7 +267,7 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
         </div>
       </div>
 
-      <div className="card">
+      <div className="card" id="models">
         <h2>Models</h2>
         <p>
           All three run locally. Only speech is required: without embeddings, search still works on
