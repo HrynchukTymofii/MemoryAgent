@@ -133,7 +133,7 @@ could not verify this app is free of malware" on any Mac that did not build it.
 before building:
 
 ```
-.\scriptsetch-models.ps1 bundle      # Windows
+.\scripts\fetch-models.ps1 bundle      # Windows
 ./scripts/fetch-models.sh bundle        # macOS
 ```
 
