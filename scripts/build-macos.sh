@@ -58,6 +58,17 @@ if [ "${1:-}" = "--local" ]; then
 
   app="$root/target/$target/release/bundle/macos/PersonalMemoryOS.app"
 
+  # The router goes in before signing, not after. Adding a file to a signed
+  # bundle breaks its seal and forces a second signing pass, and every change to
+  # the bundle's hash is a chance for macOS to decide this is a different
+  # application and quietly drop its Accessibility and Input Monitoring grants.
+  # One signature over the finished bundle is the whole point.
+  router="$root/target/$target/release/memos-router"
+  if [ -f "$router" ]; then
+    cp "$router" "$app/Contents/MacOS/memos-router"
+    note "Included the router sidecar."
+  fi
+
   # Tauri leaves the bundle with only the linker's ad-hoc signature on the
   # executable, which fails `codesign --verify` and carries no entitlements —
   # so the microphone is denied under the hardened runtime. Signing it here is

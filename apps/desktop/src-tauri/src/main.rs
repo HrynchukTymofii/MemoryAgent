@@ -1113,16 +1113,28 @@ fn floats_over_fullscreen<R: Runtime>(w: &tauri::WebviewWindow<R>) {
     // SAFETY: `ns_window()` hands back this window's NSWindow, and this runs on
     // the main thread, which is the only thread AppKit permits these on.
     let window: &NSWindow = unsafe { &*(ptr as *const NSWindow) };
+
+    // Stationary is deliberately *not* set alongside CanJoinAllSpaces. It means
+    // "does not participate in Spaces switching", which is the opposite of
+    // following the user onto a full-screen space, and the two together are a
+    // contradiction the window server resolves in the direction we do not want.
     window.setCollectionBehavior(
         NSWindowCollectionBehavior::CanJoinAllSpaces
-            | NSWindowCollectionBehavior::FullScreenAuxiliary
-            // Stationary keeps it put during Mission Control rather than being
-            // swept aside with the ordinary windows.
-            | NSWindowCollectionBehavior::Stationary,
+            | NSWindowCollectionBehavior::FullScreenAuxiliary,
     );
     // NSStatusWindowLevel. Named by value because objc2 exposes the levels as
     // plain integers, and this is the level the menu bar's own items use.
     window.setLevel(25);
+
+    // Read back rather than assume. Setting a collection behaviour is silent
+    // whether or not it takes, and "the overlay still is not over my editor" is
+    // impossible to act on without knowing which half failed — the flags, or
+    // what macOS did with them.
+    crate::hotkey::diag(&format!(
+        "overlay window: level={} collectionBehavior={:#x}",
+        window.level(),
+        window.collectionBehavior().0
+    ));
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -1581,6 +1593,22 @@ fn main() {
                                                     .take()
                                                     .map(|p| p.finish())
                                                     .unwrap_or_default();
+                                                // What "save this" will actually
+                                                // have to work with. An empty
+                                                // context is declined further
+                                                // down with "nothing to save
+                                                // here", and that message cannot
+                                                // distinguish a permission that
+                                                // was never granted from a page
+                                                // that exposes nothing — but
+                                                // these four fields can.
+                                                hotkey::diag(&format!(
+                                                    "context: app={:?} title={:?} url={:?} selection={} chars",
+                                                    ctx.active_application.as_deref().unwrap_or("-"),
+                                                    ctx.active_window_title.as_deref().unwrap_or("-"),
+                                                    ctx.current_url.as_deref().unwrap_or("-"),
+                                                    ctx.selected_text.as_deref().map(str::len).unwrap_or(0),
+                                                ));
                                                 if !stt_worker.submit(
                                                     audio,
                                                     hints.clone(),
