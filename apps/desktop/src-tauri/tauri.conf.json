@@ -47,11 +47,7 @@
   "bundle": {
     "active": true,
     "resources": {
-      "resources/models/*.bin": "models/",
-      "resources/models/embedding/*.onnx": "models/embedding/",
-      "resources/models/embedding/*.json": "models/embedding/",
-      "resources/runtime/*.dll": "runtime/",
-      "resources/runtime/*.dylib": "runtime/"
+      "resources/": ""
     },
     "targets": [
       "msi",
