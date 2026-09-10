@@ -1,11 +1,7 @@
-# Make the macOS build do the things it currently only pretends to do
+# Rest the pill at the top, in black and white
 
-- apps/desktop/src-tauri/src/hotkey.rs — CGEventTap `imp`, keycodes translated
-  into the Windows VK numbering `Chord` already speaks
-- crates/memos-context/src/macos_impl.rs — app, title, selection, URL, clipboard
-  via the Accessibility API; `page_text` deliberately left out
-- crates/memos-context/src/url.rs — the URL helpers, now shared not Windows-only
-- crates/memos-embed/src/onnx.rs — refuse without a runtime instead of panicking
-- scripts/fetch-models.sh — models, ONNX Runtime, and `install` into the app
-- scripts/build-router.sh — llama.cpp sidecar, into the bundle, re-signed
-- crates/memos-core/src/lib.rs — name the script the reader can actually run
+- apps/desktop/overlay.html — one monochrome palette as variables, light and
+  dark by `prefers-color-scheme`; capsule radius everywhere; shorter pill
+- apps/desktop/src-tauri/src/main.rs — default resting position moves to
+  top-centre; `rest_state` reports top when nothing was ever dragged;
+  `save_pill_anchor` flips its threshold to match the new resting edge

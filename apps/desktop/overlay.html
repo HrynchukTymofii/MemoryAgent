@@ -7,12 +7,56 @@
   /* No framework here on purpose. This window's paint time IS stage 1 of the
      latency budget (§4), and a React mount would sit directly on it. The Hub
      can afford a framework; the overlay cannot. */
-  :root { color-scheme: dark; }
+  /* One palette, stated once, in black and white.
+
+     Both schemes are defined here rather than only the dark one, because this
+     window floats over whatever the user is working in: a dark pill over a
+     white document is as wrong as a white pill over a dark editor. The desktop
+     already knows which it is, so the pill follows it instead of guessing.
+
+     Monochrome throughout, deliberately. The state colours this replaces — red
+     while recording, teal on success, amber for unsure — are carried by weight
+     and emphasis now: a filled dot, a stronger border, a muted line. */
+  :root {
+    color-scheme: light dark;
+    --bg:           #FFFFFF;
+    --fg:           #0A0A0A;
+    --fg-muted:     #6B6B6B;
+    --fg-faint:     #8E8E8E;
+    --border:       #DCDCDC;
+    --border-firm:  #B0B0B0;
+    --hover:        #F1F1F1;
+    --active:       #E4E4E4;
+    --chip:         #F4F4F4;
+    --shadow:       rgba(0, 0, 0, .16);
+    --shadow-soft:  rgba(0, 0, 0, .10);
+    /* The resting capsule is translucent so it reads as part of the desktop
+       rather than a window sitting on it. */
+    --idle-bg:      rgba(255, 255, 255, .82);
+    --idle-border:  rgba(0, 0, 0, .18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:           #0A0A0A;
+      --fg:           #FFFFFF;
+      --fg-muted:     #9A9A9A;
+      --fg-faint:     #7A7A7A;
+      --border:       #2E2E2E;
+      --border-firm:  #4E4E4E;
+      --hover:        #1B1B1B;
+      --active:       #262626;
+      --chip:         #1C1C1C;
+      --shadow:       rgba(0, 0, 0, .55);
+      --shadow-soft:  rgba(0, 0, 0, .40);
+      --idle-bg:      rgba(10, 10, 10, .78);
+      --idle-border:  rgba(255, 255, 255, .22);
+    }
+  }
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
     background: transparent;   /* the window itself is transparent */
     overflow: hidden;
-    font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    font-family: system-ui, -apple-system, "Segoe UI Variable", "Segoe UI", sans-serif;
     user-select: none; cursor: default;
   }
   /* Everything is pinned to the bottom of the window, and the window is
@@ -26,12 +70,14 @@
   #pill {
     display: flex; align-items: center; gap: 13px;
     margin: 10px 14px;
-    padding: 11px 18px 11px 15px;
-    background: #1F2328;
-    border: 1px solid #363D45;
-    border-radius: 14px;
-    box-shadow: 0 12px 32px rgba(15, 26, 40, .40);
-    color: #F1F4F8;
+    padding: 9px 17px 9px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    /* A capsule, not a rounded rectangle. The shape is the identity of this
+       thing, and it should be the same shape at every size it takes. */
+    border-radius: 999px;
+    box-shadow: 0 10px 28px var(--shadow);
+    color: var(--fg);
     /* Start hidden-but-laid-out so showing the window never triggers a
        reflow — only a repaint. */
     opacity: 0;
@@ -43,42 +89,42 @@
   #pill.shown { opacity: 1; }
   #dot {
     width: 8px; height: 8px; border-radius: 50%;
-    background: #E2564B; flex: none;
-    box-shadow: 0 0 0 4px rgba(226, 86, 75, .20);
+    background: var(--fg); flex: none;
+    box-shadow: 0 0 0 4px var(--shadow-soft);
   }
   #wave { display: flex; align-items: center; gap: 2.5px; height: 20px; flex: none; }
   #wave i {
-    width: 2.5px; border-radius: 2px; background: #DCE5EC; display: block;
+    width: 2.5px; border-radius: 2px; background: var(--fg); display: block;
     height: 6px; transition: height 110ms ease-out;
   }
   #text {
     font-size: 13.5px; flex: 1; min-width: 0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  #text .hint { color: #8D9AA8; }
+  #text .hint { color: var(--fg-muted); }
   /* The provenance line, under the summary. Small and quiet: it is there to be
      trusted, not read every time. */
   #text .sub {
-    display: block; font-size: 11px; color: #8D9AA8; margin-top: 2px;
+    display: block; font-size: 11px; color: var(--fg-muted); margin-top: 2px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  #pill { min-height: 44px; }
+  #pill { min-height: 38px; }
   /* The pill widens for a transcript. Fixed-width would truncate most
      sentences, and the point of showing it is that the user can read it. */
-  #pill.done { border-color: #2E5B54; }
-  #pill.done #text { color: #FFFFFF; }
-  #pill.empty #text { color: #8D9AA8; }
+  #pill.done { border-color: var(--border-firm); }
+  #pill.done #text { color: var(--fg); }
+  #pill.empty #text { color: var(--fg-muted); }
   /* Heard, not acted on. Amber rather than red: nothing failed and nothing was
      lost — the system simply declined to guess, and the user needs to know that
      rather than assume it worked. */
-  #pill.unsure { border-color: #6B5320; }
-  #pill.unsure #text { color: #F1F4F8; }
-  #pill.unsure #kbd { color: #E8A33D; border-color: #6B5320; }
-  #pill.done #kbd { color: #4FC9B2; border-color: #2E5B54; }
+  #pill.unsure { border-color: var(--border-firm); }
+  #pill.unsure #text { color: var(--fg); }
+  #pill.unsure #kbd { color: var(--fg); border-color: var(--border-firm); }
+  #pill.done #kbd { color: var(--fg); border-color: var(--border-firm); }
   #kbd {
     font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-    font-size: 10px; color: #8D9AA8;
-    border: 1px solid #414A54; border-radius: 5px; padding: 2px 6px; flex: none;
+    font-size: 10px; color: var(--fg-muted);
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; flex: none;
   }
 
   /* ------------------------------------------------------------- results */
@@ -89,13 +135,13 @@
   }
   #results.shown { opacity: 1; }
   #results li {
-    background: #1F2328; border: 1px solid #363D45; border-radius: 10px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
     padding: 8px 12px;
-    box-shadow: 0 8px 20px rgba(15, 26, 40, .32);
+    box-shadow: 0 8px 20px var(--shadow-soft);
   }
   /* The best match is stated, not merely listed first. In a list read at a
      glance, position alone is too weak a signal to carry "this is the answer". */
-  #results li.best { border-color: #2E5B54; }
+  #results li.best { border-color: var(--border-firm); }
 
   /* ------------------------------------------------------------- answering */
   /* A question is the one time this window is something you point at. The
@@ -106,27 +152,27 @@
   #results li.option button {
     display: flex; align-items: center; gap: 11px; width: 100%;
     padding: 9px 12px; background: transparent; border: 0;
-    font: inherit; color: #F1F4F8; text-align: left; cursor: pointer;
+    font: inherit; color: var(--fg); text-align: left; cursor: pointer;
   }
-  #results li.option button:hover { background: #2A3037; }
-  #results li.option button:active { background: #333B44; }
+  #results li.option button:hover { background: var(--hover); }
+  #results li.option button:active { background: var(--active); }
   #results li.option .num {
     display: grid; place-items: center; flex: none;
     width: 19px; height: 19px; border-radius: 6px;
-    background: #2E3238; border: 1px solid #414A54;
+    background: var(--chip); border: 1px solid var(--border);
     font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-    font-size: 10.5px; color: #8D9AA8;
+    font-size: 10.5px; color: var(--fg-muted);
   }
-  #results li.option button:hover .num { color: #F1F4F8; border-color: #5A6673; }
+  #results li.option button:hover .num { color: var(--fg); border-color: var(--border-firm); }
   /* Once a choice is made the list is history: it must not look like it is
      still asking while the receipt is being written. */
   #results.answered { opacity: .45; pointer-events: none; }
   #results .title {
-    display: block; font-size: 12.5px; color: #F1F4F8;
+    display: block; font-size: 12.5px; color: var(--fg);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   #results .meta {
-    display: block; font-size: 10.5px; color: #8D9AA8; margin-top: 2px;
+    display: block; font-size: 10.5px; color: var(--fg-muted); margin-top: 2px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   /* Which retriever found it. Quiet, but present: a result the keyword side
@@ -134,7 +180,7 @@
      able to see when search surprises you. */
   #results .why {
     font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-    font-size: 9.5px; color: #6E7C8A;
+    font-size: 9.5px; color: var(--fg-faint);
   }
 
   /* ------------------------------------------------------------- idle */
@@ -157,17 +203,17 @@
     gap: 0;
     border-radius: 999px;
     cursor: grab;
-    background: rgba(31, 35, 40, .78);
-    border-color: rgba(120, 134, 150, .28);
-    box-shadow: 0 3px 10px rgba(15, 26, 40, .28);
+    background: var(--idle-bg);
+    border-color: var(--idle-border);
+    box-shadow: 0 3px 10px var(--shadow-soft);
     transition: opacity 90ms ease-out, height 110ms ease-out, width 110ms ease-out,
                 background 110ms ease-out;
   }
   #pill.idle:hover {
     width: 58px;
     height: 13px;
-    background: #1F2328;
-    border-color: rgba(160, 175, 190, .5);
+    background: var(--bg);
+    border-color: var(--border-firm);
   }
   #pill.idle:active { cursor: grabbing; }
   /* Everything the capture pill puts inside itself is gone here, not merely
@@ -189,26 +235,26 @@
      it has something to say. */
   #pill.idle.expanded {
     width: auto; height: auto; min-height: 0;
-    padding: 8px 14px; gap: 9px; border-radius: 14px;
-    background: #1F2328; border-color: #414A54;
+    padding: 7px 15px; gap: 9px; border-radius: 999px;
+    background: var(--bg); border-color: var(--border);
     cursor: default;
   }
   #pill.idle.expanded #text {
-    display: block; flex: 0 0 auto; font-size: 11px; color: #8D9AA8;
+    display: block; flex: 0 0 auto; font-size: 11px; color: var(--fg-muted);
     letter-spacing: .04em; text-transform: uppercase;
   }
   #results li.recent .title { font-size: 12px; }
   #results li.foot {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    padding: 7px 12px; background: rgba(31, 35, 40, .82);
+    padding: 7px 12px; background: var(--chip);
   }
-  #results li.foot .count { font-size: 11px; color: #8D9AA8; }
+  #results li.foot .count { font-size: 11px; color: var(--fg-muted); }
   #results li.foot button {
-    background: #2E3238; border: 1px solid #414A54; border-radius: 7px;
-    color: #F1F4F8; font: inherit; font-size: 11px; padding: 4px 10px;
+    background: var(--chip); border: 1px solid var(--border); border-radius: 999px;
+    color: var(--fg); font: inherit; font-size: 11px; padding: 4px 12px;
     cursor: pointer;
   }
-  #results li.foot button:hover { background: #3A424B; border-color: #5A6673; }
+  #results li.foot button:hover { background: var(--hover); border-color: var(--border-firm); }
 
   @media (prefers-reduced-motion: reduce) {
     #pill, #wave i, #results { transition: none; }

@@ -797,7 +797,16 @@ fn rest_state(state: tauri::State<'_, AppState>) -> RestState {
     let c = state.config.lock();
     RestState {
         idle_pill: c.idle_pill,
-        top: c.pill_top,
+        // `pill_top` only means anything once the pill has been dragged
+        // somewhere. Until then the answer is the resting position, which is the
+        // top of the screen — and reading the stored `false` instead would lay
+        // the page out to open upward from a pill sitting at the top edge, where
+        // there is nothing to open into.
+        top: if c.pill_x.is_some() && c.pill_y.is_some() {
+            c.pill_top
+        } else {
+            true
+        },
     }
 }
 
@@ -808,11 +817,12 @@ fn rest_state(state: tauri::State<'_, AppState>) -> RestState {
 /// thing that knows where it ended up.
 ///
 /// Which edge becomes the anchor is decided here, by where the pill landed. In
-/// the top third of its display it anchors by its top and opens downward;
-/// anywhere else it anchors by its bottom and opens upward. A third rather than
-/// a half because opening upward is the better default — it is what the pill
-/// does at its resting position — so the flip should need a deliberate move
-/// toward the top edge, not merely crossing the middle of the screen.
+/// the bottom third of its display it anchors by its bottom and opens upward;
+/// anywhere else it anchors by its top and opens downward. Two thirds rather
+/// than a half because opening downward is the default — it is what the pill
+/// does at its resting position at the top of the screen — so the flip should
+/// need a deliberate move toward the bottom edge, not merely crossing the
+/// middle.
 #[tauri::command]
 fn save_pill_anchor(
     app: tauri::AppHandle,
@@ -833,9 +843,9 @@ fn save_pill_anchor(
         .map(|m| {
             let mp = m.position();
             let ms = m.size();
-            centre_y < mp.y + ms.height as i32 / 3
+            centre_y < mp.y + (ms.height as i32 * 2 / 3)
         })
-        .unwrap_or(false);
+        .unwrap_or(true);
 
     let state_out = {
         let mut c = state.config.lock();
@@ -1293,9 +1303,13 @@ fn position_overlay_sized<R: Runtime>(w: &tauri::WebviewWindow<R>, size: tauri::
     let mp = m.position();
     let ms = m.size();
     let x = mp.x + (ms.width as i32 - size.width as i32) / 2;
-    // Roughly 14% up from the bottom edge — clear of the taskbar, still in the
-    // lower field of view where the eye already is when typing.
-    let y = mp.y + ms.height as i32 - size.height as i32 - (ms.height as i32 * 14 / 100);
+    // Roughly 5% down from the top edge. Far enough to clear the menu bar and
+    // the notch on the displays that have one, close enough that the pill reads
+    // as belonging to the top of the screen rather than floating in the middle.
+    //
+    // The window is anchored by its top edge here, so a result list grows
+    // downward into empty space and the pill itself never moves.
+    let y = mp.y + (ms.height as i32 * 5 / 100);
 
     if let Err(e) = w.set_position(PhysicalPosition::new(x, y)) {
         tracing::warn!(?e, "could not position overlay");
