@@ -38,7 +38,9 @@ MSVC build tools, the Windows SDK and WebView2 are also required; recent
 Windows 11 installs already have WebView2. whisper.cpp additionally needs
 **libclang** — see [Toolchain](#toolchain).
 
-Models are not committed. Fetch them once:
+Models are not committed, and a *development* checkout fetches them itself. (An
+installed build carries its own — see [What the installer
+carries](#what-the-installer-carries).) Fetch them once:
 
 ```
 .\scripts\fetch-models.ps1 base.en     # speech, ~148 MB
@@ -125,14 +127,40 @@ one, which is the worst possible way to discover the problem.
 Both signing and notarisation are required. Signing alone still gets "Apple
 could not verify this app is free of malware" on any Mac that did not build it.
 
-### Before the first real release
+### What the installer carries
 
-The app needs ~820 MB of models (whisper 148 MB, embeddings 34 MB, router
-640 MB) and currently expects `scripts/fetch-models.ps1` to have been run — a
-developer script. Shipping needs a decision: bundle them in the installer, or
-download on first run with progress and resumption. The router is optional (the
-app falls back to Tier 0 without it), so first-run download of the other two is
-182 MB, which is the smaller problem.
+**Everything needed to work on first launch, and nothing else.** Stage it once
+before building:
+
+```
+.\scriptsetch-models.ps1 bundle      # Windows
+./scripts/fetch-models.sh bundle        # macOS
+```
+
+That puts ~118 MB into `apps/desktop/src-tauri/resources/`, which the bundler
+ships:
+
+| | | |
+|---|---|---|
+| whisper `tiny.en` | 78 MB | speech |
+| bge-small-en-v1.5 + tokenizer | 34 MB | semantic search |
+| ONNX Runtime | 11 MB | executes the above |
+
+`tiny.en` rather than `base.en` is the whole decision. It is the floor that
+makes the product work the moment it is installed, not the ceiling — `base.en`
+stays a later upgrade, and `find_model` puts anything in the data directory
+ahead of the bundled copy, so downloading one shadows this one with no further
+logic.
+
+The router (609 MB) is deliberately not bundled. Tier 0 answers the formulaic
+commands without it, so it is an upgrade rather than a wall in front of first
+use, and it would multiply the installer by six.
+
+The ONNX Runtime is bundled for a different reason: it is a library the process
+`dlopen`s, and macOS's hardened runtime only lets a signed process load code
+signed by the same team. Inside the bundle it is signed with the app. Fetched
+afterwards it is refused, `ort` turns the refusal into a panic, and
+`panic = "abort"` turns the panic into a dead application.
 
 ## Run
 
