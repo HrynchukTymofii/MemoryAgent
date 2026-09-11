@@ -223,6 +223,17 @@ pub struct Config {
     #[serde(default)]
     pub auth: memos_auth::Provider,
 
+    /// The key the router uses, if this copy has one.
+    ///
+    /// In the config file rather than baked in at build time, because it is the
+    /// user's own key and their own bill — and in the data directory rather
+    /// than the repository, because a key in a checked-out file is a key in
+    /// somebody's git history eventually. `ANTHROPIC_API_KEY` in the
+    /// environment wins over it, which is what makes a development machine
+    /// usable without writing the key to disk at all.
+    #[serde(default)]
+    pub anthropic_api_key: Option<String>,
+
     /// Whether the sign-in screen has been shown and answered once.
     ///
     /// Skipping is an answer, and it has to be remembered. An optional account
@@ -253,12 +264,27 @@ impl Default for Config {
             pill_y: None,
             pill_top: false,
             auth: memos_auth::Provider::default(),
+            anthropic_api_key: None,
             sign_in_prompt_seen: false,
         }
     }
 }
 
 impl Config {
+    /// The key to route with, from the environment first.
+    ///
+    /// Returning `None` is a supported state and not an error: the app runs
+    /// without a router, on the grammar, exactly as it did before there was
+    /// one — and the Hub says so rather than leaving the user to discover it
+    /// one unusual phrasing at a time.
+    pub fn api_key(&self) -> Option<String> {
+        std::env::var("ANTHROPIC_API_KEY")
+            .ok()
+            .or_else(|| self.anthropic_api_key.clone())
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty())
+    }
+
     pub fn path() -> PathBuf {
         crate::data_dir().join("config.json")
     }

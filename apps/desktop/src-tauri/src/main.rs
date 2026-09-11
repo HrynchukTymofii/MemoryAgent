@@ -5,7 +5,6 @@ mod config;
 mod embedding;
 mod hotkey;
 mod question;
-mod router;
 mod latency;
 mod transcription;
 mod tray;
@@ -32,7 +31,6 @@ pub struct AppState {
     pub embeddings: Arc<Embeddings>,
     /// The one destination question waiting on an answer, if any.
     pub questions: Arc<question::Pending>,
-    pub router: Arc<router::Tier1>,
     /// Sign-in. Present whether or not a provider is configured; an
     /// unconfigured one simply answers "not signed in" to everything, which is
     /// the same answer a signed-out user gets and needs no special casing.
@@ -215,21 +213,21 @@ fn embed_status(state: tauri::State<'_, AppState>) -> embedding::EmbedStatus {
 
 #[derive(serde::Serialize)]
 struct RouterStatus {
-    state: router::ModelState,
+    state: transcription::ModelState,
     detail: String,
 }
 
-/// Whether commands the grammar does not recognise get a second chance.
+/// Whether commands are being routed by the model or by the grammar.
 ///
-/// Worth showing, because the difference is invisible until you phrase
-/// something unusually: with the router, an unfamiliar phrasing is understood;
-/// without it, the same words come back as "not sure what to do with that".
+/// Worth showing, and shown from the last thing that actually happened rather
+/// than from configuration. A tier that is configured, reports itself fine and
+/// silently declines every command is the least debuggable state this design
+/// can produce — it has already happened once here, for three days, over a
+/// stale binary nothing on screen mentioned.
 #[tauri::command]
 fn router_status(state: tauri::State<'_, AppState>) -> RouterStatus {
-    RouterStatus {
-        state: state.router.state(),
-        detail: state.router.detail(),
-    }
+    let (state, detail) = state.stt.cloud_health();
+    RouterStatus { state, detail }
 }
 
 /// Resize the overlay to the height the page just measured for itself.
@@ -455,8 +453,8 @@ fn collections(state: tauri::State<'_, AppState>) -> Vec<CollectionRow> {
 ///
 /// Addressed by path rather than id, because that is what the interface has in
 /// its hand: the breadcrumb it is standing in. Returns the new path, which is
-/// also the destination the router will accept from now on — the grammar is
-/// rebuilt from this table on the next command.
+/// also a destination the router can file into from the next command onwards —
+/// the collection list is read fresh on every one.
 #[tauri::command]
 fn create_collection(
     state: tauri::State<'_, AppState>,
@@ -1810,23 +1808,20 @@ fn main() {
     embeddings.start(db.clone());
     let questions = Arc::new(question::Pending::default());
 
-    // Tier 1, started before the window exists like the other two models — but
-    // in a process of its own (ADR-0008). Loading costs ~1.3 s and prefills
-    // several hundred tokens of prompt; the first capture must not be what
-    // waits for that, and Tier 0 answers most commands without consulting it.
-    let tier1 = router::Tier1::new();
-    match router::find_model() {
-        Some(path) => tier1.start(path, db.collection_paths().unwrap_or_default()),
-        // Said through the router rather than only logged, so the Hub can
-        // explain why unusual phrasings are not being understood instead of
-        // leaving it as something the user has to notice for themselves.
-        None => tier1.unavailable(&format!(
-            "No router model. Fetch it: {} router",
-            memos_core::scripts::FETCH_MODELS
-        )),
-    }
-
     let cfg = config::Config::load();
+
+    // The router (ADR-0011). Nothing loads and nothing starts: it is an HTTP
+    // call made when a command needs one. What it costs is a key, and without
+    // one the app falls back to the grammar for everything.
+    match memos_cloud::Cloud::new(cfg.api_key()) {
+        Some(cloud) => {
+            stt.attach_cloud(Arc::new(cloud));
+            hotkey::diag(&format!("router ready: {}", memos_cloud::MODEL));
+        }
+        // In the diagnostic log beside the other three subsystems, because "is
+        // the router up?" was the one question that log could not answer.
+        None => hotkey::diag("router unavailable: no API key (config.json: anthropic_api_key)"),
+    }
     let hold_ms = Arc::new(std::sync::atomic::AtomicU64::new(cfg.hold_threshold_ms));
     tracing::info!(
         hotkey = %cfg.hotkey,
@@ -1855,7 +1850,6 @@ fn main() {
             stt: stt.clone(),
             embeddings: embeddings.clone(),
             questions: questions.clone(),
-            router: tier1.clone(),
             auth: Arc::new(memos_auth::Auth::new(
                 effective_provider(&cfg),
                 built_in_backend(),
@@ -1978,7 +1972,6 @@ fn main() {
             stt.attach_db(db.clone());
             stt.attach_embeddings(embeddings.clone());
             stt.attach_questions(questions.clone());
-            stt.attach_router(tier1.clone());
 
             // Clicking an option must never pull focus out of whatever the user
             // was working in.

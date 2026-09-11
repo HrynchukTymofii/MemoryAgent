@@ -108,9 +108,17 @@ pub struct Stt {
     embeddings: RwLock<Option<Arc<crate::Embeddings>>>,
     /// Where an unanswered destination question waits for a click.
     questions: RwLock<Option<Arc<crate::question::Pending>>>,
-    /// Tier 1. Absent until the model has loaded, and absent forever on a
-    /// machine that never fetched one — in both cases Tier 0 is the system.
-    router: RwLock<Option<Arc<crate::router::Tier1>>>,
+    /// The router. Absent when no API key is configured, and unreachable when
+    /// the machine is offline — in both cases the grammar is the system, which
+    /// is the whole reason the grammar is still here (ADR-0011).
+    cloud: RwLock<Option<Arc<memos_cloud::Cloud>>>,
+    /// Why the last command was not routed by the model, if it was not.
+    ///
+    /// Recorded from the attempt rather than from configuration, because those
+    /// are different questions and only this one is worth showing: a key that
+    /// is present and rejected, or a machine that is offline, both look fine
+    /// from the settings file.
+    cloud_error: RwLock<Option<String>>,
     model: RwLock<Option<Arc<dyn Transcriber>>>,
     state: RwLock<ModelState>,
     detail: RwLock<String>,
@@ -123,7 +131,8 @@ impl Stt {
             db: RwLock::new(None),
             embeddings: RwLock::new(None),
             questions: RwLock::new(None),
-            router: RwLock::new(None),
+            cloud: RwLock::new(None),
+            cloud_error: RwLock::new(None),
             model: RwLock::new(None),
             state: RwLock::new(ModelState::Loading),
             detail: RwLock::new(String::new()),
@@ -154,8 +163,26 @@ impl Stt {
         *self.questions.write() = Some(q);
     }
 
-    pub fn attach_router(&self, r: Arc<crate::router::Tier1>) {
-        *self.router.write() = Some(r);
+    pub fn attach_cloud(&self, c: Arc<memos_cloud::Cloud>) {
+        *self.cloud.write() = Some(c);
+    }
+
+    /// What the Hub shows about the router.
+    ///
+    /// `Missing` is not a fault: no key means the grammar is the system, which
+    /// is a supported way to run this app. `Failed` means a command was put to
+    /// the model within living memory and did not come back.
+    pub fn cloud_health(&self) -> (ModelState, String) {
+        if self.cloud.read().is_none() {
+            return (
+                ModelState::Missing,
+                "No API key — familiar phrasings still route.".into(),
+            );
+        }
+        match self.cloud_error.read().clone() {
+            Some(why) => (ModelState::Failed, why),
+            None => (ModelState::Ready, memos_cloud::MODEL.into()),
+        }
     }
 
     pub fn start(
@@ -350,6 +377,26 @@ impl Stt {
         };
         let paths = db.collection_paths().unwrap_or_default();
 
+        // The cloud agent first, and it is the system: it reads the whole
+        // sentence, it can act more than once, and it is the only thing here
+        // that can create the destination a command asks to file into.
+        if let Some(cloud) = self.cloud.read().clone() {
+            match self.run_cloud(&db, &cloud, text, context, &paths) {
+                Ok(result) => {
+                    *self.cloud_error.write() = None;
+                    return result;
+                }
+                // Not fatal, and not silent. No key, no network, a refusal or a
+                // turn that ran long all land here, and the grammar gets the
+                // command instead — which is exactly the product without this
+                // tier rather than a failure of it.
+                Err(e) => {
+                    tracing::warn!(error = %e, "the cloud router did not answer; falling back");
+                    *self.cloud_error.write() = Some(e.to_string());
+                }
+            }
+        }
+
         match memos_agent::parse(text, &paths) {
             Tier0::Routed(cmd) => {
                 tracing::info!(
@@ -369,24 +416,11 @@ impl Stt {
                 resolution,
                 transcript,
             } => {
-                // Ask Tier 1 before asking the user. Tier 0 resolves the phrase
-                // after the preposition against collection names and scores by
-                // string similarity; the router reads the whole sentence and
-                // knows what the collections are. "add this to my react notes"
-                // is the case that defeats the first and not the second, and
-                // interrupting somebody for a question a model can answer is
-                // the worst of both.
-                if let Some(cmd) = self.escalate(text, &paths) {
-                    let cmd = with_history(&db, cmd);
-                    log_command(&db, &cmd, context);
-                    return self.execute(&db, &cmd, context, text);
-                }
-
                 tracing::info!(slot, margin = resolution.margin, "ambiguous; asking");
                 // Logged before it is asked, because what is being recorded is
-                // the *prediction* — the intent Tier 0 was sure about and the
-                // destination it was not. The user's answer becomes a verdict
-                // on this row rather than a second command (ADR-0006).
+                // the *prediction* — the intent the grammar was sure about and
+                // the destination it was not. The user's answer becomes a
+                // verdict on this row rather than a second command (ADR-0006).
                 let prediction = memos_core::RoutedCommand {
                     id: memos_core::Id::new(),
                     transcript: transcript.clone(),
@@ -425,20 +459,15 @@ impl Stt {
                 )
             }
             Tier0::Unrecognised => {
-                if let Some(cmd) = self.escalate(text, &paths) {
-                    let cmd = with_history(&db, cmd);
-                    log_command(&db, &cmd, context);
-                    return self.execute(&db, &cmd, context, text);
-                }
-                // Both tiers passed. The transcript is still shown, so the user
-                // learns they were heard correctly and the phrasing was the
-                // problem — which is all that was ever on offer here.
+                // The transcript is still shown, so the user learns they were
+                // heard correctly and the phrasing was the problem — which is
+                // all a grammar ever had on offer.
                 //
                 // And it is logged, which matters more than it looks: a row
-                // nobody could route is the grammar's to-do list, and the only
-                // place the system records that it heard something it does not
-                // yet handle (ADR-0006).
-                tracing::debug!(text, "no shape matched and Tier 1 did not route it");
+                // nobody could route is the to-do list, and the only place the
+                // system records that it heard something it does not yet handle
+                // (ADR-0006).
+                tracing::debug!(text, "no shape matched and the cloud tier was not there");
                 log_command(
                     &db,
                     &memos_core::RoutedCommand {
@@ -451,13 +480,7 @@ impl Stt {
                             margin: 0.0,
                             prior: 0.0,
                         },
-                        // Whichever tier looked at it last. The intent, not the
-                        // tier, is what marks this as a refusal rather than a
-                        // decision — see `routing_stats`.
-                        tier: match self.router.read().as_ref() {
-                            Some(_) => memos_core::Tier::LocalRouter,
-                            None => memos_core::Tier::Grammar,
-                        },
+                        tier: memos_core::Tier::Grammar,
                         routing_ms: 0,
                     },
                     context,
@@ -467,13 +490,81 @@ impl Stt {
         }
     }
 
-    /// Hand a transcript Tier 0 gave up on to the local router.
+    /// Run one command as a plan, and report the last thing it did.
     ///
-    /// Costs ~600 ms, paid only on commands that would otherwise have failed
-    /// outright or interrupted the user with a question. The common path never
-    /// reaches here.
-    fn escalate(&self, text: &str, paths: &[String]) -> Option<memos_core::RoutedCommand> {
-        self.router.read().clone()?.route(text, paths)
+    /// Every step is logged and executed exactly as a routed command, because
+    /// it is one: the tier changes, the action space does not. That keeps undo,
+    /// the correction log and the weekly meter working across a plan the same
+    /// way they worked across a single grammar match.
+    ///
+    /// What goes back to the model is the receipt the user would have seen. It
+    /// is the honest answer to "did that work", and it carries what a second
+    /// step needs — "No collection called X" is how the model learns to make it
+    /// before filing into it.
+    fn run_cloud(
+        &self,
+        db: &Db,
+        cloud: &memos_cloud::Cloud,
+        text: &str,
+        context: &Context,
+        paths: &[String],
+    ) -> Result<(Option<memos_agent::Outcome>, Option<Ambiguity>), memos_cloud::CloudError> {
+        let mut last: Option<memos_agent::Outcome> = None;
+
+        let plan = cloud.run(text, context, paths, |step| {
+            let cmd = with_history(
+                db,
+                memos_core::RoutedCommand {
+                    id: memos_core::Id::new(),
+                    transcript: text.to_string(),
+                    intent: step.intent,
+                    slots: step.slots.clone(),
+                    // A tool call under a strict schema guarantees the *shape*
+                    // of the arguments and says nothing about whether the
+                    // destination was the right one, so this is not CERTAIN.
+                    // ADR-0005: confidence is computed here, never self-reported
+                    // by a model.
+                    confidence: memos_core::Confidence {
+                        logprob: 0.9,
+                        margin: 0.9,
+                        prior: 1.0,
+                    },
+                    tier: memos_core::Tier::Cloud,
+                    routing_ms: 0,
+                },
+            );
+            log_command(db, &cmd, context);
+            let (outcome, _) = self.execute(db, &cmd, context, text);
+            let receipt = outcome
+                .as_ref()
+                .map(|o| o.summary.clone())
+                .unwrap_or_else(|| "that did not work".to_string());
+            if let Some(o) = outcome {
+                last = Some(o);
+            }
+            receipt
+        })?;
+
+        tracing::info!(steps = plan.steps.len(), took_ms = plan.took_ms, "cloud plan");
+
+        // A plan that executed nothing still has something to show: the model's
+        // own line, which is what a question or an unactionable sentence
+        // produces. Without this the overlay would go blank on exactly the
+        // commands the old tiers failed silently.
+        if last.is_none() {
+            if let Some(say) = plan.say {
+                last = Some(memos_agent::Outcome {
+                    kind: "said",
+                    summary: say,
+                    provenance: None,
+                    item_id: None,
+                    results: Vec::new(),
+                    open: None,
+                    took_ms: plan.took_ms,
+                });
+            }
+        }
+        Ok((last, None))
     }
 
     /// Execute a routed command, whichever tier produced it.

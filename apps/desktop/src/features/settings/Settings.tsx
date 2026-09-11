@@ -270,9 +270,10 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
       <div className="card" id="models">
         <h2>Models</h2>
         <p>
-          All three run locally. Only speech is required: without embeddings, search still works on
-          exact words and only the queries that needed meaning stop working; without the router,
-          familiar phrasings still route and unusual ones come back as not understood.
+          Speech and embeddings run on this machine; the router is a call to Claude. Only speech
+          is required: without embeddings, search still works on exact words and only the queries
+          that needed meaning stop working; without the router, familiar phrasings still work and
+          anything else comes back as not understood.
         </p>
         <div className="pillrow">
           <span className="pill">
@@ -304,15 +305,23 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
               }`}
             />
             <b>Router</b>
-            {router ? (router.state === "ready" ? "Qwen3 0.6B" : router.detail || router.state) : "…"}
+            {router ? router.detail || router.state : "…"}
           </span>
         </div>
-        {router?.state !== "ready" && (
+        {router?.state === "missing" && (
           <div className="banner">
-            <b>Only the built-in grammar is routing commands.</b> Familiar phrasings still work;
-            unusual ones come back as “not sure what to do with that”. The router needs a model and
-            its own binary — run <kbd>scripts\fetch-models.ps1 router</kbd> and{" "}
-            <kbd>scripts\build-router.ps1</kbd>, then restart.
+            <b>Only the built-in grammar is routing commands.</b> Familiar phrasings — “save this
+            to react” — still work; anything else comes back as “not sure what to do with that”,
+            and nothing can make a collection for you. Put your key in{" "}
+            <kbd>anthropic_api_key</kbd> in <kbd>config.json</kbd>, or set{" "}
+            <kbd>ANTHROPIC_API_KEY</kbd>, then restart.
+          </div>
+        )}
+        {router?.state === "failed" && (
+          <div className="banner">
+            <b>The last command was not routed by the model.</b> {router.detail} The grammar
+            answered it instead, which is why an unusual phrasing may have come back as not
+            understood.
           </div>
         )}
         {embed && embed.state !== "ready" && embed.state !== "loading" && (

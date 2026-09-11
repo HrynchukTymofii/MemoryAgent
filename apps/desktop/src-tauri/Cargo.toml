@@ -27,11 +27,9 @@ memos-context = { workspace = true }
 memos-agent = { workspace = true }
 memos-embed = { workspace = true }
 memos-retrieval = { workspace = true }
-# The model-independent half only: grammar, prompt and parsing. llama.cpp is
-# never linked into this binary — the router runs as a separate process
-# (ADR-0008), so nothing here needs a native toolchain and the escalation path
-# is always compiled in.
-memos-llm  = { workspace = true }
+# Routing (ADR-0011). An HTTP call, so nothing here needs a native toolchain
+# and the tier is always compiled in — whether it runs depends on a key.
+memos-cloud = { workspace = true }
 # Sign-in. Nothing on the capture path touches this crate: an account is for
 # knowing who is using the product and, at M5, for sync — never for permission
 # to use it.
