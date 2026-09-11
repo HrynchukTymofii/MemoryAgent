@@ -1,6 +1,11 @@
 # ADR-0003: Three-tier model structure with grammar-constrained routing
 
-**Status:** Accepted · **Date:** 2026-09-06 · **Refines:** spec sections 20, 21
+**Status:** Superseded in part by ADR-0011 · **Date:** 2026-09-06 · **Refines:**
+spec sections 20, 21
+
+> Tier 1 is gone and Tier 0 is now the fallback rather than the first answer.
+> The tier structure below is kept for the reasoning, and because the measured
+> failure of it is the whole argument of ADR-0011.
 
 ## Context
 

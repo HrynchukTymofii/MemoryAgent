@@ -1,6 +1,6 @@
 # ADR-0008: The Tier 1 router runs in a sidecar process
 
-**Status:** Accepted · **Date:** 2026-09-08 · **Qualifies:** ADR-0002 · **Refines:** ADR-0003
+**Status:** Superseded by ADR-0011 · **Date:** 2026-09-08 · **Qualifies:** ADR-0002 · **Refines:** ADR-0003
 
 ## Context
 
