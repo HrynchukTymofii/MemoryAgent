@@ -22,7 +22,7 @@ system calibrates on.
 | ✅ **M0** skeleton | workspace, SQLite + FTS5, tray, global hotkey, pre-warmed overlay |
 | ✅ **M1** capture | ring buffer, VAD, whisper.cpp, Windows context, Tier 0 grammar, `SAVE`/`NOTE` |
 | ✅ **M2** retrieval | ONNX embeddings, background embed worker, FTS5 + vectors + RRF, `SEARCH`/`SHOW`/`OPEN`, page capture, the Hub |
-| 🔨 **M3** intelligence | ✅ Tier 1 router, in a supervised sidecar · ✅ correction log · ✅ `MOVE`/`TAG`/`TASK`/`UNDO` · 🔨 derived confidence |
+| 🔨 **M3** intelligence | ✅ tool-calling router · ✅ correction log · ✅ `MOVE`/`TAG`/`TASK`/`UNDO`/`CREATE_COLLECTION` · 🔨 derived confidence |
 
 244 Rust tests, 38 API tests, clippy clean, `tsc --noEmit` clean.
 
@@ -45,23 +45,22 @@ carries](#what-the-installer-carries).) Fetch them once:
 ```
 .\scripts\fetch-models.ps1 base.en     # speech, ~148 MB
 .\scripts\fetch-models.ps1 embedding   # bge-small-en-v1.5, int8, ~33 MB
-.\scripts\fetch-models.ps1 router      # Qwen3 0.6B, the Tier 1 router, ~609 MB
 ```
 
-The router also needs its own binary, built separately because it is the one
-thing in the workspace that links llama.cpp (ADR-0008):
+Routing is a call to Claude rather than a local model (ADR-0011), so it needs a
+key rather than a download. Either in the environment:
 
 ```
-.\scripts\build-router.ps1
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
 ```
 
-Once, in release — a debug app finds a release router, so `npm start` picks it
-up and nobody compiles llama.cpp twice. (`-Debug` exists for iterating on the
-sidecar itself.)
+or, for an installed copy, `anthropic_api_key` in `config.json` beside the
+database. The environment wins over the file.
 
-Skip both and the app still runs. Tier 0 answers the formulaic commands, and
-unusual phrasings come back "not sure what to do with that" - which is what they
-did before Tier 1 existed.
+Skip it and the app still runs. The built-in grammar answers the formulaic
+commands — "save this to react", "add a task to ..." — and anything else comes
+back "not sure what to do with that". The Hub says which of the two is routing,
+on the Settings page and in `diag.log`.
 
 ## macOS
 
@@ -152,9 +151,9 @@ stays a later upgrade, and `find_model` puts anything in the data directory
 ahead of the bundled copy, so downloading one shadows this one with no further
 logic.
 
-The router (609 MB) is deliberately not bundled. Tier 0 answers the formulaic
-commands without it, so it is an upgrade rather than a wall in front of first
-use, and it would multiply the installer by six.
+No router model is bundled, because there is no longer one to bundle: routing is
+an API call, and what it needs is a key rather than 609 MB in the installer. The
+grammar answers the formulaic commands without either.
 
 The ONNX Runtime is bundled for a different reason: it is a library the process
 `dlopen`s, and macOS's hardened runtime only lets a signed process load code
@@ -369,7 +368,7 @@ happened" by naming which of the two happened:
   put this in react                                 SAVE      Study/Programming/React
   file this under react                             SAVE      Study/Programming/React
   add this to my react notes                        AMBIGUOUS collection: Study/Programming/React 0.28
-  remind me next Tuesday                            UNRECOGNISED  -> Tier 1
+  remind me next Tuesday                            UNRECOGNISED  -> the router
 
   17/18 routed by grammar alone
 ```
@@ -380,47 +379,54 @@ one most people reach for first: `add`, `put`, `file`, `keep`, `store`,
 never a bare "add" — because the bare verbs belong to other intents ("add a
 task"), and a first-match grammar would swallow them.
 
-### When the grammar gives up — Tier 1
+### When the grammar gives up — the router
 
-The two lines above that are not a clean `SAVE` are the whole reason Tier 1
-exists. A phrase the grammar cannot route, or can only route ambiguously, is
-handed to a 0.6B model running locally under a GBNF grammar generated from the
-user's own collection list — so it structurally *cannot* emit invalid JSON, an
-unknown intent, or a collection that does not exist. It chooses among
-alternatives we generated; it never invents one.
+The two lines above that are not a clean `SAVE` are why the grammar is a cache
+and not the system. Anything it cannot route — and, in fact, everything else
+too — goes to Claude with the action space attached as tools, the collection
+list, and what is on screen. What comes back is a *plan*: one tool call, or
+several, executed against the local store in order, each one's receipt fed back
+before the next is decided.
 
-Driven through its own protocol, on the phrasings Tier 0 refuses:
+That last part is the difference. "Add this to a new collection for public
+speaking" is two actions, and until ADR-0011 it was unroutable by construction:
+there was no action for making a collection, and the router's grammar could only
+name collections that already existed. It answered anyway — it filed a page about
+public speaking into `Life/Finance` — because that was the closest thing it was
+allowed to say.
 
 ```
-[ 1.4s] ready — 269 tokens prefilled, loaded in 1325 ms
+  add this to the memory about public speaking,      create_collection  Study/Public Speaking
+  I think you need a new collection                  save               Study/Public Speaking
 
-  stick this in with the python stuff                564 ms  save     Study/Programming/Python
-  file this under job applications                   532 ms  save     Career/Job Applications
-  what did I read about hooks last week              457 ms  search   hooks
-  save this page to the react programming database   579 ms  save     Study/Programming/React
-  jot down that the bins go out on tuesday           757 ms  note     the bins go out tuesday
+  stick this in with the python stuff                save               Study/Programming/Python
+  what did I read about hooks last week              search             hooks
 ```
 
-It runs as **its own process** (`memos-router`), not as part of the app. Partly
-because whisper.cpp and llama.cpp each vendor their own ggml and refuse to link
-into one binary — but mostly because llama.cpp calls `abort()` on a failed
-assertion, and one was hit during development. In the app that takes the tray,
-the hotkey and the capture loop with it. Out of process it takes the router: the
-command comes back "not understood", the app restarts it, and Tier 0 never
-noticed. See [ADR-0008](docs/adr/0008-tier-1-router-in-a-sidecar-process.md).
+Every step is logged as its own command at `tier = cloud`, so coverage stays
+measurable and undo still takes back one step at a time.
 
-The escalation is narrow by design. Tier 0 answers the formulaic majority in
-microseconds and never consults this; ~600 ms is affordable exactly once per
-command that would otherwise have failed outright or interrupted you with a
-question, and not at all on the ones that already worked.
+**What leaves the machine:** the transcript, the window title, the URL and up to
+400 characters of the selection. Not the page text, not the clipboard, and never
+the stored memories. That bound is a test, not a convention.
+
+**What it costs:** a network round trip on the capture path, against a latency
+budget written for 5 ms and 600 ms, and a few cents of somebody's API key. This
+is the trade ADR-0011 makes deliberately, and the first thing to revisit.
 
 ### How sure it is, and how we know
 
 Confidence is measured, never asked for. A model that scores itself produces
-round, confident-sounding numbers largely unrelated to whether it is right, and
-a quantized 0.6B router is the worst case for that — so the numbers come from
-the token distribution the sampler actually saw, over the tokens that carried
-the decision.
+round, confident-sounding numbers largely unrelated to whether it is right — so
+a routed command's confidence is computed here, from what the tier structurally
+guarantees, and never from anything the model says about itself. A strict tool
+schema guarantees the *shape* of the arguments and says nothing about whether
+the destination was the right one, which is why a cloud step is not `CERTAIN`
+and a grammar match is.
+
+The local router this section was written for measured it from the token
+distribution the sampler actually saw, over the tokens that carried the
+decision:
 
 That last qualifier does the work. The router emits
 `{"intent":"save","collection":"Study/Programming/React"}`; the braces, the
