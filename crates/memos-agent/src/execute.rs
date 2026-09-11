@@ -106,6 +106,7 @@ pub fn execute_with(
         Intent::Move => move_to(db, cmd, started),
         Intent::Tag => tag(db, cmd, started),
         Intent::Task => task(db, cmd, started),
+        Intent::CreateCollection => create_collection(db, cmd, started),
         Intent::Undo => undo(db, started),
         other => Ok(Outcome::done(
             "unsupported",
@@ -477,6 +478,58 @@ fn task(db: &Db, cmd: &RoutedCommand, started: std::time::Instant) -> DbResult<O
     })
 }
 
+/// Make a new collection, optionally under an existing one.
+///
+/// `title` is the new name and `collection` the parent path, which is the same
+/// shape every other intent uses: the slot that names an existing place in the
+/// tree is always `collection`.
+///
+/// A name that is already taken is an outcome, not an error. The command this
+/// arrives from is usually "put this somewhere new" — asking for a collection
+/// that turns out to exist has given the caller exactly what it needed, and
+/// failing the step would abandon the save that was the point of it.
+fn create_collection(db: &Db, cmd: &RoutedCommand, started: std::time::Instant) -> DbResult<Outcome> {
+    let Some(name) = cmd.slots.title.clone().filter(|t| !t.trim().is_empty()) else {
+        return Ok(Outcome::done("nothing", "A collection called what?".into(), started));
+    };
+    // `/` is the path separator, so a name carrying one would materialise a
+    // path that does not match the tree it claims to describe.
+    let name = truncate(name.trim(), 60).replace('/', " ");
+
+    let parent = match cmd.slots.collection.as_deref() {
+        Some(path) => match db.collection_id_by_path(path)? {
+            Some(id) => Some(id),
+            None => {
+                return Ok(Outcome::done(
+                    "nothing",
+                    format!("No collection called {path}"),
+                    started,
+                ))
+            }
+        },
+        None => None,
+    };
+
+    let path = match cmd.slots.collection.as_deref() {
+        Some(parent) => format!("{parent}/{name}"),
+        None => name.clone(),
+    };
+    if db.collection_id_by_path(&path)?.is_some() {
+        return Ok(Outcome::done(
+            "collection",
+            format!("{} already exists", path.replace('/', " / ")),
+            started,
+        ));
+    }
+
+    let made = db.create_collection(&name, parent)?;
+    Ok(Outcome::done(
+        "collection",
+        format!("New collection: {}", made.path.replace('/', " / ")),
+        started,
+    ))
+}
+
 /// Take back the last thing that happened.
 ///
 /// This is the other half of ADR-0005's bargain — the system acts without
@@ -711,6 +764,40 @@ mod tests {
         let hits = db.search_keyword("snapshot", 5).unwrap();
         assert_eq!(hits.len(), 1, "the item must be findable immediately");
         assert!(hits[0].collection_id.is_some(), "and filed, not orphaned");
+    }
+
+    /// The half of "put this somewhere new" that had nowhere to go until now.
+    #[test]
+    fn a_collection_can_be_made_under_an_existing_one() {
+        let db = Db::open_in_memory().unwrap();
+        db.create_collection("Study", None).unwrap();
+        let make = |parent: Option<&str>, name: &str| {
+            cmd(
+                Intent::CreateCollection,
+                Slots {
+                    collection: parent.map(String::from),
+                    title: Some(name.into()),
+                    ..Default::default()
+                },
+                "make a collection for public speaking under study",
+            )
+        };
+
+        let out = execute(&db, &make(Some("Study"), "Public Speaking"), &Context::default()).unwrap();
+        assert_eq!(out.summary, "New collection: Study / Public Speaking");
+        assert!(db
+            .collection_id_by_path("Study/Public Speaking")
+            .unwrap()
+            .is_some());
+
+        // Asking twice is what an agent that lost track does, and the second
+        // ask must not fail the save it was clearing the way for.
+        let again = execute(&db, &make(Some("Study"), "Public Speaking"), &Context::default()).unwrap();
+        assert_eq!(again.summary, "Study / Public Speaking already exists");
+
+        // A parent nobody has is refused rather than silently made top-level.
+        let orphan = execute(&db, &make(Some("Nowhere"), "Thing"), &Context::default()).unwrap();
+        assert_eq!(orphan.kind, "nothing");
     }
 
     /// ADR-0010: the capture is the record, and the note is what you read.

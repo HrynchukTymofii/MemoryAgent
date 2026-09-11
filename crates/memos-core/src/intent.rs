@@ -24,6 +24,12 @@ pub enum Intent {
     Tag,
     /// Create a task, optionally linked to an item.
     Task,
+    /// Make a new collection, optionally under an existing one.
+    ///
+    /// Filing something somewhere that does not exist yet is one command to a
+    /// person and two to the store, so the action has to exist for the second
+    /// half to be sayable at all.
+    CreateCollection,
     /// Create a time-based reminder.
     Reminder,
     /// Filesystem work: create, move, rename, download.
@@ -63,6 +69,7 @@ impl Intent {
         Intent::Move,
         Intent::Tag,
         Intent::Task,
+        Intent::CreateCollection,
         Intent::Reminder,
         Intent::FileOperation,
         Intent::Research,
@@ -82,6 +89,7 @@ impl Intent {
             Intent::Move => "MOVE",
             Intent::Tag => "TAG",
             Intent::Task => "TASK",
+            Intent::CreateCollection => "CREATE_COLLECTION",
             Intent::Reminder => "REMINDER",
             Intent::FileOperation => "FILE_OPERATION",
             Intent::Research => "RESEARCH",
