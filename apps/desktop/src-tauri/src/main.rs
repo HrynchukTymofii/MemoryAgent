@@ -521,7 +521,7 @@ fn collection_size(state: tauri::State<'_, AppState>, path: String) -> u32 {
     state.db.count_in_subtree(&path).unwrap_or(0)
 }
 
-/// The document, flattened for the editor (ADR-0010).
+/// A collection's document, flattened for the editor (ADR-0010).
 #[derive(serde::Serialize)]
 struct NoteRow {
     id: String,
@@ -548,24 +548,30 @@ impl NoteRow {
     }
 }
 
-/// The one document, if anything has started it.
+/// The document for a collection, if anything has started it.
 ///
-/// `None` before the first capture: an empty file is not conjured because
-/// somebody opened the page.
+/// `None` is the ordinary answer for a collection nobody has captured into:
+/// an empty file is not conjured because somebody opened a page.
 #[tauri::command]
-fn book(state: tauri::State<'_, AppState>) -> Option<NoteRow> {
+fn note(state: tauri::State<'_, AppState>, path: String) -> Option<NoteRow> {
     state
         .db
-        .book()
+        .note_for_path(&path)
         .ok()
         .flatten()
         .map(|n| NoteRow::of(&state.db, n))
 }
 
-/// Begin it by hand, rather than waiting for a capture to begin it.
+/// Begin one by hand, rather than waiting for a capture to begin it.
 #[tauri::command]
-fn start_book(state: tauri::State<'_, AppState>) -> Result<NoteRow, String> {
-    let n = state.db.ensure_book().map_err(|e| e.to_string())?;
+fn start_note(state: tauri::State<'_, AppState>, path: String) -> Result<NoteRow, String> {
+    let id = state
+        .db
+        .collection_id_by_path(&path)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("no collection at {path}"))?;
+    let name = path.rsplit('/').next().unwrap_or(&path);
+    let n = state.db.start_note(id, name).map_err(|e| e.to_string())?;
     Ok(NoteRow::of(&state.db, n))
 }
 
@@ -580,7 +586,7 @@ fn save_note(state: tauri::State<'_, AppState>, id: String, body: String) -> Res
     state.db.save_note(id, &body).map_err(|e| e.to_string())
 }
 
-/// Open a link from inside a note./// Open a link from inside a note.
+/// Open a link from inside a note./// Open a link from inside a note./// Open a link from inside a note.
 ///
 /// The editor is a document, not a browser: a link in it has to leave the app.
 /// Guarded by the same scheme check as every other thing this app opens.
@@ -1895,8 +1901,8 @@ fn main() {
             rename_collection,
             delete_collection,
             collection_size,
-            book,
-            start_book,
+            note,
+            start_note,
             save_note,
             open_url,
             library_summary,

@@ -24,7 +24,7 @@ const AUTOSAVE_MS = 700;
 const MENU_H = 268;
 
 /**
- * The one document (ADR-0010).
+ * The page a subject keeps (ADR-0010).
  *
  * Rich text on the way in, Markdown on the way out — the storage format has to
  * stay something a model can read, a diff can show and a sync can merge, and
@@ -36,15 +36,31 @@ const MENU_H = 268;
  * the Markdown shortcuts for anyone who knows them, and a toolbar for the
  * marks that are not blocks.
  *
+ * One file per subject, not one per fact and not one for everything: the page
+ * belongs to the collection you walked into, and a capture filed there lands in
+ * it under a heading of its own — joining that heading if it already exists.
+ *
  * The editor never reloads under a cursor. A capture arriving while you are
  * writing lands in the file, and the notice says so rather than replacing the
  * paragraph you are in the middle of.
  */
 export function NoteEditor({
-  /** A heading to scroll to on arrival — how a collection opens the file. */
-  focusHeading,
+  path,
+  name,
+  offerStart,
 }: {
-  focusHeading?: string | null;
+  /** The collection this document belongs to. */
+  path: string;
+  /** Its last segment — the subject the page is about. */
+  name: string;
+  /**
+   * Whether to offer starting one where none exists.
+   *
+   * False for a collection that has collections inside it: that is the way to
+   * a subject rather than a subject. A page it *already* has still shows —
+   * putting a collection inside one must not hide what was written in it.
+   */
+  offerStart: boolean;
 }) {
   const [note, setNote] = useState<NoteRow | null | undefined>(undefined);
   const [saving, setSaving] = useState(false);
@@ -161,12 +177,16 @@ export function NoteEditor({
     setSlash(null);
   };
 
-  // Load once. Not on the shell's poll: re-reading a document somebody is
-  // typing into is how an editor eats a paragraph.
+  // On arrival, and when the reader walks to another subject. Never on the
+  // shell's poll: re-reading a document somebody is typing into is how an
+  // editor eats a paragraph.
   useEffect(() => {
     let live = true;
+    setNote(undefined);
+    setStale(false);
+    setSavedAt(null);
     void api
-      .book()
+      .note(path)
       .then((n) => {
         if (!live) return;
         setNote(n);
@@ -178,27 +198,7 @@ export function NoteEditor({
       live = false;
       void flush();
     };
-  }, [editor, flush]);
-
-  // Arriving from a collection: put that section on screen. By its text, after
-  // the content has rendered — the document has no ids, and inventing some
-  // would be a second structure to keep in step with the words.
-  useEffect(() => {
-    if (!note || !focusHeading || !shell.current) return;
-    const t = window.setTimeout(() => {
-      const wanted = focusHeading.trim().toLowerCase();
-      const heads = shell.current?.querySelectorAll("h1,h2,h3,h4,h5,h6") ?? [];
-      for (const h of heads) {
-        if ((h.textContent ?? "").trim().toLowerCase() === wanted) {
-          h.scrollIntoView({ block: "start", behavior: "smooth" });
-          h.classList.add("landed");
-          window.setTimeout(() => h.classList.remove("landed"), 1600);
-          break;
-        }
-      }
-    }, 60);
-    return () => window.clearTimeout(t);
-  }, [note, focusHeading]);
+  }, [path, editor, flush]);
 
   // A capture can land in the document while it is open. Say so; do not reach
   // into the editor and change what is under the cursor.
@@ -206,17 +206,17 @@ export function NoteEditor({
     if (!note) return;
     const t = window.setInterval(async () => {
       try {
-        const fresh = await api.book();
+        const fresh = await api.note(path);
         if (fresh && fresh.sources !== note.sources) setStale(true);
       } catch {
         // The shell already reports a backend that stopped answering.
       }
     }, 4000);
     return () => window.clearInterval(t);
-  }, [note]);
+  }, [path, note]);
 
   const start = async () => {
-    const started = await api.startBook();
+    const started = await api.startNote(path);
     setNote(started);
     id.current = started.id;
     editor?.commands.setContent(started.body || "");
@@ -225,7 +225,7 @@ export function NoteEditor({
 
   const reload = async () => {
     await flush();
-    const fresh = await api.book();
+    const fresh = await api.note(path);
     if (!fresh) return;
     setNote(fresh);
     editor?.commands.setContent(fresh.body || "");
@@ -235,12 +235,13 @@ export function NoteEditor({
   if (note === undefined) return null;
 
   if (note === null) {
+    if (!offerStart) return null;
     return (
       <div className="doc-start">
-        <strong>Nothing written yet</strong>
+        <strong>No page for {name} yet</strong>
         <span>
-          Say something with the shortcut and it will be written here, under the collection
-          you filed it in. Or start the page yourself.
+          Say something into this collection and it will be written here, under a heading of
+          its own. Or start the page yourself.
         </span>
         <button type="button" className="btn" onClick={() => void start()}>
           Start writing
@@ -251,6 +252,7 @@ export function NoteEditor({
 
   return (
     <div className="doc" ref={shell}>
+      <h2 className="doc-title">{name}</h2>
       <div className="doc-bar">
         <Marks editor={editor} />
         <span className="state">

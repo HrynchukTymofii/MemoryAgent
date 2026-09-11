@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, type CollectionRow, type Item } from "../../lib/api";
 import { Empty, ItemsByDay } from "../../components/ItemList";
+import { NoteEditor } from "../notes/NoteEditor";
 import { FolderIcon, PencilIcon, PlusIcon, TrashIcon } from "../../components/icons";
 
 /** Memories shown under the grid. A folder you have to scroll is a Library. */
@@ -25,13 +26,10 @@ const PAGE = 40;
 export function Collections({
   revision,
   onOpen,
-  onRead,
 }: {
   revision: number;
   /** Hand this collection to the Library, for searching within it. */
   onOpen: (path: string | null) => void;
-  /** Open the document at this section's heading. */
-  onRead: (heading: string) => void;
 }) {
   const [rows, setRows] = useState<CollectionRow[] | null>(null);
   /** Where we are standing. `null` is the top, which is not a collection. */
@@ -131,9 +129,9 @@ export function Collections({
     <div className="panel">
       <h1>Collections</h1>
       <p className="sub">
-        The outline of your document, and the destinations the router understands — “save
-        this to reading” works because a collection called Reading exists, and what you say
-        lands under that heading. Open one to see what is inside it.
+        Your subjects, and the destinations the router understands — “save this to reading”
+        works because a collection called Reading exists. Walk in far enough and you reach
+        the page that subject keeps: one document, growing as you capture into it.
       </p>
 
       <div className="crumbs">
@@ -160,16 +158,6 @@ export function Collections({
         ))}
         {here !== null && (
           <span className="crumbs-acts">
-            {/* Where this collection's writing actually is. The page is the
-                outline; the document is the thing the outline describes. */}
-            <button
-              type="button"
-              className="btn"
-              onClick={() => onRead(lastName(here))}
-              title={`Read the ${lastName(here)} section of your document`}
-            >
-              Read in the file
-            </button>
             <button
               type="button"
               className="btn ghost"
@@ -236,6 +224,20 @@ export function Collections({
           </button>
         )}
       </div>
+
+      {/* The page a subject has. Offered where the subject actually is: a
+          collection with collections inside it is the way to a subject, not
+          one itself, and a blank page there would sit above the pages people
+          do write in. One it already has still shows — putting a collection
+          inside a subject must not hide what was written about it. */}
+      {here !== null && (
+        <NoteEditor
+          key={here}
+          path={here}
+          name={lastName(here)}
+          offerStart={children.length === 0}
+        />
+      )}
 
       {here !== null && (
         <>

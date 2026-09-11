@@ -1,4 +1,4 @@
-# ADR-0010: One document is the knowledge base; captures are its history
+# ADR-0010: A subject keeps one page; captures are its history
 
 **Status:** Accepted · **Date:** 2026-09-10 · **Supersedes:** the spec's
 assumption that a collection is a list of items
@@ -23,23 +23,23 @@ was assuming one of them could do both jobs.
 
 ## Decision
 
-### There is one document, and the collection tree is its outline
+### A subject keeps one page, and a subject is a low-level collection
 
-Not one note per collection — that is still a pile of files, and a pile of
-files is what a person has to organise rather than read. There is **one
-Markdown document**, and a capture's collection path becomes its heading trail:
-`Study/Programming/React` lands under `# Study` › `## Programming` › `###
-React`, creating whichever of those do not exist yet.
+Not one file per capture — that is the pile of fragments this ADR exists to
+get rid of. Not one file for everything either: a single document outlined by
+the whole collection tree turns "what do I know about React" into a scroll
+through everything else first.
 
-So filing and outlining are the same decision, made once. Collections keep
-their real job — the destinations the router is allowed to route to — and stop
-pretending to be folders full of documents. What the user opens is one file
-they can read top to bottom, in the structure they already think in.
+One page per **subject**: `Study/Programming/React` has a document,
+`Study/Programming` does not. A collection with collections inside it is the
+way to a subject rather than a subject itself, so it shows what is inside it
+and nothing else. Walk in far enough and you reach a page — one file, headings
+of its own, everything known about that one thing.
 
-The document belongs to no collection, so deleting collections never touches
-it. More than one is possible — the table has no such constraint, and a
-document that outgrows one file will need it — but one is the default and the
-only one anything creates today.
+The rule is "does it have children", which can change: put a collection inside
+a subject that already has a page and the page stays visible rather than
+disappearing behind the new grid. Nothing a person wrote is ever hidden by
+somebody's filing.
 
 ### A capture is never rewritten. It becomes the note's provenance
 
@@ -57,17 +57,13 @@ lie, and losing the second is the state we are in today.
 
 The merge rule is one function, `notes::integrate`, and it is pure:
 
-1. Each name in the trail is matched against the headings already inside its
-   parent's section, ignoring case and punctuation.
-2. A level that is not there is created at the end of its parent's section.
-3. The text is appended at the **end of the deepest section** — after
-   everything already under it, before the next heading.
+1. The capture's title becomes a heading, matched against the page's existing
+   `##` headings case- and punctuation-insensitively.
+2. On a match, the new text is appended at the **end of that section** — after
+   everything already under the heading, before the next heading.
+3. On no match, a new section is appended at the end of the page.
 4. The text is followed by a provenance line: the date it was captured, and a
    link to where it came from when there was one.
-
-Markdown runs out of heading levels at six before a collection tree runs out of
-depth; past that, everything shares the sixth. A capture with no destination
-lands under `# Unfiled`, at the bottom, where somebody will find it.
 
 Nothing already in the file is edited, reordered, or deleted. This is what
 makes the document safe to hand to a person and to a model at the same time: a
@@ -86,10 +82,10 @@ can merge line by line.
 
 ## Consequences
 
-**Three screens with three jobs, finally distinct.** The document is what you
-read and write. The Library is the history — every capture, newest first,
-searchable, in the order it happened. Collections are the outline and the
-router's vocabulary. Before this, all three were views of one list.
+**Three jobs, finally distinct.** A subject's page is what you read and write.
+The Library is the history — every capture, newest first, searchable, in the
+order it happened. Collections are how you get to a subject, and the router's
+vocabulary. Before this, all three were views of one list.
 
 **Search still indexes captures, not notes.** A note is composed of its
 captures, so indexing both would rank the same sentence twice. The cost is that

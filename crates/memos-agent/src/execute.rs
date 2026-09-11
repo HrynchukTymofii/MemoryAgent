@@ -513,26 +513,31 @@ fn undo(db: &Db, started: std::time::Instant) -> DbResult<Outcome> {
     })
 }
 
-/// Fold a capture into the document (ADR-0010).
+/// Fold a capture into its collection's note (ADR-0010).
 ///
 /// After the capture commits, never inside it. The memory is already durable
 /// and the document can be rebuilt from the rows, so a failure here is a
 /// warning and nothing more — the opposite ordering would let a bad heading
 /// lose a thought.
-///
-/// The collection path is handed over as the heading trail: filing and outline
-/// are the same decision, made once, by whoever routed the command.
 fn integrate(db: &Db, item: &KnowledgeItem, path: Option<&str>, provenance: Option<String>) {
-    let trail: Vec<String> = path
-        .map(|p| p.split('/').map(str::to_string).collect())
-        .unwrap_or_default();
+    let (Some(collection), Some(path)) = (item.collection_id, path) else {
+        return;
+    };
+    let name = path.rsplit('/').next().unwrap_or(path);
     let text = if item.content.trim().is_empty() {
         &item.title
     } else {
         &item.content
     };
-    if let Err(e) = db.integrate_capture(item.id, &trail, text, provenance.as_deref()) {
-        tracing::warn!(?e, "captured, but not integrated into the document");
+    if let Err(e) = db.integrate_capture(
+        collection,
+        name,
+        item.id,
+        &item.title,
+        text,
+        provenance.as_deref(),
+    ) {
+        tracing::warn!(?e, "captured, but not integrated into the note");
     }
 }
 
@@ -726,8 +731,8 @@ mod tests {
         };
 
         execute(&db, &cmd(Intent::Save, slots(), "save this to react"), &ctx).unwrap();
-        let note = db.book().unwrap().expect("the document was started");
-        assert!(note.body.contains("# React"), "{}", note.body);
+        let note = db.note_for_path("React").unwrap().expect("a document was started");
+        assert!(note.body.contains("## State as a Snapshot"), "{}", note.body);
         assert!(
             note.body.contains("[react.dev](https://react.dev/learn/state-as-a-snapshot)"),
             "the resource has to be reachable from the note: {}",
@@ -737,8 +742,8 @@ mod tests {
         // The same subject a second time joins the section rather than opening
         // a second one — the whole point of a note over a list of rows.
         execute(&db, &cmd(Intent::Save, slots(), "save this to react"), &ctx).unwrap();
-        let note = db.book().unwrap().unwrap();
-        assert_eq!(note.body.matches("# React").count(), 1, "{}", note.body);
+        let note = db.note_for_path("React").unwrap().unwrap();
+        assert_eq!(note.body.matches("## ").count(), 1, "{}", note.body);
         assert_eq!(db.note_sources(note.id).unwrap(), 2, "both captures are recorded");
     }
 
@@ -761,7 +766,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(out.kind, "note");
-        let note = db.book().unwrap().expect("filed");
+        let note = db.note_for_path("Household").unwrap().expect("filed");
         assert!(note.body.contains("Hold the reset pin"), "{}", note.body);
     }
 

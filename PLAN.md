@@ -1,14 +1,12 @@
-# A four-cube mark, a spinning tetrahedron loader, and the public site
+# A document belongs to a leaf collection; parents are just the way there
 
-- scripts/gen_icons.py — render the mark (three cubes in a triangle, one
-  centred, edges between them) in place of the four bars.
-- apps/desktop/src/components/Logo.tsx — `Logo`, the flat mark; `Loader`, the
-  same four cubes as a tetrahedron rotated in 3D and projected each frame.
-- apps/desktop/src/hub/App.tsx — the boot blank becomes the loader.
-- apps/desktop/src/features/home/Home.tsx — the loader beside "loading the
-  model…".
-- apps/desktop/src/features/account/SignIn.tsx — the mark above the title, the
-  loader in the button while waiting.
-- apps/desktop/src/styles/hub.css — sizing for both.
-- apps/web/ — Vite + React landing site: hero, demo video, feature cards, a
-  recall chart, CTA, plus /terms and /privacy.
+- crates/memos-db/migrations/007_per_collection.sql — the global document goes
+  if it is empty; kept, unattached, if somebody had written in it.
+- crates/memos-db/src/notes.rs — back to `note_for_path` / `start_note` /
+  `integrate_capture(collection, …)`; `integrate` matches the capture's title
+  against the file's own `##` headings again.
+- crates/memos-agent/src/execute.rs — the heading is the capture's title.
+- apps/desktop/src-tauri/src/main.rs — `note(path)` / `start_note(path)`.
+- apps/desktop/src/features/notes/{Knowledge.tsx → deleted, NoteEditor.tsx}
+- apps/desktop/src/features/collections/Collections.tsx — the editor shows on a
+  leaf and nowhere else; apps/desktop/src/hub/App.tsx drops the page.

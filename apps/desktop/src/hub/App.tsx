@@ -15,7 +15,6 @@ import {
 import { Home } from "../features/home/Home";
 import { Library } from "../features/library/Library";
 import { Collections } from "../features/collections/Collections";
-import { Knowledge } from "../features/notes/Knowledge";
 import { Tasks } from "../features/tasks/Tasks";
 import { Account } from "../features/account/Account";
 import { AccountMenu } from "../features/account/AccountMenu";
@@ -28,7 +27,6 @@ import { Toasts } from "../features/notifications/Toast";
 import { TitleBar } from "../components/TitleBar";
 import { Logo, Loader } from "../components/Logo";
 import {
-  BookIcon,
   CollectionsIcon,
   GiftIcon,
   DictionaryIcon,
@@ -39,14 +37,7 @@ import {
   TasksIcon,
 } from "../components/icons";
 
-export type Page =
-  | "home"
-  | "knowledge"
-  | "library"
-  | "collections"
-  | "tasks"
-  | "account"
-  | "settings";
+export type Page = "home" | "library" | "collections" | "tasks" | "account" | "settings";
 
 /**
  * How often the shell polls the backend.
@@ -65,8 +56,6 @@ export function App() {
   const [page, setPage] = useState<Page>("home");
   // Set when a collection is picked in Collections; the Library opens filtered.
   const [filter, setFilter] = useState<string | null>(null);
-  /** A heading the document should open at, when Collections sent us there. */
-  const [heading, setHeading] = useState<string | null>(null);
   /** The sidebar is a drawer; the title bar's first button opens and shuts it. */
   const [drawer, setDrawer] = useState(true);
   const [bell, setBell] = useState(false);
@@ -196,11 +185,6 @@ export function App() {
     setPage("library");
   }, []);
 
-  /** Collections sends the reader to the section of the document it describes. */
-  const readSection = useCallback((h: string) => {
-    setHeading(h);
-    setPage("knowledge");
-  }, []);
 
   /** Every navigation also shuts the bell, which is a popover over the page. */
   const go = useCallback((p: Page) => {
@@ -317,18 +301,6 @@ export function App() {
             <ul>
               <NavItem page="home" current={page} onGo={go} icon={<HomeIcon />} label="Home" />
               <NavItem
-                page="knowledge"
-                current={page}
-                onGo={(p) => {
-                  // Arriving by the sidebar means the top of the file, not
-                  // wherever the last collection left the reader.
-                  setHeading(null);
-                  go(p);
-                }}
-                icon={<BookIcon />}
-                label="Knowledge"
-              />
-              <NavItem
                 page="library"
                 current={page}
                 onGo={(p) => {
@@ -438,9 +410,8 @@ export function App() {
               onChanged={refresh}
             />
           )}
-          {page === "knowledge" && <Knowledge heading={heading} />}
           {page === "collections" && (
-            <Collections revision={revision} onOpen={openCollection} onRead={readSection} />
+            <Collections revision={revision} onOpen={openCollection} />
           )}
           {page === "tasks" && <Tasks revision={revision} onChanged={refresh} />}
           {page === "account" && <Account revision={revision} onChanged={refresh} />}

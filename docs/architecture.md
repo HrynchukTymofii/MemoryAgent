@@ -210,21 +210,20 @@ Windows -> macOS move cheap.
 
 ## 9b. What a collection holds (ADR-0010)
 
-Two objects, not one, and they answer different questions.
-
 ```
-one document      Markdown. What a person reads and edits.
-  \-- headings    the collection tree, materialised as # / ## / ###
-collections       the router's destinations, and that outline
-knowledge_items   every capture, append-only. The history, and the provenance.
+collection with children   the way to a subject. Shows what is inside it.
+collection without         a subject. Keeps one Markdown page.
+  |-- note                 what a person reads and edits
+  \-- knowledge_items      every capture, append-only. History and provenance.
 ```
 
-A capture's collection path is its heading trail: the text is appended at the
-end of that section, creating the levels that do not exist yet, and never
-rewriting a line already there. The capture keeps its own row as the record.
-Search and undo run on the rows; the person reads the document.
-`notes::integrate` is the whole merge rule and is pure, which is what lets
-Tier 2 replace it later without touching the capture path.
+A capture filed into a subject is integrated into that subject's page: its
+title becomes a heading, matched against the headings already there, and the
+text is appended at the end of that section — never rewriting a line already
+in the file. The capture keeps its own row as the record. Search and undo run
+on the rows; the person reads the page. `notes::integrate` is the whole merge
+rule and is pure, which is what lets Tier 2 replace it later without touching
+the capture path.
 
 ## 10. Deliberate deviations from the spec
 
@@ -236,4 +235,4 @@ Tier 2 replace it later without touching the capture path.
 | 19: Fish Speech local TTS | Dropped; OS built-in TTS behind a trait | 0008 |
 | 17: model-reported confidence | Derived from logprobs + retrieval margin | 0005 |
 | 21: LoRA as the personalization plan | Correction log + kNN first, LoRA later | 0006 |
-| 9: a collection is a list of items | One document, outlined by the collection tree; items are its history | 0010 |
+| 9: a collection is a list of items | A subject keeps one page; items are its history | 0010 |

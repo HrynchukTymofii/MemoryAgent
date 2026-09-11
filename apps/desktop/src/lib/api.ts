@@ -122,7 +122,7 @@ export interface TaskRow {
   created_at: string;
 }
 
-/** The one document (ADR-0010). */
+/** A collection's document (ADR-0010). */
 export interface NoteRow {
   id: string;
   title: string;
@@ -232,10 +232,10 @@ export const api = {
     invoke<string>("rename_collection", { id, name }),
   /** Children go with it; the memories inside come loose rather than dying. */
   deleteCollection: (id: string) => invoke<void>("delete_collection", { id }),
-  /** The one document, or null if nothing has started it. */
-  book: () => invoke<NoteRow | null>("book"),
-  /** Begin it by hand. Idempotent — an existing document comes back as it is. */
-  startBook: () => invoke<NoteRow>("start_book"),
+  /** A collection's document, or null if nothing has started it. */
+  note: (path: string) => invoke<NoteRow | null>("note", { path }),
+  /** Begin one by hand. Idempotent — an existing document comes back as it is. */
+  startNote: (path: string) => invoke<NoteRow>("start_note", { path }),
   saveNote: (id: string, body: string) => invoke<void>("save_note", { id, body }),
   /** Follow a link out of a note, into the real browser. */
   openUrl: (url: string) => invoke<void>("open_url", { url }),

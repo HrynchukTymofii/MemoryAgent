@@ -10,7 +10,7 @@ use rusqlite::Connection;
 use crate::{DbError, DbResult};
 
 /// Bump when adding a migration. `PRAGMA user_version` tracks the applied one.
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 struct Migration {
     version: i64,
@@ -48,6 +48,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 6,
         name: "one_book",
         sql: include_str!("../migrations/006_one_book.sql"),
+    },
+    Migration {
+        version: 7,
+        name: "per_collection",
+        sql: include_str!("../migrations/007_per_collection.sql"),
     },
 ];
 

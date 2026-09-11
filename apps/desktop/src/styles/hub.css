@@ -780,6 +780,11 @@
 }
 .fold .n.edit:focus { outline:2px solid var(--acc); outline-offset:0; }
 .fold .m { position:relative; z-index:1; font-size:11px; color:var(--ink3); margin-top:auto; }
+/* The card's own words must not swallow the click that opens it: they sit
+   above the hit layer so they can be read, which made the most obvious place
+   to click — the name — the one place that did nothing. The rename input is an
+   `input`, not a span, so it still takes its own clicks. */
+.fold .g, .fold .m, .fold span.n { pointer-events:none; }
 
 .fold .acts { position:absolute; z-index:2; top:8px; right:8px; display:flex; gap:2px; opacity:0; }
 .fold:hover .acts, .fold:focus-within .acts { opacity:1; }
@@ -818,16 +823,17 @@
 
 /* --------------------------------------------------------- the document */
 
-/* One file, and the screen belongs to it. No measure cap: this is a page a
-   person reads and writes in for an hour at a time, and a column of text with
-   a hand's width of empty panel either side reads as a widget on a page rather
-   than as the page. */
-.panel.wide { padding:18px 26px 30px; }
-.doc { position:relative; }
+/* The page a subject keeps. Full width of the panel, no measure cap: this is
+   something a person reads and writes in for an hour at a time, and a column of
+   text with a hand's width of empty panel either side reads as a widget on a
+   page rather than as the page. */
+.doc { position:relative; margin-top:20px; }
+.doc-title {
+  font-size:19px; font-weight:700; letter-spacing:-.02em; margin:0 0 10px;
+}
 .doc-bar {
   display:flex; align-items:center; gap:10px; flex-wrap:wrap;
   padding:0 0 8px; border-bottom:1px solid var(--line);
-  position:sticky; top:0; z-index:3; background:var(--card);
 }
 .marks { display:flex; align-items:center; gap:1px; flex-wrap:wrap; }
 .marks .bar { width:1px; height:16px; background:var(--line2); margin:0 6px; }
@@ -854,26 +860,17 @@
    decoration, and a left rule down the outline so the depth of a section is
    visible without counting hashes. */
 .doc-body {
-  min-height:60vh; padding:18px 2px 40px;
+  min-height:40vh; padding:16px 2px 24px;
   font-size:15px; line-height:1.7; color:var(--ink); outline:none;
   user-select:text; -webkit-user-select:text; cursor:text;
 }
 .doc-body > * + * { margin-top:.8em; }
-.doc-body h1 {
-  font-size:24px; font-weight:700; letter-spacing:-.02em;
-  margin-top:1.5em; padding-bottom:6px; border-bottom:1px solid var(--line);
-}
-.doc-body h1:first-child { margin-top:0; }
-.doc-body h2 { font-size:18.5px; font-weight:700; letter-spacing:-.015em; margin-top:1.5em; }
-.doc-body h3 { font-size:15.5px; font-weight:700; margin-top:1.35em; }
+.doc-body h1 { font-size:20px; font-weight:700; letter-spacing:-.02em; margin-top:1.5em; }
+.doc-body h2 { font-size:17px; font-weight:700; letter-spacing:-.015em; margin-top:1.5em; }
+.doc-body h2:first-child, .doc-body h1:first-child { margin-top:0; }
+.doc-body h3 { font-size:15px; font-weight:700; margin-top:1.3em; }
 .doc-body h4, .doc-body h5, .doc-body h6 {
   font-size:14px; font-weight:700; color:var(--ink2); margin-top:1.2em;
-}
-/* Where the reader was sent by a collection. Fades rather than sits, so the
-   page does not keep a highlight the reader never asked to keep. */
-.doc-body :is(h1,h2,h3,h4,h5,h6).landed {
-  background:var(--acc-soft); box-shadow:-8px 0 0 var(--acc-soft), 8px 0 0 var(--acc-soft);
-  border-radius:2px; transition:background .8s ease .6s;
 }
 .doc-body p { margin:0; }
 .doc-body ul, .doc-body ol { margin:0; padding-left:1.4em; }
@@ -947,7 +944,6 @@
 .doc-start strong { color:var(--ink); font-size:13.5px; }
 .doc-start .btn { margin-top:6px; }
 
-/* Collections keeps two ways out: into the document, and into search. */
 .crumbs-acts { margin-left:auto; display:flex; align-items:center; gap:7px; }
 .crumbs-acts .btn { font-size:11.5px; padding:4px 11px; }
 
