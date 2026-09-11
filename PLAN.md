@@ -1,12 +1,11 @@
-# A document belongs to a leaf collection; parents are just the way there
+# Route every command through a cloud tool-calling agent; Tier 0 becomes the offline fallback
 
-- crates/memos-db/migrations/007_per_collection.sql — the global document goes
-  if it is empty; kept, unattached, if somebody had written in it.
-- crates/memos-db/src/notes.rs — back to `note_for_path` / `start_note` /
-  `integrate_capture(collection, …)`; `integrate` matches the capture's title
-  against the file's own `##` headings again.
-- crates/memos-agent/src/execute.rs — the heading is the capture's title.
-- apps/desktop/src-tauri/src/main.rs — `note(path)` / `start_note(path)`.
-- apps/desktop/src/features/notes/{Knowledge.tsx → deleted, NoteEditor.tsx}
-- apps/desktop/src/features/collections/Collections.tsx — the editor shows on a
-  leaf and nowhere else; apps/desktop/src/hub/App.tsx drops the page.
+- crates/memos-cloud/ — new: tool schemas, Claude Messages call, tool loop.
+- crates/memos-core/src/intent.rs — `CreateCollection`.
+- crates/memos-agent/src/execute.rs — execute `CreateCollection`.
+- apps/desktop/src-tauri/src/transcription.rs — cloud first, grammar on failure; Tier 1 out.
+- apps/desktop/src-tauri/src/main.rs — no sidecar; `router_status` reports the cloud tier.
+- apps/desktop/src-tauri/src/config.rs — `anthropic_api_key`.
+- apps/desktop/src/features/settings/Settings.tsx — the Router pill reads the cloud tier.
+- Cargo.toml, apps/desktop/src-tauri/Cargo.toml — the new crate.
+- .env.example, docs/adr/0011-cloud-first-routing.md — the key, and why the tiers went.
