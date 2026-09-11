@@ -9,6 +9,7 @@ members = [
     "crates/memos-embed",
     "crates/memos-retrieval",
     "crates/memos-llm",
+    "crates/memos-cloud",
     "crates/memos-auth",
     "crates/memos-license",
     "apps/desktop/src-tauri",
@@ -31,6 +32,7 @@ memos-agent   = { path = "crates/memos-agent" }
 memos-embed   = { path = "crates/memos-embed" }
 memos-retrieval = { path = "crates/memos-retrieval" }
 memos-llm       = { path = "crates/memos-llm" }
+memos-cloud     = { path = "crates/memos-cloud" }
 memos-auth      = { path = "crates/memos-auth" }
 memos-license   = { path = "crates/memos-license" }
 

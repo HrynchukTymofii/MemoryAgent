@@ -1,0 +1,23 @@
+[package]
+name         = "memos-cloud"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+
+[dependencies]
+memos-core    = { workspace = true }
+memos-context = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+thiserror  = { workspace = true }
+tracing    = { workspace = true }
+
+# Blocking, and for the same reason as memos-auth: this runs on the capture
+# worker, which has nothing else to do until the answer arrives. An async client
+# would need a runtime threaded through a crate that otherwise has no use for one.
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls",
+] }

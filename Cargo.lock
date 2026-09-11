@@ -2610,6 +2610,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "memos-cloud"
+version = "0.1.0"
+dependencies = [
+ "memos-context",
+ "memos-core",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
 name = "memos-context"
 version = "0.1.0"
 dependencies = [
