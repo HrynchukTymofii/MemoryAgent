@@ -270,8 +270,76 @@ impl Default for Config {
     }
 }
 
+/// `ANTHROPIC_API_KEY` from a `.env` beside the running binary, or above it.
+///
+/// The same outward walk `build.rs` does, from the executable rather than from
+/// the manifest directory — this code has no manifest at run time. An installed
+/// copy has no `.env` anywhere near it and simply finds nothing, which is the
+/// correct answer there: an installed copy's key belongs in `config.json`.
+fn dotenv_key() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    // target/debug/memos-desktop.exe -> target/debug -> target -> <root>, and
+    // the working directory too, because `tauri dev` runs the app from
+    // `apps/desktop/src-tauri` and a developer's `.env` is above that.
+    let from_exe = exe.ancestors().skip(1).take(4).map(PathBuf::from);
+    let from_cwd = std::env::current_dir()
+        .ok()
+        .into_iter()
+        .flat_map(|d| d.ancestors().take(4).map(PathBuf::from).collect::<Vec<_>>());
+
+    for dir in from_exe.chain(from_cwd) {
+        if let Some(key) = std::fs::read_to_string(dir.join(".env"))
+            .ok()
+            .and_then(|text| key_from(&text))
+        {
+            return Some(key);
+        }
+    }
+    None
+}
+
+/// `ANTHROPIC_API_KEY` out of the text of a `.env`.
+///
+/// Its own function so the parsing is testable without a filesystem: a key
+/// silently missed because of a quote or a comment is a router that reports
+/// itself absent while the user is looking straight at the line that sets it.
+fn key_from(text: &str) -> Option<String> {
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('#') {
+            continue;
+        }
+        // `split_once` and not `split`: a value may contain '=' even though
+        // these keys do not, and quietly truncating a credential is the worst
+        // kind of bug to have written here.
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if key.trim() != "ANTHROPIC_API_KEY" {
+            continue;
+        }
+        // An inline comment is not part of the value, and neither are the
+        // quotes a shell would have stripped.
+        let value = value.split('#').next().unwrap_or("").trim();
+        let value = value.trim_matches('"').trim_matches('\'').trim();
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
 impl Config {
-    /// The key to route with, from the environment first.
+    /// The key to route with: the environment, then a development `.env`, then
+    /// this file.
+    ///
+    /// The middle one exists because `.env` at the repository root is where a
+    /// developer will put it — `build.rs` reads that file, so it is already
+    /// "the file you put credentials in" for this project. But `build.rs` runs
+    /// at *build* time and bakes its values in with `env!`, which is right for
+    /// a client id that is the same for every copy and wrong for a key that
+    /// bills somebody. So this reads it again, here, at run time, and the key
+    /// never enters the binary.
     ///
     /// Returning `None` is a supported state and not an error: the app runs
     /// without a router, on the grammar, exactly as it did before there was
@@ -280,6 +348,7 @@ impl Config {
     pub fn api_key(&self) -> Option<String> {
         std::env::var("ANTHROPIC_API_KEY")
             .ok()
+            .or_else(dotenv_key)
             .or_else(|| self.anthropic_api_key.clone())
             .map(|k| k.trim().to_string())
             .filter(|k| !k.is_empty())
@@ -352,6 +421,27 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
+    /// The line the user actually edits, in every shape a `.env` takes.
+    #[test]
+    fn the_key_is_read_out_of_a_dotenv() {
+        use super::key_from;
+        assert_eq!(key_from("ANTHROPIC_API_KEY=sk-ant-abc").as_deref(), Some("sk-ant-abc"));
+        assert_eq!(key_from("  ANTHROPIC_API_KEY = sk-ant-abc  ").as_deref(), Some("sk-ant-abc"));
+        assert_eq!(key_from("ANTHROPIC_API_KEY=\"sk-ant-abc\"").as_deref(), Some("sk-ant-abc"));
+        assert_eq!(
+            key_from("MEMOS_API_URL=
+ANTHROPIC_API_KEY=sk-ant-abc  # mine
+").as_deref(),
+            Some("sk-ant-abc")
+        );
+        // The commented-out example line in .env.example must not read as a key.
+        assert_eq!(key_from("# ANTHROPIC_API_KEY=sk-ant-abc"), None);
+        // And neither must the empty one it ships with, or the app would think
+        // it had a key and fail every command instead of saying it has none.
+        assert_eq!(key_from("ANTHROPIC_API_KEY="), None);
+        assert_eq!(key_from("ANTHROPIC_API_KEY=   "), None);
+    }
+
     use super::*;
 
     #[test]
