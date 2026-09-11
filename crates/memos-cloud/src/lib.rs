@@ -56,8 +56,6 @@ const MAX_TOKENS: u32 = 8192;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CloudError {
-    #[error("no API key")]
-    NoKey,
     #[error("the network: {0}")]
     Network(String),
     #[error("the API refused: {0}")]
@@ -87,6 +85,10 @@ pub struct Plan {
 pub struct Cloud {
     key: String,
     model: String,
+    /// Where the request goes. A field rather than a constant so the loop can
+    /// be driven by a stub in `tests/` — and a field rather than an environment
+    /// variable so two of those can run at once without trampling each other.
+    base: String,
     http: reqwest::blocking::Client,
 }
 
@@ -99,7 +101,24 @@ impl Cloud {
             .timeout(REQUEST_TIMEOUT)
             .build()
             .ok()?;
-        Some(Self { key, model: MODEL.to_string(), http })
+        Some(Self {
+            key,
+            model: MODEL.to_string(),
+            base: "https://api.anthropic.com".to_string(),
+            http,
+        })
+    }
+
+    /// Point it somewhere else.
+    ///
+    /// For the tests, which drive the conversation against a stub that answers
+    /// with canned tool calls: what is worth proving here is that results go
+    /// back addressed correctly and that a second step sees the first one's
+    /// outcome, and a live model is neither needed nor especially good at
+    /// proving it on demand.
+    pub fn with_base(mut self, base: &str) -> Self {
+        self.base = base.trim_end_matches('/').to_string();
+        self
     }
 
     /// Run one command to completion.
@@ -211,7 +230,7 @@ impl Cloud {
 
         let response = self
             .http
-            .post("https://api.anthropic.com/v1/messages")
+            .post(format!("{}/v1/messages", self.base))
             .header("content-type", "application/json")
             .header("x-api-key", &self.key)
             .header("anthropic-version", "2023-06-01")
