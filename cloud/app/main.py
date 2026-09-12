@@ -20,7 +20,9 @@ and later the Apple and GitHub client secrets and whatever sends email — lives
 here, on a machine we control.
 """
 
+import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -30,13 +32,18 @@ from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
-from . import codes, google, mail, referrals, tokens
+from . import codes, google, mail, referrals, shape as shaping, tokens
 from .config import settings
 from .db import Database, User
 
 log = logging.getLogger("memos")
 
 db: Database | None = None
+
+# One model for the process. Constructed at import and loaded in `lifespan`,
+# because the first dictation should not be the one that waits several seconds
+# for a model to come off disk.
+shaper = shaping.Shaper()
 
 
 @asynccontextmanager
@@ -49,6 +56,14 @@ async def lifespan(app: FastAPI):
     global db
     db = Database(settings().database_url)
     await db.open()
+    # Never fatal. A deployment with no model file, or without llama-cpp-python
+    # installed, serves every other endpoint exactly as before and answers the
+    # shaping one with a 503 the desktop app already knows how to fall back
+    # from.
+    try:
+        shaper.load()
+    except shaping.Unavailable as e:
+        log.warning("dictation shaping unavailable: %s", e)
     try:
         yield
     finally:
@@ -491,6 +506,57 @@ async def follow_invite(code: str, store: Database = Depends(database)) -> Redir
         )
     separator = "&" if "?" in config.download_url else "?"
     return RedirectResponse(f"{config.download_url}{separator}r={normalised}")
+
+
+# ------------------------------------------------------------------ dictation
+
+
+class ShapeRequest(BaseModel):
+    transcript: str
+
+
+class ShapeResponse(BaseModel):
+    text: str
+    took_ms: int
+
+
+@app.post("/v1/dictation/shape", response_model=ShapeResponse)
+async def shape_dictation(body: ShapeRequest) -> ShapeResponse:
+    """Format a dictated transcript and hand it straight back.
+
+    Unauthenticated, unlike everything above it, and deliberately: this reads no
+    database, resolves no identity, stores nothing, and returns nothing the
+    caller did not already send. Putting it behind `caller` would mean dictation
+    stopped working whenever Postgres did, for a feature that has no use for
+    Postgres.
+
+    That reasoning holds for a service on a laptop and stops holding the moment
+    this is exposed publicly, where an open endpoint that runs a model on demand
+    is somebody else's free compute. Before deploying: put it behind `caller`,
+    or behind whatever the edge uses for rate limiting.
+    """
+    transcript = body.transcript.strip()
+    if not transcript:
+        return ShapeResponse(text="", took_ms=0)
+
+    started = time.monotonic()
+    try:
+        # Off the event loop: generation is a blocking CPU-bound call of a few
+        # hundred milliseconds, and running it inline would stall every other
+        # request in the process for its duration.
+        text = await asyncio.to_thread(shaper.shape, transcript)
+    except shaping.Unavailable as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e)) from e
+    except Exception as e:
+        # The caller's fallback is the raw transcript, so a failure here costs
+        # formatting rather than the dictation. Logged in full because nothing
+        # downstream will ever see why.
+        log.exception("shaping failed")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, f"shaping failed: {e}"
+        ) from e
+
+    return ShapeResponse(text=text, took_ms=int((time.monotonic() - started) * 1000))
 
 
 @app.get("/health")

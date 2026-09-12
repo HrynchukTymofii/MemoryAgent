@@ -348,6 +348,24 @@ impl Auth {
         backend::report_progress(&self.http, &self.backend, &self.api_token()?, words)
     }
 
+    /// How long dictation waits for the service to format a transcript.
+    ///
+    /// Much shorter than the client's own 20 s, because the two are waiting on
+    /// different things. Signing in is worth waiting for; this is an
+    /// improvement on a transcript that already exists, and the user is stood
+    /// in front of a blinking cursor. Past this the raw words are typed.
+    pub const SHAPE_TIMEOUT: Duration = Duration::from_secs(6);
+
+    /// Format a dictated transcript.
+    ///
+    /// Takes no session, unlike everything above: the endpoint requires none,
+    /// because it holds nothing and identifies nobody. That makes this the one
+    /// backend call that works for a user who has never signed in — which is
+    /// the point, since dictation has nothing to do with having an account.
+    pub fn shape(&self, transcript: &str) -> AuthResult<backend::Shaped> {
+        backend::shape(&self.http, &self.backend, transcript, Self::SHAPE_TIMEOUT)
+    }
+
     /// Whether there is an API session to spend on any of the above.
     ///
     /// Asked before showing the referral screen, so a signed-out user gets a

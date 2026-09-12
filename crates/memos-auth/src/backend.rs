@@ -269,6 +269,49 @@ pub fn report_progress(
     )
 }
 
+/// What the shaping endpoint returns.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Shaped {
+    pub text: String,
+    /// How long the model took, as the service measured it. Logged rather than
+    /// shown: it is the number that says whether the machine running the model
+    /// is fast enough for dictation to feel instant.
+    pub took_ms: u32,
+}
+
+/// Format a dictated transcript.
+///
+/// The one call in this module that carries no session token, because the
+/// endpoint takes none — it reads no database and resolves no identity, and
+/// requiring a sign-in would mean dictation stopped working for anyone who had
+/// not done one. See `shape_dictation` in `cloud/app/main.py`.
+///
+/// Its own timeout, far shorter than the client's default: the user is standing
+/// with a cursor blinking, and their unformatted words now beat their formatted
+/// words in fifteen seconds. Every failure here is one the caller types the raw
+/// transcript through.
+pub fn shape(
+    http: &reqwest::blocking::Client,
+    backend: &Backend,
+    transcript: &str,
+    timeout: std::time::Duration,
+) -> AuthResult<Shaped> {
+    if !backend.is_configured() {
+        return Err(AuthError::NotConfigured);
+    }
+    let url = format!(
+        "{}/v1/dictation/shape",
+        backend.api_url.trim_end_matches('/')
+    );
+    let response = http
+        .post(&url)
+        .timeout(timeout)
+        .json(&serde_json::json!({ "transcript": transcript }))
+        .send()
+        .map_err(|e| AuthError::Network(e.to_string()))?;
+    read(response)
+}
+
 fn get_json<T: serde::de::DeserializeOwned>(
     http: &reqwest::blocking::Client,
     backend: &Backend,

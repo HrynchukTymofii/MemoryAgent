@@ -175,8 +175,8 @@ pub struct Config {
 
     /// A second chord that dictates instead of capturing: hold it, speak, and
     /// the transcript is typed into whatever field the caret is already in. No
-    /// router and no memory written — though the transcript itself does go out
-    /// to be formatted, which is what makes a spoken list arrive as a list.
+    /// router and no memory written — though the transcript does go to our own
+    /// API to be formatted, which is what makes a spoken list arrive as a list.
     ///
     /// `None` by default, and deliberately unbound rather than given a
     /// plausible default. Dictation types into the user's *other* application,

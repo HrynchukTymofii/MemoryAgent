@@ -5,6 +5,13 @@ pyjwt[crypto]==2.10.1
 httpx==0.28.1
 pydantic-settings==2.7.0
 
+# Dictation shaping. Builds llama.cpp from source on install, so it needs the
+# same C++ toolchain whisper.cpp does; prebuilt wheels are at
+# https://abetlen.github.io/llama-cpp-python/whl/cpu if that is not available.
+# The service runs without it - every endpoint but /v1/dictation/shape is
+# unaffected, and that one says why it cannot answer.
+llama-cpp-python==0.3.16
+
 # Tests
 pytest==8.3.4
 pytest-asyncio==0.25.0

@@ -120,6 +120,10 @@ pub struct Stt {
     embeddings: RwLock<Option<Arc<crate::Embeddings>>>,
     /// Where an unanswered destination question waits for a click.
     questions: RwLock<Option<Arc<crate::question::Pending>>>,
+    /// Our own API, which is where the dictation formatter runs. Absent when
+    /// this build has no `MEMOS_API_URL`, in which case dictation types exactly
+    /// what whisper heard.
+    api: RwLock<Option<Arc<memos_auth::Auth>>>,
     /// The router. Absent when no API key is configured, and unreachable when
     /// the machine is offline — in both cases the grammar is the system, which
     /// is the whole reason the grammar is still here (ADR-0011).
@@ -143,6 +147,7 @@ impl Stt {
             db: RwLock::new(None),
             embeddings: RwLock::new(None),
             questions: RwLock::new(None),
+            api: RwLock::new(None),
             cloud: RwLock::new(None),
             cloud_error: RwLock::new(None),
             model: RwLock::new(None),
@@ -177,6 +182,10 @@ impl Stt {
 
     pub fn attach_cloud(&self, c: Arc<memos_cloud::Cloud>) {
         *self.cloud.write() = Some(c);
+    }
+
+    pub fn attach_api(&self, a: Arc<memos_auth::Auth>) {
+        *self.api.write() = Some(a);
     }
 
     /// What the Hub shows about the router.
@@ -275,12 +284,15 @@ impl Stt {
                             // single comma-spattered sentence, and typing that
                             // into their document is not what they dictated.
                             //
-                            // This is the one thing about dictation that is not
-                            // local, and it is on the critical path: the words
-                            // cannot be typed until they come back. Every way
-                            // it can fail ends with the raw transcript, which
-                            // is the feature working slightly worse rather than
-                            // not working.
+                            // Shaped by our own service rather than here: the
+                            // model that does it cannot be linked into this
+                            // process (llama.cpp and whisper.cpp each vendor
+                            // their own ggml), and a service is a sidecar that
+                            // happens to have a URL. It is on the critical
+                            // path — the words cannot be typed until they come
+                            // back — and every way it can fail ends with the raw
+                            // transcript, which is the feature working slightly
+                            // worse rather than not working.
                             let text = if mode == Mode::Dictate && !empty {
                                 me.shaped(&text)
                             } else {
@@ -354,20 +366,21 @@ impl Stt {
     /// malformed reply all come out the same way here, which is why this
     /// returns a `String` rather than a `Result` nobody could act on.
     fn shaped(&self, text: &str) -> String {
-        let Some(cloud) = self.cloud.read().clone() else {
+        let Some(api) = self.api.read().clone() else {
             return text.to_string();
         };
-        match cloud.shape(text) {
-            Ok(shaped) => {
-                *self.cloud_error.write() = None;
-                shaped
+        match api.shape(text) {
+            Ok(shaped) if !shaped.text.trim().is_empty() => {
+                tracing::info!(took_ms = shaped.took_ms, "dictation shaped");
+                shaped.text
             }
+            // A service that answered with nothing has not formatted anything,
+            // and the empty string is the one reply that would type over the
+            // user's words with silence.
+            Ok(_) => text.to_string(),
             Err(e) => {
-                // Recorded where routing records its failures, so a key that
-                // has stopped working says so in the Hub rather than only
-                // showing up as dictation that quietly stopped making lists.
                 tracing::warn!(error = %e, "dictation not shaped; typing the raw transcript");
-                *self.cloud_error.write() = Some(e.to_string());
+                crate::hotkey::diag(&format!("dictation not shaped: {e}"));
                 text.to_string()
             }
         }

@@ -40,8 +40,8 @@ pub enum Mode {
     /// The transcript is routed and executed, and the memory is written.
     Capture,
     /// The transcript is typed into whatever already holds the caret. Nothing is
-    /// routed and nothing is stored — but the transcript is sent out to be
-    /// formatted on the way, so this is not the offline path capture is.
+    /// routed and nothing is stored — but the transcript does go to our own API
+    /// to be formatted on the way, so this is not the offline path capture is.
     Dictate,
 }
 

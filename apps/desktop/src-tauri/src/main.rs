@@ -2055,6 +2055,10 @@ fn main() {
             stt.attach_db(db.clone());
             stt.attach_embeddings(embeddings.clone());
             stt.attach_questions(questions.clone());
+            // The same Auth the interface uses, shared rather than rebuilt: it
+            // owns the HTTP client and the API's base URL, and dictation wants
+            // both. It does not want the session — shaping takes none.
+            stt.attach_api(app.state::<AppState>().auth.clone());
 
             // Clicking an option must never pull focus out of whatever the user
             // was working in.

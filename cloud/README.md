@@ -23,7 +23,22 @@ desktop --id_token--> API --verifies--> Google
 |---|---|
 | `POST /v1/auth/google` | exchange a Google identity token for a session |
 | `GET /v1/me` | who the caller is |
+| `POST /v1/dictation/shape` | format a dictated transcript |
 | `GET /health` | alive, and able to reach Postgres |
+
+`/v1/dictation/shape` is the odd one out and the only endpoint here that takes
+no session token. It reads no database, identifies nobody, and returns nothing
+the caller did not send — a formatting of their own sentence. Requiring a
+sign-in would mean dictation stopped working whenever Postgres did.
+
+That reasoning stops holding the moment this service is public, where an
+unauthenticated endpoint that runs a model on demand is somebody else's free
+compute. **Put it behind `caller` before deploying.**
+
+It needs `models/llm/router.gguf` (Qwen3-0.6B, `scriptsetch-models.ps1
+router`) and `llama-cpp-python`. Without either, the service starts, logs why,
+and answers that one endpoint with a 503 — which the desktop app already falls
+back from by typing the unformatted words.
 
 ## Running it
 

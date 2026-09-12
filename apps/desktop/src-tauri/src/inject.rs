@@ -4,10 +4,10 @@
 //! working, and nowhere else. Nothing is stored and nothing is routed, and —
 //! unlike every hosted dictation tool — nothing is counted.
 //!
-//! What arrives here has already been through the shaping pass, so it carries
-//! the speaker's punctuation and layout rather than whisper's flat run of
-//! words. That pass is the one part of dictation that is not local; everything
-//! below this line is.
+//! What arrives here has already been through the shaping pass on our own API,
+//! so it carries the speaker's punctuation and layout rather than whisper's
+//! flat run of words. That pass is the one part of dictation that leaves this
+//! process; everything below this line is local.
 //!
 //! ## Why synthesised keystrokes rather than the clipboard
 //!
