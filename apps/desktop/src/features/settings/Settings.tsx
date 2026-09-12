@@ -185,7 +185,28 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
 
       <div className="card" id="capture">
         <h2>Capture</h2>
-        <Shortcut settings={settings} hook={hook} onSaved={setSettings} />
+        <Shortcut
+          name="Shortcut"
+          blurb="Hold this anywhere in Windows to capture. Press Change, then hold the combination you want and let go."
+          spec={settings?.hotkey ?? null}
+          hook={hook}
+          disabled={!settings}
+          onSave={(spec) => api.setHotkey(spec, settings?.hold_threshold_ms ?? 120)}
+          onSaved={setSettings}
+        />
+
+        <Shortcut
+          name="Dictation"
+          blurb="A second chord that types instead of capturing: hold it, speak, and the words go
+                 straight into whatever you are working in. Nothing is routed, nothing is saved, and
+                 the speech never leaves this machine — so nothing counts it. Off until you bind it."
+          spec={settings?.dictate_hotkey ?? null}
+          hook={hook}
+          disabled={!settings}
+          onSave={(spec) => api.setDictateHotkey(spec)}
+          onClear={() => api.setDictateHotkey(null)}
+          onSaved={setSettings}
+        />
 
         <div className="row">
           <span className="bd">
@@ -503,13 +524,28 @@ function HookVerdict({ hook }: { hook: HookStats | null }) {
  * events, because the point is to record chords the browser never sees —
  * modifier-only combinations, and keys that other applications swallow.
  */
+/// One bindable chord. Capture and dictation differ only in what they are for
+/// and in whether they can be turned off, so they are the same control twice
+/// rather than two that have to be kept in step.
 function Shortcut({
-  settings,
+  name,
+  blurb,
+  spec: bound,
   hook,
+  disabled,
+  onSave,
+  onClear,
   onSaved,
 }: {
-  settings: SettingsData | null;
+  name: string;
+  blurb: string;
+  /// The bound spec, or null when nothing is.
+  spec: string | null;
   hook: HookStats | null;
+  disabled: boolean;
+  onSave: (spec: string) => Promise<SettingsData>;
+  /// Present only on a binding that is allowed to be unbound.
+  onClear?: () => Promise<SettingsData>;
   onSaved: (s: SettingsData) => void;
 }) {
   const [recording, setRecording] = useState(false);
@@ -569,40 +605,54 @@ function Shortcut({
   };
 
   const save = async () => {
-    if (!pending || !settings) return;
+    if (!pending || disabled) return;
     try {
-      const s = await api.setHotkey(pending, settings.hold_threshold_ms);
-      onSaved(s);
+      onSaved(await onSave(pending));
       setPending(null);
       setHint({
-        text: `${specLabel(s.hotkey)} is active now — no restart needed.`,
+        text: `${specLabel(pending)} is active now — no restart needed.`,
         kind: "ok",
       });
     } catch (e) {
-      // Surface the parser's own words: it names the token that failed, which
-      // is more use than a generic "invalid shortcut".
+      // Surface the backend's own words: it names the token that failed, or the
+      // shortcut this one collides with, either of which is more use than a
+      // generic "invalid shortcut".
+      setHint({ text: `Not saved — ${String(e)}`, kind: "bad" });
+    }
+  };
+
+  const clear = async () => {
+    if (!onClear) return;
+    try {
+      onSaved(await onClear());
+      setPending(null);
+      setHint({ text: `${name} is off.`, kind: "" });
+    } catch (e) {
       setHint({ text: `Not saved — ${String(e)}`, kind: "bad" });
     }
   };
 
   const label = pending
     ? specLabel(pending)
-    : preview ?? (recording ? "Press keys…" : settings ? specLabel(settings.hotkey) : "—");
+    : (preview ??
+      (recording ? "Press keys…" : bound ? specLabel(bound) : onClear ? "Off" : "—"));
 
   return (
     <>
       <div className="row">
         <span className="bd">
-          <span className="k">Shortcut</span>
-          <span className="v">
-            Hold this anywhere in Windows to capture. Press Change, then hold the combination you
-            want and let go.
-          </span>
+          <span className="k">{name}</span>
+          <span className="v">{blurb}</span>
         </span>
         <span className={`keycap${recording ? " listening" : ""}`}>{label}</span>
         {!pending && !recording && (
           <button className="btn" type="button" onClick={start}>
-            Change
+            {bound ? "Change" : "Bind"}
+          </button>
+        )}
+        {!pending && !recording && bound && onClear && (
+          <button className="btn" type="button" onClick={() => void clear()}>
+            Turn off
           </button>
         )}
       </div>

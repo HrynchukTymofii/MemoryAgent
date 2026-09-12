@@ -49,6 +49,8 @@ interface Ambiguity {
 }
 
 interface CaptureResult {
+  /** Which shortcut produced this. Dictation has no receipt to show. */
+  mode: "capture" | "dictate";
   text: string;
   audio_secs: number;
   inference_ms: number;
@@ -520,7 +522,14 @@ await listen<CaptureResult>("capture:result", (e) => {
   const sub = document.createElement("span");
   sub.className = "sub";
 
-  if (r.outcome) {
+  if (r.mode === "dictate") {
+    // Dictation has no receipt, because nothing was decided and nothing was
+    // stored — the words are already appearing where the user is looking. All
+    // the overlay owes them is what was heard, for the moment before it goes.
+    pill.classList.add("done");
+    text.textContent = r.text;
+    clearResults();
+  } else if (r.outcome) {
     // The receipt: what happened, with where it came from beneath it.
     //
     // Green means something exists now that did not before, or something was

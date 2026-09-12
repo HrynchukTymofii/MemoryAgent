@@ -73,9 +73,13 @@ export interface RoutingStats {
 
 export interface Settings {
   hotkey: string;
+  /** The dictation binding, or null when it is off — which is the default. */
+  dictate_hotkey: string | null;
   hold_threshold_ms: number;
   debug_keys: boolean;
   active_chord: string;
+  /** What the hook holds for dictation; empty when nothing is bound. */
+  active_dictate_chord: string;
   /** Keep a small pill on screen when nothing is being captured. */
   idle_pill: boolean;
 }
@@ -216,6 +220,9 @@ export const api = {
   settings: () => invoke<Settings>("get_settings"),
   setHotkey: (spec: string, holdThresholdMs: number) =>
     invoke<Settings>("set_hotkey", { spec, holdThresholdMs }),
+  /** `null` turns dictation off. */
+  setDictateHotkey: (spec: string | null) =>
+    invoke<Settings>("set_dictate_hotkey", { spec }),
   setIdlePill: (enabled: boolean) => invoke<Settings>("set_idle_pill", { enabled }),
   captureCount: () => invoke<number>("capture_count"),
   summary: () => invoke<LibrarySummary>("library_summary"),

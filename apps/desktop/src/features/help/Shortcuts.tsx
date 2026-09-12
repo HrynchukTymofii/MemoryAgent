@@ -37,6 +37,12 @@ export function Shortcuts({ onClose }: { onClose: () => void }) {
           Hold to capture. Speak while it is held, let go when you are done — the app hears the
           whole phrase, including what you said before the overlay appeared.
         </Row>
+        {settings?.dictate_hotkey && (
+          <Row keys={chord(settings.dictate_hotkey)} held>
+            Hold to dictate. The words are typed into whatever you are working in — nothing is
+            routed, nothing is saved here, and the speech never leaves this machine.
+          </Row>
+        )}
         <Row keys={["Esc"]}>Drop what is being captured without saving it.</Row>
       </Group>
 
