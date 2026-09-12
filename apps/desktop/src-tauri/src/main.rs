@@ -2158,8 +2158,18 @@ fn main() {
             let hold_src = hold_ms.clone();
             let stt_worker = stt.clone();
             hotkey::diag(&format!(
-                "--- startup: hotkey={} hold={}ms debug_keys={} ---",
-                cfg.hotkey, cfg.hold_threshold_ms, cfg.debug_keys
+                "--- startup: hotkey={} dictate={} hold={}ms debug_keys={} ---",
+                cfg.hotkey,
+                // What the hook was actually handed, not what the file says.
+                // The two differ when a hand-edited spec failed to parse, and
+                // "I bound it and nothing happens" is exactly the report that
+                // cannot be answered without knowing which.
+                match cfg.dictate_chord() {
+                    Some(c) => c.label().to_string(),
+                    None => "(unbound)".into(),
+                },
+                cfg.hold_threshold_ms,
+                cfg.debug_keys
             ));
             if cfg.debug_keys {
                 let log = data_dir().join("keylog.txt");
