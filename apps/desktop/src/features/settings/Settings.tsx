@@ -198,8 +198,10 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
         <Shortcut
           name="Dictation"
           blurb="A second chord that types instead of capturing: hold it, speak, and the words go
-                 straight into whatever you are working in. Nothing is routed, nothing is saved, and
-                 the speech never leaves this machine — so nothing counts it. Off until you bind it."
+                 straight into whatever you are working in. Nothing is routed and nothing is saved
+                 here. Speech is transcribed on this machine; the transcript is then sent to Claude
+                 to be punctuated and laid out, so a spoken list arrives as a list — and if that
+                 call fails, the raw words are typed instead. Off until you bind it."
           spec={settings?.dictate_hotkey ?? null}
           hook={hook}
           disabled={!settings}

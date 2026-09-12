@@ -40,7 +40,8 @@ export function Shortcuts({ onClose }: { onClose: () => void }) {
         {settings?.dictate_hotkey && (
           <Row keys={chord(settings.dictate_hotkey)} held>
             Hold to dictate. The words are typed into whatever you are working in — nothing is
-            routed, nothing is saved here, and the speech never leaves this machine.
+            routed and nothing is saved here. The transcript goes to Claude to be punctuated
+            and laid out; if that fails, the raw words are typed instead.
           </Row>
         )}
         <Row keys={["Esc"]}>Drop what is being captured without saving it.</Row>

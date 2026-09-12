@@ -269,6 +269,24 @@ impl Stt {
                         }) => {
                             let empty = text.trim().is_empty();
 
+                            // Whisper hands back one flat run of words. A list
+                            // the user clearly spoke as a list — "first ...
+                            // second of all ... and finally" — arrives as a
+                            // single comma-spattered sentence, and typing that
+                            // into their document is not what they dictated.
+                            //
+                            // This is the one thing about dictation that is not
+                            // local, and it is on the critical path: the words
+                            // cannot be typed until they come back. Every way
+                            // it can fail ends with the raw transcript, which
+                            // is the feature working slightly worse rather than
+                            // not working.
+                            let text = if mode == Mode::Dictate && !empty {
+                                me.shaped(&text)
+                            } else {
+                                text
+                            };
+
                             // Route and execute on this thread, before the
                             // result is reported: the receipt must state what
                             // actually happened, not what is about to.
@@ -276,7 +294,10 @@ impl Stt {
                             // Dictation skips all of it. There is no command to
                             // route, no memory to write and no use to record —
                             // the words are going into somebody else's document,
-                            // and this app has no business keeping a copy.
+                            // and this app has no business keeping a copy. The
+                            // shaping pass above is a different thing entirely:
+                            // it formats the text and returns it, and executes
+                            // nothing.
                             let (outcome, ask, earned) = if empty || mode == Mode::Dictate {
                                 (None, None, Vec::new())
                             } else {
@@ -323,6 +344,33 @@ impl Stt {
                 }
             })
             .expect("spawn transcription worker");
+    }
+
+    /// Format a dictated transcript, or hand back exactly what was heard.
+    ///
+    /// Never an error and never empty: the caller is about to type this into
+    /// somebody's document, and there is always a correct thing to type — the
+    /// words whisper heard. No key, no network, a refusal, a slow turn and a
+    /// malformed reply all come out the same way here, which is why this
+    /// returns a `String` rather than a `Result` nobody could act on.
+    fn shaped(&self, text: &str) -> String {
+        let Some(cloud) = self.cloud.read().clone() else {
+            return text.to_string();
+        };
+        match cloud.shape(text) {
+            Ok(shaped) => {
+                *self.cloud_error.write() = None;
+                shaped
+            }
+            Err(e) => {
+                // Recorded where routing records its failures, so a key that
+                // has stopped working says so in the Hub rather than only
+                // showing up as dictation that quietly stopped making lists.
+                tracing::warn!(error = %e, "dictation not shaped; typing the raw transcript");
+                *self.cloud_error.write() = Some(e.to_string());
+                text.to_string()
+            }
+        }
     }
 
     /// Route a transcript, execute it, and count that it happened.

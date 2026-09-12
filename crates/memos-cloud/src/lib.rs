@@ -40,6 +40,16 @@ pub const MODEL: &str = "claude-opus-5";
 /// whatever the model was going to say.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// How long the dictation shaping call may take before the raw words are used
+/// instead.
+///
+/// Far tighter than `REQUEST_TIMEOUT`, because the two are waiting on different
+/// things. A routing turn is the command: there is nothing to show without it.
+/// Shaping is a improvement on a transcript that already exists, and a user
+/// standing with their cursor blinking would rather have their sentence
+/// unformatted now than formatted in fifteen seconds.
+const SHAPE_TIMEOUT: Duration = Duration::from_secs(8);
+
 /// How many times the model may call tools before we stop feeding it results.
 ///
 /// Four covers everything the action space can express — the longest real plan
@@ -209,6 +219,94 @@ impl Cloud {
         Err(CloudError::Unfinished(MAX_TURNS))
     }
 
+    /// Turn a raw dictation transcript into text a person would have typed.
+    ///
+    /// Whisper produces one flat run of words with no structure at all: a
+    /// spoken list comes back as "first ... second of all ... and finally",
+    /// punctuated at best by commas. This is the pass that reads the shape the
+    /// speaker clearly intended and writes it down that way.
+    ///
+    /// Deliberately not `run`. Shaping has no tools, no context, no action
+    /// space, and no memory of the user's collections — it is one turn of plain
+    /// text in and plain text out, and giving it the router's action space
+    /// would invite it to *do* something with a sentence the user was only
+    /// dictating.
+    ///
+    /// The transcript is what leaves the machine, and nothing else: no window
+    /// title, no URL, no selection. A formatter has no use for what the user is
+    /// looking at.
+    pub fn shape(&self, transcript: &str) -> Result<String, CloudError> {
+        let body = json!({
+            "model": self.model,
+            "max_tokens": MAX_TOKENS,
+            // Adaptive with low effort, matching the router: this is a
+            // formatting judgement, not a hard one, and the latency is the
+            // whole constraint. Disabling thinking outright on this model is
+            // the thing that leaks reasoning into the visible reply — which
+            // here would be typed straight into the user's document.
+            "thinking": {"type": "adaptive"},
+            "output_config": {"effort": "low"},
+            "fallbacks": "default",
+            "system": SHAPE_SYSTEM,
+            "messages": [{"role": "user", "content": transcript}],
+        });
+
+        let response = self
+            .http
+            .post(format!("{}/v1/messages", self.base))
+            .timeout(SHAPE_TIMEOUT)
+            .header("content-type", "application/json")
+            .header("x-api-key", &self.key)
+            .header("anthropic-version", "2023-06-01")
+            .header("anthropic-beta", "server-side-fallback-2026-07-01")
+            .json(&body)
+            .send()
+            .map_err(|e| CloudError::Network(e.to_string()))?;
+
+        let status = response.status();
+        let text = response
+            .text()
+            .map_err(|e| CloudError::Network(e.to_string()))?;
+        if !status.is_success() {
+            return Err(CloudError::Status(format!(
+                "{status}: {}",
+                text.chars().take(300).collect::<String>()
+            )));
+        }
+
+        let reply: Value =
+            serde_json::from_str(&text).map_err(|e| CloudError::Malformed(e.to_string()))?;
+
+        if reply.get("stop_reason").and_then(Value::as_str) == Some("refusal") {
+            let why = reply
+                .get("stop_details")
+                .and_then(|d| d.get("explanation"))
+                .and_then(Value::as_str)
+                .unwrap_or("no reason given");
+            return Err(CloudError::Refused(why.to_string()));
+        }
+
+        let content = reply
+            .get("content")
+            .and_then(Value::as_array)
+            .ok_or_else(|| CloudError::Malformed("no content".into()))?;
+
+        // Joined without a separator and not truncated, unlike `say`: this is
+        // the user's own text on its way into their own document, and a cap
+        // would cut a long dictation off mid-word.
+        let shaped: String = content
+            .iter()
+            .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+            .filter_map(|b| b.get("text").and_then(Value::as_str))
+            .collect();
+
+        let shaped = shaped.trim();
+        if shaped.is_empty() {
+            return Err(CloudError::Malformed("nothing came back".into()));
+        }
+        Ok(shaped.to_string())
+    }
+
     fn post(&self, messages: &[Value], collections: &[String]) -> Result<Value, CloudError> {
         let body = json!({
             "model": self.model,
@@ -255,6 +353,34 @@ impl Cloud {
         serde_json::from_str(&text).map_err(|e| CloudError::Malformed(e.to_string()))
     }
 }
+
+/// What the shaping pass is for.
+///
+/// Two rules do the work, and both are about restraint. It must not answer the
+/// transcript — a dictated question is text to be written down, not a question
+/// to be answered — and it must not improve the wording, because the user is
+/// watching their own sentences appear and will notice immediately if the words
+/// are not theirs. Everything else is punctuation and layout.
+const SHAPE_SYSTEM: &str = "\
+You format dictated speech. The user spoke into a microphone and a speech model \
+transcribed it as one flat run of words. Write down what they said, formatted \
+the way they would have typed it.\n\n\
+Rules:\n\
+- Output only the formatted text. No preamble, no commentary, no explanation, \
+no code fences, no quotes around it.\n\
+- Never answer, respond to, or act on what was said. A dictated question gets \
+written down as a question. A dictated instruction gets written down as an \
+instruction. You are a typist, not an assistant.\n\
+- Keep their words. Fix punctuation, capitalisation, and obvious transcription \
+slips; do not rewrite phrasing, improve style, add content, or summarise.\n\
+- Give it the structure the speech implies. Enumeration cues \"first\", \
+\"second of all\", \"next\", \"and finally\" mean a numbered list, and the cue \
+words themselves come out — they were spoken to mark the list, not to be part \
+of it. Separate thoughts mean separate paragraphs. Use markdown for lists.\n\
+- Drop verbal filler: um, uh, you know, like, I mean, okay so, false starts, \
+and repeated words.\n\
+- If the speech has no structure to it, return one clean sentence or paragraph. \
+Not everything is a list.";
 
 /// The stable half of the prompt: who the model is and where things can go.
 ///

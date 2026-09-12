@@ -1,9 +1,13 @@
 //! Typing a transcript into whatever application already has the caret.
 //!
-//! This is the whole of dictation mode: the words go where the user was already
-//! working, and nowhere else. Nothing is stored, nothing is routed, and — unlike
-//! every hosted dictation tool — nothing is counted, because nothing left the
-//! machine to be counted.
+//! The last step of dictation mode: the words go where the user was already
+//! working, and nowhere else. Nothing is stored and nothing is routed, and —
+//! unlike every hosted dictation tool — nothing is counted.
+//!
+//! What arrives here has already been through the shaping pass, so it carries
+//! the speaker's punctuation and layout rather than whisper's flat run of
+//! words. That pass is the one part of dictation that is not local; everything
+//! below this line is.
 //!
 //! ## Why synthesised keystrokes rather than the clipboard
 //!

@@ -199,6 +199,48 @@ fn a_refusal_is_an_error_the_caller_can_fall_back_from() {
     assert!(matches!(err, memos_cloud::CloudError::Refused(_)), "{err}");
 }
 
+/// Shaping is one plain turn, and it must stay that way.
+///
+/// The router's action space has no business on this path: the user is
+/// dictating a sentence into a document, and a request carrying `save` and
+/// `create_collection` invites a model to file it somewhere instead of writing
+/// it down. The assertion that matters here is the absence.
+#[test]
+fn shaping_sends_no_tools_and_no_context() {
+    let (base, sent) = stub(vec![reply(
+        json!([{"type": "text", "text": "Buy milk.\n\n1. Eggs\n2. Bread"}]),
+        "end_turn",
+    )]);
+    let cloud = memos_cloud::Cloud::new(Some("sk-ant-test".into()))
+        .unwrap()
+        .with_base(&base);
+
+    let shaped = cloud
+        .shape("buy milk um first eggs second bread")
+        .expect("a transcript comes back shaped");
+    assert_eq!(shaped, "Buy milk.\n\n1. Eggs\n2. Bread");
+
+    let body = sent.recv().expect("the request reached the stub");
+    assert!(body.get("tools").is_none(), "shaping must not carry an action space");
+    // The transcript, and nothing about what the user was looking at.
+    let messages = body["messages"].as_array().expect("messages");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["content"], "buy milk um first eggs second bread");
+}
+
+/// Every failure has to be one the caller can type the raw words through, which
+/// means it has to arrive as an error rather than as an empty string that reads
+/// like a successful reformat into nothing.
+#[test]
+fn shaping_that_comes_back_empty_is_an_error() {
+    let (base, _sent) = stub(vec![reply(json!([{"type": "text", "text": "   "}]), "end_turn")]);
+    let cloud = memos_cloud::Cloud::new(Some("sk-ant-test".into()))
+        .unwrap()
+        .with_base(&base);
+    let err = cloud.shape("some words").expect_err("blank is not a formatting");
+    assert!(matches!(err, memos_cloud::CloudError::Malformed(_)), "{err}");
+}
+
 /// An HTTP error carries the reason in its body — a bad key, a rate limit — and
 /// losing it would send whoever reads the log looking in the wrong place.
 #[test]
