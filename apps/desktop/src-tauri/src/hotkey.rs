@@ -424,7 +424,12 @@ mod imp {
                 if stale != 0 && stale != vk && !key_down(stale) {
                     HELD_KEY.store(0, Ordering::SeqCst);
                 }
-                if is_modifier.is_none() {
+                // `vk == 0` is not a key. It is what dictation's own injected
+                // input reports — `KEYEVENTF_UNICODE` carries a character in the
+                // scan code and leaves the virtual key empty — and treating it
+                // as one would store 0, which is this atomic's "nothing held"
+                // sentinel, and so clear a key the user is genuinely holding.
+                if is_modifier.is_none() && vk != 0 {
                     if down {
                         HELD_KEY.store(vk, Ordering::SeqCst);
                     } else if stale == vk {
