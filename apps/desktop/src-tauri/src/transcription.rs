@@ -20,10 +20,16 @@ use memos_db::{count_words, ActivityKind, Db, Notification};
 use memos_stt::{Hints, Transcriber, Transcript, Vad};
 use parking_lot::RwLock;
 
+use crate::hotkey::Mode;
+
 /// A finished capture, ready for the interface and (from the next milestone)
 /// the intent router.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CaptureResult {
+    /// Which shortcut produced this. The interface shows a dictation result
+    /// differently — there is no command, no receipt and nothing saved, so a
+    /// routing verdict would be a lie about what just happened.
+    pub mode: Mode,
     pub text: String,
     /// What the user was looking at. Collected during the speech, so it costs
     /// nothing on the timeline.
@@ -59,6 +65,9 @@ impl CaptureResult {
     /// this answers, and reporting them twice would double-count.
     pub fn receipt(transcript: &str, outcome: memos_agent::Outcome) -> Self {
         Self {
+            // Only a capture ever asks a question, so only a capture is ever
+            // answered later.
+            mode: Mode::Capture,
             text: transcript.to_string(),
             context: Context::default(),
             audio_secs: 0.0,
@@ -86,6 +95,9 @@ pub enum Job {
         audio: Vec<f32>,
         hints: Hints,
         context: Context,
+        /// Which chord was held. Decided at the keyboard, not here: by the time
+        /// the audio arrives there is nothing left to tell the two apart.
+        mode: Mode,
         /// When the user released the key, for the end-to-end measurement.
         released: std::time::Instant,
     },
@@ -204,6 +216,7 @@ impl Stt {
                         audio,
                         hints,
                         context,
+                        mode,
                         released,
                     } = job;
 
@@ -217,6 +230,7 @@ impl Stt {
 
                     if !vad.heard_speech() {
                         on_result(CaptureResult {
+                            mode,
                             text: String::new(),
                             context,
                             audio_secs,
@@ -233,6 +247,7 @@ impl Stt {
                     let model = me.model.read().clone();
                     let Some(model) = model else {
                         on_result(CaptureResult {
+                            mode,
                             text: String::new(),
                             context,
                             audio_secs,
@@ -257,7 +272,12 @@ impl Stt {
                             // Route and execute on this thread, before the
                             // result is reported: the receipt must state what
                             // actually happened, not what is about to.
-                            let (outcome, ask, earned) = if empty {
+                            //
+                            // Dictation skips all of it. There is no command to
+                            // route, no memory to write and no use to record —
+                            // the words are going into somebody else's document,
+                            // and this app has no business keeping a copy.
+                            let (outcome, ask, earned) = if empty || mode == Mode::Dictate {
                                 (None, None, Vec::new())
                             } else {
                                 me.handle(&text, &context, audio_secs)
@@ -272,6 +292,7 @@ impl Stt {
                                 "transcribed"
                             );
                             on_result(CaptureResult {
+                                mode,
                                 text,
                                 context,
                                 audio_secs,
@@ -286,6 +307,7 @@ impl Stt {
                         Err(e) => {
                             tracing::error!(?e, "transcription failed");
                             on_result(CaptureResult {
+                                mode,
                                 text: String::new(),
                                 context,
                                 audio_secs,
@@ -626,6 +648,7 @@ impl Stt {
         audio: Vec<f32>,
         hints: Hints,
         context: Context,
+        mode: Mode,
         released: std::time::Instant,
     ) -> bool {
         match self.tx.read().as_ref() {
@@ -634,6 +657,7 @@ impl Stt {
                     audio,
                     hints,
                     context,
+                    mode,
                     released,
                 })
                 .is_ok(),

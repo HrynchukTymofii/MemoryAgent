@@ -4,6 +4,7 @@
 mod config;
 mod embedding;
 mod hotkey;
+mod inject;
 mod question;
 mod latency;
 mod transcription;
@@ -12,7 +13,7 @@ mod tray;
 use std::sync::Arc;
 
 use embedding::Embeddings;
-use hotkey::ChordState;
+use hotkey::{ChordState, Mode};
 use latency::{LatencyReport, LatencyTracker};
 use memos_db::Db;
 use memos_context::ContextPermissions;
@@ -84,9 +85,15 @@ fn hook_stats() -> hotkey::HookStats {
 #[derive(serde::Serialize)]
 struct Settings {
     hotkey: String,
+    /// `None` when dictation is unbound, which is the default.
+    dictate_hotkey: Option<String>,
     hold_threshold_ms: u64,
     debug_keys: bool,
     active_chord: String,
+    /// Empty when nothing is bound. What the *hook* holds, not what the file
+    /// says — the two differ when a hand-edited spec failed to parse, and that
+    /// is precisely the case the screen has to be able to show.
+    active_dictate_chord: String,
     idle_pill: bool,
 }
 
@@ -96,9 +103,11 @@ fn settings_of(state: &tauri::State<'_, AppState>) -> Settings {
     let c = state.config.lock().clone();
     Settings {
         hotkey: c.hotkey,
+        dictate_hotkey: c.dictate_hotkey,
         hold_threshold_ms: c.hold_threshold_ms,
         debug_keys: c.debug_keys,
         active_chord: hotkey::active_chord_label(),
+        active_dictate_chord: hotkey::dictate_chord_label(),
         idle_pill: c.idle_pill,
     }
 }
@@ -135,14 +144,50 @@ fn set_hotkey(
         "shortcut changed to '{}' (hold {} ms)",
         cfg.hotkey, cfg.hold_threshold_ms
     ));
+    drop(cfg);
 
-    Ok(Settings {
-        hotkey: cfg.hotkey.clone(),
-        hold_threshold_ms: cfg.hold_threshold_ms,
-        debug_keys: cfg.debug_keys,
-        active_chord: hotkey::active_chord_label(),
-        idle_pill: cfg.idle_pill,
-    })
+    Ok(settings_of(&state))
+}
+
+/// Bind, rebind, or unbind the dictation shortcut.
+///
+/// `None` — or an empty string, which is what a cleared field sends — turns
+/// dictation off. Validated before anything is written, for the same reason
+/// `set_hotkey` is: a rejected spec must leave the working state untouched.
+#[tauri::command]
+fn set_dictate_hotkey(
+    state: tauri::State<'_, AppState>,
+    spec: Option<String>,
+) -> Result<Settings, String> {
+    let spec = spec.filter(|s| !s.trim().is_empty());
+    let chord = match &spec {
+        Some(spec) => Some(config::Chord::parse(spec)?),
+        None => None,
+    };
+
+    let mut cfg = state.config.lock();
+    // Refused rather than accepted-and-ignored. The hook checks capture first
+    // and stops there, so binding both to one gesture would leave a shortcut
+    // that is configured, displayed, and silently dead.
+    if let Some(c) = &chord {
+        if c.same_gesture_as(&cfg.chord()) {
+            return Err(format!(
+                "{} is already the capture shortcut",
+                cfg.chord().label()
+            ));
+        }
+    }
+
+    cfg.dictate_hotkey = spec;
+    cfg.save()?;
+    hotkey::set_dictate_chord(chord);
+    hotkey::diag(&format!(
+        "dictation shortcut set to {:?}",
+        cfg.dictate_hotkey.as_deref().unwrap_or("(none)")
+    ));
+    drop(cfg);
+
+    Ok(settings_of(&state))
 }
 
 #[derive(serde::Serialize)]
@@ -1162,6 +1207,43 @@ fn speak_only<R: Runtime>(w: &tauri::WebviewWindow<R>) {
 /// Note the asymmetry: hiding is safe to do here, but becoming *clickable* is
 /// not. That waits until the page has laid the idle pill out and told us how
 /// small the window may be — see `overlay_clickable`.
+/// Type a dictated transcript into the focused window and dismiss the overlay.
+///
+/// Typing happens on the worker thread rather than off it: `SendInput` costs
+/// microseconds, and every millisecond between releasing the key and seeing the
+/// words is a millisecond the feature feels slower than the hosted tool it is
+/// replacing.
+fn dictated(app: &tauri::AppHandle, res: &transcription::CaptureResult) {
+    if !res.text.trim().is_empty() {
+        match inject::type_text(&res.text) {
+            Ok(n) => tracing::info!(chars = n, "dictated"),
+            Err(e) => {
+                // Nothing else can report this: the transcript went nowhere and
+                // the overlay is already on its way out.
+                tracing::warn!(%e, "dictation could not be typed");
+                hotkey::diag(&format!("dictation FAILED: {e}"));
+            }
+        }
+    }
+
+    let Some(w) = app.get_webview_window("overlay") else {
+        return;
+    };
+    // No dwell on a transcript the user can already read in their own document.
+    // An empty capture is the exception — "nothing heard" is the only thing the
+    // overlay has to say, and it has to stay up long enough to be read.
+    let linger = if res.empty { 900 } else { 0 };
+    let fade = app.clone();
+    std::thread::spawn(move || {
+        if linger > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(linger));
+        }
+        let _ = fade.emit_to("overlay", "capture:hide", ());
+        std::thread::sleep(std::time::Duration::from_millis(140));
+        rest(&fade, &w);
+    });
+}
+
 fn rest(app: &tauri::AppHandle, w: &tauri::WebviewWindow) {
     let idle = app
         .try_state::<AppState>()
@@ -1916,6 +1998,7 @@ fn main() {
             apply_referral,
             send_invites,
             entitlement,
+            set_dictate_hotkey,
             refresh_entitlement
         ])
         .setup(move |app| {
@@ -1984,6 +2067,16 @@ fn main() {
             let result_handle = app.handle().clone();
             stt.start(None, move |res| {
                 let _ = result_handle.emit_to("overlay", "capture:result", res.clone());
+
+                // Dictation ends here. The words go into the application the
+                // user was already in — which still has the caret, because the
+                // overlay deliberately never takes focus — and there is no
+                // receipt to read, nothing was saved, and nothing was earned.
+                if res.mode == Mode::Dictate {
+                    dictated(&result_handle, &res);
+                    return;
+                }
+
                 announce(&result_handle, &res.earned);
 
                 // A question is the one time the overlay is something you point
@@ -2102,7 +2195,7 @@ fn main() {
                 });
             }
 
-            let rx = hotkey::listen(cfg.chord());
+            let rx = hotkey::listen(cfg.chord(), cfg.dictate_chord());
             hotkey::report_health_after(std::time::Duration::from_secs(10));
 
             std::thread::Builder::new()
@@ -2114,7 +2207,7 @@ fn main() {
                     loop {
                         match rx.recv() {
                             Err(_) => break, // hook gone; app shutting down
-                            Ok(ChordState::Released) => {
+                            Ok(ChordState::Released(mode)) => {
                                 tracing::debug!("chord released");
                                 hotkey::diag(&format!("chord RELEASED (showing={showing})"));
                                 if showing {
@@ -2166,8 +2259,20 @@ fn main() {
                                                 }
                                                 if !stt_worker.submit(
                                                     audio,
-                                                    hints.clone(),
+                                                    // Collection names bias the
+                                                    // decoder towards the words
+                                                    // a command is made of. In
+                                                    // dictation the user is
+                                                    // writing prose, and that
+                                                    // bias is just a thumb on
+                                                    // the scale for the wrong
+                                                    // vocabulary.
+                                                    match mode {
+                                                        Mode::Capture => hints.clone(),
+                                                        Mode::Dictate => Hints::default(),
+                                                    },
                                                     ctx,
+                                                    mode,
                                                     released,
                                                 ) {
                                                     let _ = overlay.hide();
@@ -2190,7 +2295,7 @@ fn main() {
                                     }
                                 }
                             }
-                            Ok(ChordState::Engaged) => {
+                            Ok(ChordState::Engaged(mode)) => {
                                 tracing::debug!("chord engaged");
                                 // In the diagnostic log too, not only at debug
                                 // level: in a packaged app there is no console
@@ -2209,8 +2314,8 @@ fn main() {
                                 );
                                 if !hold.is_zero() {
                                     match rx.recv_timeout(hold) {
-                                        Ok(ChordState::Released) => continue, // a tap
-                                        Ok(ChordState::Engaged) => {}
+                                        Ok(ChordState::Released(_)) => continue, // a tap
+                                        Ok(ChordState::Engaged(_)) => {}
                                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                                         Err(_) => break,
                                     }
@@ -2229,9 +2334,17 @@ fn main() {
                                 // The user is about to speak for a few seconds;
                                 // collection finishes well inside that window,
                                 // so it costs nothing on the timeline.
-                                pending_ctx = Some(memos_context::start(
-                                    ContextPermissions::default(),
-                                ));
+                                // Not for dictation. Context is what a command
+                                // is resolved against — "save this" needs to know
+                                // what "this" is — and dictation resolves nothing.
+                                // Reading window titles and selections to type a
+                                // sentence would be collecting it for no reason.
+                                pending_ctx = match mode {
+                                    Mode::Capture => Some(memos_context::start(
+                                        ContextPermissions::default(),
+                                    )),
+                                    Mode::Dictate => None,
+                                };
                                 capture_from = ring.as_ref().map(|r| {
                                     let lead = hold_src
                                         .load(std::sync::atomic::Ordering::SeqCst)

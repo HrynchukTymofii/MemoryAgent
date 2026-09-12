@@ -32,44 +32,113 @@ use std::sync::OnceLock;
 
 use crate::config::{bits, Chord};
 
+/// What a chord was held *for*. Two shortcuts share one hook, one microphone and
+/// one transcriber; all that separates them is what happens to the words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    /// The transcript is routed and executed, and the memory is written.
+    Capture,
+    /// The transcript is typed into whatever already holds the caret. Nothing is
+    /// routed, nothing is stored, nothing leaves the machine.
+    Dictate,
+}
+
+impl Mode {
+    fn code(self) -> u32 {
+        match self {
+            Mode::Capture => 1,
+            Mode::Dictate => 2,
+        }
+    }
+
+    fn from_code(c: u32) -> Option<Self> {
+        match c {
+            1 => Some(Mode::Capture),
+            2 => Some(Mode::Dictate),
+            _ => None,
+        }
+    }
+}
+
 /// Raw chord transitions from the hook. Held-duration policy is applied later.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChordState {
-    Engaged,
-    Released,
+    Engaged(Mode),
+    Released(Mode),
 }
 
 static TX: OnceLock<Sender<ChordState>> = OnceLock::new();
-/// The active binding, swappable at runtime so Settings can change the shortcut
-/// without a restart. Read once per keystroke inside the hook, so it must stay
-/// cheap — an uncontended `parking_lot` read lock is a few nanoseconds, and the
-/// write side runs only when a human clicks Save.
-static CHORD: OnceLock<parking_lot::RwLock<Chord>> = OnceLock::new();
 
-/// Replace the active binding. Takes effect on the very next keystroke.
+/// The active bindings, swappable at runtime so Settings can change either
+/// shortcut without a restart.
+struct Bindings {
+    capture: Chord,
+    /// Unbound by default. Dictation types into whatever application the user is
+    /// in, so it stays off until somebody deliberately chooses a chord for it.
+    dictate: Option<Chord>,
+}
+
+/// Read once per keystroke inside the hook, so it must stay cheap — an
+/// uncontended `parking_lot` read lock is a few nanoseconds, and the write side
+/// runs only when a human clicks Save.
+static CHORDS: OnceLock<parking_lot::RwLock<Bindings>> = OnceLock::new();
+
+fn bindings() -> &'static parking_lot::RwLock<Bindings> {
+    CHORDS.get_or_init(|| {
+        parking_lot::RwLock::new(Bindings {
+            // Never actually observed: `listen` installs the real binding before
+            // the hook exists. Present because a lock has to be initialised with
+            // something, and an unreachable chord is the safest something.
+            capture: Chord::parse("f24").expect("placeholder chord is valid"),
+            dictate: None,
+        })
+    })
+}
+
+/// Replace the capture binding. Takes effect on the very next keystroke.
 pub fn set_chord(c: Chord) {
-    match CHORD.get() {
-        Some(lock) => *lock.write() = c,
-        None => {
-            let _ = CHORD.set(parking_lot::RwLock::new(c));
-        }
-    }
-    // A stale engagement from the previous binding would otherwise leave the
-    // overlay stuck open, since its release transition can no longer fire.
+    bindings().write().capture = c;
+    clear_engagement();
+}
+
+/// Bind, rebind, or unbind the dictation chord.
+pub fn set_dictate_chord(c: Option<Chord>) {
+    bindings().write().dictate = c;
+    clear_engagement();
+}
+
+/// Drop any engagement held under the previous binding.
+///
+/// Without this a rebind mid-hold leaves the overlay stuck open, because the
+/// release transition can no longer fire for a chord that no longer exists.
+fn clear_engagement() {
     ENGAGED.store(0, Ordering::SeqCst);
 }
 
-/// Label of the active binding, for the interface.
+/// Label of the capture binding, for the interface.
 pub fn active_chord_label() -> String {
-    CHORD
-        .get()
-        .map(|l| l.read().label().to_string())
+    bindings().read().capture.label().to_string()
+}
+
+/// Label of the dictation binding; empty when it is unbound.
+pub fn dictate_chord_label() -> String {
+    bindings()
+        .read()
+        .dictate
+        .as_ref()
+        .map(|c| c.label().to_string())
         .unwrap_or_default()
 }
 static HELD_MODS: AtomicU32 = AtomicU32::new(0);
 /// The non-modifier key currently down, or 0. Only one is tracked — a chord
 /// never needs two.
 static HELD_KEY: AtomicU32 = AtomicU32::new(0);
+/// Which mode is engaged, as `Mode::code`, or 0 for none. One slot rather than a
+/// flag per chord: the two are mutually exclusive by construction —
+/// `Chord::matches` demands an exact modifier-family match, so no held keys can
+/// satisfy two distinct specs — and a single slot makes that impossible to
+/// violate by accident.
 static ENGAGED: AtomicU32 = AtomicU32::new(0);
 /// Every key transition the hook has seen. If this stays at zero while you type,
 /// the hook is installed but not receiving — which is a different problem from a
@@ -218,7 +287,7 @@ pub fn stats() -> HookStats {
         held_mods: HELD_MODS.load(Ordering::Relaxed),
         held_key: HELD_KEY.load(Ordering::Relaxed),
         last_vk: LAST_VK.load(Ordering::Relaxed),
-        engaged: ENGAGED.load(Ordering::Relaxed) == 1,
+        engaged: ENGAGED.load(Ordering::Relaxed) != 0,
     }
 }
 
@@ -363,35 +432,54 @@ mod imp {
                     }
                 }
 
-                if let Some(chord_lock) = CHORD.get() {
-                    let key = match HELD_KEY.load(Ordering::SeqCst) {
-                        0 => None,
-                        k => Some(k),
-                    };
-                    let now_matching = chord_lock.read().matches(mods, key);
-                    trace(KeyTrace {
-                        vk,
-                        down,
-                        mods,
-                        held_key: key.unwrap_or(0),
-                        matched: now_matching,
-                    });
+                let key = match HELD_KEY.load(Ordering::SeqCst) {
+                    0 => None,
+                    k => Some(k),
+                };
+                // At most one can match: see `ENGAGED`.
+                let matched = {
+                    let b = super::bindings().read();
+                    if b.capture.matches(mods, key) {
+                        Some(Mode::Capture)
+                    } else if b.dictate.as_ref().is_some_and(|c| c.matches(mods, key)) {
+                        Some(Mode::Dictate)
+                    } else {
+                        None
+                    }
+                };
+                trace(KeyTrace {
+                    vk,
+                    down,
+                    mods,
+                    held_key: key.unwrap_or(0),
+                    matched: matched.is_some(),
+                });
 
-                    // compare_exchange rather than a store: key repeat fires
-                    // WM_KEYDOWN continuously while a key is held, and we must
-                    // emit exactly one transition per chord, not one per repeat.
-                    if now_matching {
+                // compare_exchange rather than a store: key repeat fires
+                // WM_KEYDOWN continuously while a key is held, and we must emit
+                // exactly one transition per chord, not one per repeat.
+                match matched {
+                    Some(mode) => {
                         if ENGAGED
-                            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+                            .compare_exchange(0, mode.code(), Ordering::SeqCst, Ordering::SeqCst)
                             .is_ok()
                         {
-                            super::emit(ChordState::Engaged);
+                            super::emit(ChordState::Engaged(mode));
                         }
-                    } else if ENGAGED
-                        .compare_exchange(1, 0, Ordering::SeqCst, Ordering::SeqCst)
-                        .is_ok()
-                    {
-                        super::emit(ChordState::Released);
+                    }
+                    None => {
+                        // Release whichever mode is actually engaged, rather
+                        // than assuming it was the one just checked: a rebind
+                        // mid-hold would otherwise report the wrong chord.
+                        let held = ENGAGED.load(Ordering::SeqCst);
+                        if let Some(mode) = Mode::from_code(held) {
+                            if ENGAGED
+                                .compare_exchange(held, 0, Ordering::SeqCst, Ordering::SeqCst)
+                                .is_ok()
+                            {
+                                super::emit(ChordState::Released(mode));
+                            }
+                        }
                     }
                 }
             }
@@ -694,34 +782,51 @@ mod imp {
             }
         }
 
-        let Some(chord_lock) = CHORD.get() else { return };
         let key = match HELD_KEY.load(Ordering::SeqCst) {
             0 => None,
             k => Some(k),
         };
-        let now_matching = chord_lock.read().matches(mods, key);
+        // At most one can match: see `ENGAGED`.
+        let matched = {
+            let b = super::bindings().read();
+            if b.capture.matches(mods, key) {
+                Some(Mode::Capture)
+            } else if b.dictate.as_ref().is_some_and(|c| c.matches(mods, key)) {
+                Some(Mode::Dictate)
+            } else {
+                None
+            }
+        };
         trace(KeyTrace {
             vk: vk_from_key_code(code).unwrap_or(0),
             down,
             mods,
             held_key: key.unwrap_or(0),
-            matched: now_matching,
+            matched: matched.is_some(),
         });
 
         // Key repeat delivers KeyDown continuously while a key is held, exactly
         // as on Windows, so the transition is edge-triggered rather than stored.
-        if now_matching {
-            if ENGAGED
-                .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-            {
-                super::emit(ChordState::Engaged);
+        match matched {
+            Some(mode) => {
+                if ENGAGED
+                    .compare_exchange(0, mode.code(), Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok()
+                {
+                    super::emit(ChordState::Engaged(mode));
+                }
             }
-        } else if ENGAGED
-            .compare_exchange(1, 0, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
-        {
-            super::emit(ChordState::Released);
+            None => {
+                let held = ENGAGED.load(Ordering::SeqCst);
+                if let Some(mode) = Mode::from_code(held) {
+                    if ENGAGED
+                        .compare_exchange(held, 0, Ordering::SeqCst, Ordering::SeqCst)
+                        .is_ok()
+                    {
+                        super::emit(ChordState::Released(mode));
+                    }
+                }
+            }
         }
     }
 
@@ -849,14 +954,19 @@ fn emit(state: ChordState) {
 }
 
 /// Install the hook for `chord` and return the raw transition stream.
-pub fn listen(chord: Chord) -> Receiver<ChordState> {
+///
+/// `dictate` is the optional second binding; both arrive before the hook does,
+/// so no keystroke is ever evaluated against a half-configured pair.
+pub fn listen(chord: Chord, dictate: Option<Chord>) -> Receiver<ChordState> {
     let (tx, rx) = channel();
     let _ = TX.set(tx);
     tracing::info!(
         chord = chord.label(),
+        dictate = dictate.as_ref().map(|c| c.label()),
         "keyboard hook installed — hold this chord to capture"
     );
     set_chord(chord);
+    set_dictate_chord(dictate);
     imp::install();
     rx
 }

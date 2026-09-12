@@ -97,6 +97,23 @@ impl Chord {
         &self.label
     }
 
+    /// Whether two bindings are satisfied by exactly the same keys.
+    ///
+    /// Not `PartialEq`, which compares the spelling the user typed: `win+ctrl`
+    /// and `ctrl+win` are two strings for one gesture, and binding both would
+    /// make the second one unreachable rather than merely redundant — the hook
+    /// checks capture first and stops there.
+    pub fn same_gesture_as(&self, other: &Chord) -> bool {
+        if self.families != other.families || self.key != other.key {
+            return false;
+        }
+        let mut mine = self.required.clone();
+        let mut theirs = other.required.clone();
+        mine.sort_unstable();
+        theirs.sort_unstable();
+        mine == theirs
+    }
+
     /// Whether the chord is satisfied by the currently held keys.
     ///
     /// Modifier families must match **exactly**. Holding Ctrl+Shift+Win does not
@@ -155,6 +172,17 @@ fn parse_key(name: &str) -> Result<u32, String> {
 pub struct Config {
     /// e.g. "ctrl+win", "rctrl", "ctrl+alt+space".
     pub hotkey: String,
+
+    /// A second chord that dictates instead of capturing: hold it, speak, and
+    /// the transcript is typed into whatever field the caret is already in. No
+    /// router, no memory written, nothing leaving the machine.
+    ///
+    /// `None` by default, and deliberately unbound rather than given a
+    /// plausible default. Dictation types into the user's *other* application,
+    /// so a chord they did not choose is a chord that one day puts a sentence
+    /// into a document they were not dictating into.
+    #[serde(default)]
+    pub dictate_hotkey: Option<String>,
 
     /// How long the chord must be held before capture begins.
     ///
@@ -254,6 +282,7 @@ impl Default for Config {
             // another tool on this chord will need to rebind — which is the
             // entire reason this file exists.
             hotkey: "ctrl+win".into(),
+            dictate_hotkey: None,
             hold_threshold_ms: 120,
             debug_keys: false,
             // Free until the API says otherwise. A fresh install that assumed
@@ -417,6 +446,23 @@ impl Config {
             Chord::parse("ctrl+win").expect("fallback chord is valid")
         })
     }
+
+    /// The dictation chord, if one is bound and parses.
+    ///
+    /// A bad spec falls back to *unbound*, not to a default the way `chord`
+    /// does. The capture shortcut must exist or the app is unreachable; this
+    /// one is an extra, and silently binding something the user did not write
+    /// would be worse than leaving it off.
+    pub fn dictate_chord(&self) -> Option<Chord> {
+        let spec = self.dictate_hotkey.as_deref()?;
+        match Chord::parse(spec) {
+            Ok(c) => Some(c),
+            Err(e) => {
+                tracing::warn!("{e}; dictation shortcut left unbound");
+                None
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -485,6 +531,41 @@ ANTHROPIC_API_KEY=sk-ant-abc  # mine
         assert!(c.matches(bits::RCTRL, None));
         assert!(!c.matches(bits::RCTRL, Some(0x08)), "stale Backspace must block");
         assert!(!c.matches(bits::RCTRL, Some(0x43)), "Ctrl+C must not fire it");
+    }
+
+    #[test]
+    fn one_gesture_is_recognised_through_two_spellings() {
+        // The dictation binding is refused when it collides with capture, and
+        // the collision that matters is of gestures, not of strings: the hook
+        // checks capture first, so the second binding would be dead rather than
+        // duplicated.
+        let a = Chord::parse("ctrl+win").unwrap();
+        assert!(a.same_gesture_as(&Chord::parse("win+ctrl").unwrap()));
+        assert!(a.same_gesture_as(&Chord::parse("  CTRL + WIN ").unwrap()));
+        assert!(!a.same_gesture_as(&Chord::parse("ctrl+shift").unwrap()));
+        // Same modifiers, different key — two usable bindings, not one.
+        let b = Chord::parse("ctrl+alt+space").unwrap();
+        assert!(!b.same_gesture_as(&Chord::parse("ctrl+alt+z").unwrap()));
+        // A side-specific chord is not the loose one it is a subset of.
+        assert!(!Chord::parse("rctrl")
+            .unwrap()
+            .same_gesture_as(&Chord::parse("ctrl").unwrap()));
+    }
+
+    #[test]
+    fn a_dictation_binding_is_optional_and_never_guessed() {
+        // A bad spec unbinds dictation rather than falling back to something,
+        // which is the opposite of what `chord` does for capture: an app with no
+        // capture shortcut is unreachable, an app with no dictation shortcut is
+        // just an app without dictation.
+        let mut cfg = Config::default();
+        assert!(cfg.dictate_chord().is_none(), "off until asked for");
+        cfg.dictate_hotkey = Some("shift+z".into());
+        assert_eq!(cfg.dictate_chord().unwrap().label(), "shift+z");
+        cfg.dictate_hotkey = Some("ctrl+nonsense".into());
+        assert!(cfg.dictate_chord().is_none(), "an unparseable spec binds nothing");
+        // And capture still has its fallback, unaffected.
+        assert_eq!(cfg.chord().label(), "ctrl+win");
     }
 
     #[test]
