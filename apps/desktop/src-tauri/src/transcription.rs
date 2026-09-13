@@ -675,6 +675,20 @@ impl Stt {
             _ => None,
         };
 
+        // "Save this screenshot" means the image on the clipboard, and naming it
+        // is the only thing that lets it be read. Done here, after routing,
+        // because OCR is too slow for the context deadline.
+        let with_image;
+        let context = if cmd.intent == memos_core::Intent::Save && names_image(cmd) {
+            with_image = Context {
+                image_text: memos_context::clipboard_image_text(),
+                ..context.clone()
+            };
+            &with_image
+        } else {
+            context
+        };
+
         match memos_agent::execute_with(db, cmd, context, vector.as_deref()) {
             Ok(out) => {
                 // Only a real capture counts against the weekly meter. Metering
@@ -766,6 +780,26 @@ impl Stt {
     }
 }
 
+/// Whether a save names an image in its own words, not in where it is going.
+///
+/// "Save this to images" is a destination, and reading an old screenshot off
+/// the clipboard because a collection happens to be called that would save
+/// something the user never meant.
+fn names_image(cmd: &memos_core::RoutedCommand) -> bool {
+    let destination = cmd.slots.collection.as_deref().unwrap_or("").to_lowercase();
+    let destination: Vec<&str> = destination
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let spoken: Vec<String> = cmd
+        .transcript
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty() && !destination.contains(&w.to_lowercase().as_str()))
+        .map(str::to_string)
+        .collect();
+    memos_context::mentions_image(&spoken.join(" "))
+}
+
 /// Act on what OPEN chose.
 ///
 /// Failure is logged rather than raised: the receipt has already told the user
@@ -826,5 +860,37 @@ fn log_command(
             tracing::warn!(?e, "could not log the command");
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn save(transcript: &str, collection: Option<&str>) -> memos_core::RoutedCommand {
+        memos_core::RoutedCommand {
+            id: memos_core::Id::new(),
+            transcript: transcript.into(),
+            intent: memos_core::Intent::Save,
+            slots: memos_core::Slots {
+                collection: collection.map(str::to_string),
+                ..Default::default()
+            },
+            confidence: memos_core::Confidence::CERTAIN,
+            tier: memos_core::Tier::Grammar,
+            routing_ms: 0,
+        }
+    }
+
+    #[test]
+    fn a_save_that_names_an_image_reads_one() {
+        assert!(names_image(&save("save this screenshot to react", Some("Study/React"))));
+        assert!(!names_image(&save("save this to react", Some("Study/React"))));
+    }
+
+    #[test]
+    fn a_collection_called_images_is_not_an_image() {
+        assert!(!names_image(&save("save this to images", Some("Media/Images"))));
+        assert!(names_image(&save("save this image to images", Some("Media/Images"))));
     }
 }
