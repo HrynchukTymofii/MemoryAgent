@@ -53,6 +53,12 @@ pub struct Context {
     /// every page a user saves.
     pub page_text: Option<String>,
     pub clipboard_text: Option<String>,
+    /// The text in the image on the clipboard, when the command asked for one.
+    ///
+    /// Never filled by collection: OCR takes longer than the deadline allows,
+    /// and reading an image nobody mentioned is reading the clipboard without
+    /// permission. See [`mentions_image`].
+    pub image_text: Option<String>,
     pub captured_at: Option<String>,
     /// How long collection took. Watched because this runs on the capture path
     /// and a regression here is invisible until the product feels slow.
@@ -65,20 +71,24 @@ impl Context {
     /// A window title alone is weak evidence of intent; a selection, a page or
     /// a URL is a real referent for the word "this".
     pub fn has_referent(&self) -> bool {
-        self.selected_text.as_deref().is_some_and(|s| !s.trim().is_empty())
+        self.image_text.as_deref().is_some_and(|s| !s.trim().is_empty())
+            || self.selected_text.as_deref().is_some_and(|s| !s.trim().is_empty())
             || self.page_text.as_deref().is_some_and(|s| !s.trim().is_empty())
             || self.current_url.is_some()
     }
 
     /// What "this" refers to, in order of how directly the user chose it.
     ///
-    /// A selection is an explicit choice and always wins. The page is what they
-    /// were looking at. The URL is the last resort — it names the memory
-    /// without containing any of it, which is a bookmark rather than a memory.
+    /// An image the user named in the command wins: it is only ever read when
+    /// they said so. A selection is the next most explicit choice. The page is
+    /// what they were looking at. The URL is the last resort — it names the
+    /// memory without containing any of it, which is a bookmark rather than a
+    /// memory.
     pub fn referent(&self) -> Option<&str> {
-        self.selected_text
+        self.image_text
             .as_deref()
             .filter(|s| !s.trim().is_empty())
+            .or_else(|| self.selected_text.as_deref().filter(|s| !s.trim().is_empty()))
             .or_else(|| self.page_text.as_deref().filter(|s| !s.trim().is_empty()))
             .or(self.current_url.as_deref())
     }
@@ -126,6 +136,34 @@ impl Context {
         }
         None
     }
+}
+
+/// Whether a command names an image: "save this screenshot", "keep the picture".
+///
+/// This is the permission to read the clipboard image. Clipboard access is off
+/// by default because the clipboard may be hours old; an image the user just
+/// named in the same breath is not.
+pub fn mentions_image(words: &str) -> bool {
+    const NOUNS: &[&str] = &[
+        "image", "images", "picture", "pictures", "photo", "photos", "screenshot",
+        "screenshots", "snip",
+    ];
+    let lower = words.to_lowercase();
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    words.iter().any(|w| NOUNS.contains(w))
+        || words.windows(2).any(|p| p == ["screen", "shot"])
+}
+
+/// The text in the image on the clipboard. See
+/// [`windows_impl::clipboard_image_text`]; elsewhere there is no reader yet.
+pub fn clipboard_image_text() -> Option<String> {
+    #[cfg(windows)]
+    return windows_impl::clipboard_image_text();
+    #[cfg(not(windows))]
+    None
 }
 
 /// A situation, without its contents. See [`Context::digest`].
@@ -217,6 +255,27 @@ mod tests {
             ..Default::default()
         };
         assert!(!c.has_referent());
+    }
+
+    #[test]
+    fn image_text_is_the_referent_over_the_page() {
+        let c = Context {
+            current_url: Some("https://react.dev".into()),
+            page_text: Some("the article".into()),
+            image_text: Some("text in the screenshot".into()),
+            ..Default::default()
+        };
+        assert!(c.has_referent());
+        assert_eq!(c.referent(), Some("text in the screenshot"));
+    }
+
+    #[test]
+    fn an_image_is_named_by_the_command() {
+        assert!(mentions_image("save this screenshot to react"));
+        assert!(mentions_image("keep the Picture"));
+        assert!(mentions_image("save this screen shot"));
+        assert!(!mentions_image("save this to react"));
+        assert!(!mentions_image("imagine that"));
     }
 
     #[test]

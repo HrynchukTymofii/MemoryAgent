@@ -43,6 +43,7 @@ fn main() {
     show("url", &ctx.current_url);
     show("selected text", &ctx.selected_text);
     show("clipboard", &ctx.clipboard_text);
+    show("clipboard image", &memos_context::clipboard_image_text());
     // Length matters more than the text: it is the number that says whether
     // this page will be findable by what it says or only by its title.
     match &ctx.page_text {

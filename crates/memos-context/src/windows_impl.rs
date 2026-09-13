@@ -285,3 +285,135 @@ pub fn clipboard_text() -> Option<String> {
         result
     }
 }
+
+/// The text in the image on the clipboard, read by Windows' own OCR engine.
+///
+/// `None` when the clipboard holds no image, the image holds no text, or no
+/// OCR language is installed. Blocks for the length of a recognition — tens to
+/// hundreds of milliseconds — so it is never called on the context deadline,
+/// only once a command has asked for an image.
+pub fn clipboard_image_text() -> Option<String> {
+    // The Win32 clipboard rather than WinRT's: WinRT's answers only a
+    // single-threaded apartment, and waiting on its bitmap there deadlocks.
+    let bmp = clipboard_bitmap()?;
+    init_com();
+    recognise(&bmp).unwrap_or_else(|e| {
+        tracing::warn!(?e, "could not read the clipboard image");
+        None
+    })
+}
+
+/// The clipboard image as the bytes of a `.bmp` file.
+///
+/// The clipboard holds a DIB, which is a bitmap file without its 14-byte file
+/// header. Putting the header back is all a decoder needs.
+fn clipboard_bitmap() -> Option<Vec<u8>> {
+    use windows::Win32::Foundation::HGLOBAL;
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+    };
+    use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+    use windows::Win32::System::Ole::CF_DIB;
+
+    unsafe {
+        if IsClipboardFormatAvailable(CF_DIB.0 as u32).is_err() {
+            return None;
+        }
+        if OpenClipboard(None).is_err() {
+            return None;
+        }
+        let dib = (|| {
+            let handle = GetClipboardData(CF_DIB.0 as u32).ok()?;
+            let global = HGLOBAL(handle.0);
+            let ptr = GlobalLock(global) as *const u8;
+            if ptr.is_null() {
+                return None;
+            }
+            let bytes = std::slice::from_raw_parts(ptr, GlobalSize(global)).to_vec();
+            let _ = GlobalUnlock(global);
+            Some(bytes)
+        })();
+        let _ = CloseClipboard();
+        with_file_header(dib?)
+    }
+}
+
+/// Prefix a DIB with the `BITMAPFILEHEADER` that makes it a `.bmp` file.
+fn with_file_header(dib: Vec<u8>) -> Option<Vec<u8>> {
+    const BI_BITFIELDS: u32 = 3;
+    let u32_at = |i: usize| Some(u32::from_le_bytes(dib.get(i..i + 4)?.try_into().ok()?));
+    let u16_at = |i: usize| Some(u16::from_le_bytes(dib.get(i..i + 2)?.try_into().ok()?));
+
+    let header = u32_at(0)?;
+    let bit_count = u16_at(14)?;
+    let compression = u32_at(16)?;
+    let colours_used = u32_at(32)?;
+    // A plain BITMAPINFOHEADER keeps its colour masks after itself; the later
+    // header versions carry them inside.
+    let masks = if header == 40 && compression == BI_BITFIELDS { 12 } else { 0 };
+    let palette = match colours_used {
+        0 if bit_count <= 8 => 4u32 << bit_count,
+        n => n * 4,
+    };
+    let offset = 14 + header + masks + palette;
+
+    let mut bmp = Vec::with_capacity(14 + dib.len());
+    bmp.extend_from_slice(b"BM");
+    bmp.extend_from_slice(&(14 + dib.len() as u32).to_le_bytes());
+    bmp.extend_from_slice(&[0; 4]);
+    bmp.extend_from_slice(&offset.to_le_bytes());
+    bmp.extend_from_slice(&dib);
+    Some(bmp)
+}
+
+fn recognise(bmp: &[u8]) -> windows::core::Result<Option<String>> {
+    use windows::Graphics::Imaging::{BitmapDecoder, BitmapPixelFormat, SoftwareBitmap};
+    use windows::Media::Ocr::OcrEngine;
+    use windows::Storage::Streams::{DataWriter, InMemoryRandomAccessStream};
+
+    let stream = InMemoryRandomAccessStream::new()?;
+    let writer = DataWriter::CreateDataWriter(&stream)?;
+    writer.WriteBytes(bmp)?;
+    writer.StoreAsync()?.get()?;
+    writer.DetachStream()?;
+    stream.Seek(0)?;
+
+    let bitmap = BitmapDecoder::CreateAsync(&stream)?.get()?.GetSoftwareBitmapAsync()?.get()?;
+    // The engine refuses anything past its size limit rather than scaling it,
+    // and a screenshot of a whole ultrawide display can be past it.
+    let max = OcrEngine::MaxImageDimension()?;
+    if bitmap.PixelWidth()? as u32 > max || bitmap.PixelHeight()? as u32 > max {
+        tracing::warn!(max, "clipboard image too large to read");
+        return Ok(None);
+    }
+    let bitmap = SoftwareBitmap::Convert(&bitmap, BitmapPixelFormat::Bgra8)?;
+    let engine = OcrEngine::TryCreateFromUserProfileLanguages()?;
+    let text = engine.RecognizeAsync(&bitmap)?.get()?.Text()?.to_string();
+    let text = text.trim();
+    Ok((!text.is_empty()).then(|| text.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_dib_becomes_a_bitmap_file() {
+        // A 1x1, 24-bit BITMAPINFOHEADER DIB: pixels start right after it.
+        let mut dib = vec![0u8; 40 + 4];
+        dib[0] = 40;
+        dib[4] = 1;
+        dib[8] = 1;
+        dib[12] = 1;
+        dib[14] = 24;
+        let bmp = with_file_header(dib).unwrap();
+        assert_eq!(&bmp[..2], b"BM");
+        assert_eq!(u32::from_le_bytes(bmp[2..6].try_into().unwrap()), 58);
+        assert_eq!(u32::from_le_bytes(bmp[10..14].try_into().unwrap()), 54);
+    }
+
+    #[test]
+    fn a_truncated_dib_is_refused() {
+        assert!(with_file_header(vec![40, 0, 0]).is_none());
+    }
+}
