@@ -298,10 +298,13 @@ fn save(
         .or_else(|| ctx.suggested_title())
         .unwrap_or_default();
 
+    // An image is titled by what it says: the window behind a screenshot is
+    // wherever the user happened to be when they pasted it, not its subject.
     let title = cmd
         .slots
         .title
         .clone()
+        .or_else(|| ctx.image_text.as_deref().map(|t| first_words(t, 8)))
         .or_else(|| ctx.suggested_title())
         .unwrap_or_else(|| first_words(&cmd.transcript, 8));
 
@@ -601,7 +604,7 @@ fn integrate(db: &Db, item: &KnowledgeItem, path: Option<&str>, provenance: Opti
 /// a link they can click is the whole reason the note is worth reading later.
 fn note_provenance(ctx: &Context, item: &KnowledgeItem) -> Option<String> {
     let mut line = item.captured_at.format("%-d %b %Y").to_string();
-    if let Some(url) = &ctx.current_url {
+    if let Some(url) = ctx.current_url.as_ref().filter(|_| ctx.image_text.is_none()) {
         line.push_str(&format!(" \u{00b7} [{}]({url})", domain_of(url)));
     }
     Some(line)
@@ -612,6 +615,19 @@ fn note_provenance(ctx: &Context, item: &KnowledgeItem) -> Option<String> {
 /// A window title alone does not qualify: "Inbox (12)" is not somewhere you can
 /// be sent back to. A URL is, and so is a file the user had open.
 fn source_from(ctx: &Context) -> Option<Source> {
+    // An image has no address to go back to, but it is still worth recording
+    // that the memory was read out of one: its text is OCR, not what was typed.
+    if ctx.image_text.is_some() {
+        return Some(Source {
+            id: memos_core::Id::new(),
+            kind: SourceKind::Image,
+            url: None,
+            domain: None,
+            file_path: None,
+            title: None,
+            retrieved_at: memos_core::now(),
+        });
+    }
     let url = ctx.current_url.clone();
     let file = url.is_none().then(|| local_file(ctx)).flatten();
     if url.is_none() && file.is_none() {
@@ -656,6 +672,9 @@ fn local_file(ctx: &Context) -> Option<String> {
 
 /// The source line under a receipt: where this came from and how.
 fn provenance_line(ctx: &Context) -> Option<String> {
+    if ctx.image_text.is_some() {
+        return Some("image text + voice".into());
+    }
     let mut parts = Vec::new();
     if let Some(url) = &ctx.current_url {
         parts.push(domain_of(url));
@@ -949,6 +968,33 @@ mod tests {
         let source = db.source_for_item(id).unwrap().expect("a source row");
         assert_eq!(source.domain.as_deref(), Some("react.dev"));
         assert_eq!(source.kind, SourceKind::Webpage);
+    }
+
+    #[test]
+    fn saving_an_image_keeps_its_text_not_the_page_behind_it() {
+        let db = Db::open_in_memory().unwrap();
+        let ctx = Context {
+            active_window_title: Some("State as a Snapshot - React".into()),
+            current_url: Some("https://react.dev/learn/state-as-a-snapshot".into()),
+            page_text: Some("the article".into()),
+            image_text: Some("Meeting moved to Thursday 3pm".into()),
+            ..Default::default()
+        };
+        let out = execute(
+            &db,
+            &cmd(Intent::Save, Slots::default(), "save this screenshot"),
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(out.provenance.as_deref(), Some("image text + voice"));
+
+        let id = Id::parse(out.item_id.as_ref().unwrap()).unwrap();
+        let item = db.get_item(id).unwrap().expect("the item");
+        assert_eq!(item.content, "Meeting moved to Thursday 3pm");
+        assert_eq!(item.title, "Meeting moved to Thursday 3pm");
+        let source = db.source_for_item(id).unwrap().expect("a source row");
+        assert_eq!(source.kind, SourceKind::Image);
+        assert!(source.url.is_none());
     }
 
     #[test]
