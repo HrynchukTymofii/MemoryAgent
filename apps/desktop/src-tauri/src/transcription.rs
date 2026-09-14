@@ -165,6 +165,11 @@ impl Stt {
         self.detail.read().clone()
     }
 
+    /// The loaded model, for a caller that transcribes on its own thread.
+    pub fn model(&self) -> Option<Arc<dyn Transcriber>> {
+        self.model.read().clone()
+    }
+
     /// Load the model off the main thread and start the worker.
     ///
     /// `on_result` runs on the worker thread once a capture is transcribed.

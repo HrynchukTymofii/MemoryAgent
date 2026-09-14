@@ -7,6 +7,7 @@ mod hotkey;
 mod inject;
 mod question;
 mod latency;
+mod meeting;
 mod transcription;
 mod tray;
 
@@ -41,6 +42,7 @@ pub struct AppState {
     /// Read by the dispatch thread on every engagement, so a changed debounce
     /// takes effect without a restart like the binding does.
     pub hold_ms: Arc<std::sync::atomic::AtomicU64>,
+    pub meeting: meeting::Recorder,
 }
 
 /// Reported by the overlay from its first animation frame after being shown.
@@ -1939,6 +1941,7 @@ fn main() {
             )),
             config: parking_lot::Mutex::new(cfg.clone()),
             hold_ms: hold_ms.clone(),
+            meeting: meeting::Recorder::default(),
         })
         .invoke_handler(tauri::generate_handler![
             overlay_painted,

@@ -8,10 +8,11 @@ use tauri::{
 
 pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Hub", true, None::<&str>)?;
+    let meeting = MenuItem::with_id(app, "meeting", START_MEETING, true, None::<&str>)?;
     let latency = MenuItem::with_id(app, "latency", "Latency report", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&open, &latency, &sep, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &meeting, &latency, &sep, &quit])?;
 
     TrayIconBuilder::with_id("main-tray")
         .icon(app.default_window_icon().unwrap().clone())
@@ -20,8 +21,12 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         // Left-click opens the Hub; without this the menu shows on both
         // buttons, which feels wrong on Windows.
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id.as_ref() {
+        .on_menu_event(move |app, event| match event.id.as_ref() {
             "open" => show_hub(app),
+            "meeting" => {
+                let recording = toggle_meeting(app);
+                let _ = meeting.set_text(if recording { STOP_MEETING } else { START_MEETING });
+            }
             "latency" => {
                 if let Some(state) = app.try_state::<crate::AppState>() {
                     let r = state.latency.report();
@@ -52,6 +57,37 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .build(app)?;
 
     Ok(())
+}
+
+const START_MEETING: &str = "Start meeting notes";
+const STOP_MEETING: &str = "Stop meeting notes";
+
+/// Start or stop the meeting recorder, and say whether it is now recording.
+fn toggle_meeting<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let Some(state) = app.try_state::<crate::AppState>() else {
+        return false;
+    };
+    if state.meeting.is_recording() {
+        state.meeting.stop();
+        return false;
+    }
+    let mic = state.audio.lock().as_ref().map(|a| a.ring());
+    let dir = app
+        .path()
+        .document_dir()
+        .unwrap_or_else(|_| crate::data_dir())
+        .join("Meetings");
+    match state.meeting.start(state.stt.clone(), mic, &dir) {
+        Ok(path) => {
+            crate::hotkey::diag(&format!("meeting notes: {}", path.display()));
+            true
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "meeting notes did not start");
+            crate::hotkey::diag(&format!("meeting notes did not start: {e}"));
+            false
+        }
+    }
 }
 
 fn show_hub<R: Runtime>(app: &AppHandle<R>) {
