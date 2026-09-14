@@ -9,14 +9,21 @@
 //! things were said, so a crash or a quit loses at most the sentence in flight.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use memos_stt::{AudioCapture, Cursor, Hints, RingBuffer, Speech, Vad, SAMPLE_RATE};
 use parking_lot::Mutex;
+use tauri::{AppHandle, Manager, Runtime};
 
 use crate::transcription::Stt;
+
+/// What the recording thread is told, through one atomic.
+const RUNNING: u8 = 0;
+const STOP: u8 = 1;
+/// Stopped from the tray, where the only way to see the result is the file.
+const STOP_AND_OPEN: u8 = 2;
 
 /// A piece is not cut before this, so a breath does not become a line.
 const MIN_SECS: f32 = 3.0;
@@ -36,7 +43,13 @@ const PAUSE_MS: u32 = 700;
 
 #[derive(Default)]
 pub struct Recorder {
-    session: Mutex<Option<Arc<AtomicBool>>>,
+    session: Mutex<Option<Session>>,
+}
+
+struct Session {
+    signal: Arc<AtomicU8>,
+    path: PathBuf,
+    started: Instant,
 }
 
 impl Recorder {
@@ -92,14 +105,14 @@ impl Recorder {
             tracks.push(Track::new(THEM, c.ring()));
         }
 
-        let stop = Arc::new(AtomicBool::new(false));
+        let signal = Arc::new(AtomicU8::new(RUNNING));
         let doc = Doc {
             path: path.clone(),
             title,
             notices,
             lines: Vec::new(),
         };
-        let flag = stop.clone();
+        let flag = signal.clone();
         std::thread::Builder::new()
             .name("meeting".into())
             .spawn(move || {
@@ -110,25 +123,31 @@ impl Recorder {
             })
             .map_err(|e| e.to_string())?;
 
-        *session = Some(stop);
+        *session = Some(Session {
+            signal,
+            path: path.clone(),
+            started: Instant::now(),
+        });
         tracing::info!(path = %path.display(), "meeting notes started");
         Ok(path)
     }
 
     /// Stop recording. Returns at once; the last pieces are transcribed on the
-    /// recording thread, which then opens the document.
-    pub fn stop(&self) {
-        if let Some(stop) = self.session.lock().take() {
-            stop.store(true, Ordering::SeqCst);
+    /// recording thread, which then opens the document if `open`.
+    pub fn stop(&self, open: bool) {
+        if let Some(s) = self.session.lock().take() {
+            s.signal
+                .store(if open { STOP_AND_OPEN } else { STOP }, Ordering::SeqCst);
         }
     }
 }
 
-fn record(stt: Arc<Stt>, mut tracks: Vec<Track>, mut doc: Doc, stop: Arc<AtomicBool>) {
+fn record(stt: Arc<Stt>, mut tracks: Vec<Track>, mut doc: Doc, signal: Arc<AtomicU8>) {
     let started = Instant::now();
     let mut warned_no_model = false;
-    loop {
-        let stopping = stop.load(Ordering::SeqCst);
+    let open = loop {
+        let told = signal.load(Ordering::SeqCst);
+        let stopping = told != RUNNING;
         if !stopping {
             std::thread::sleep(Duration::from_millis(500));
         }
@@ -171,13 +190,133 @@ fn record(stt: Arc<Stt>, mut tracks: Vec<Track>, mut doc: Doc, stop: Arc<AtomicB
         }
 
         if stopping {
-            break;
+            break told == STOP_AND_OPEN;
+        }
+    };
+    tracing::info!(lines = doc.lines.len(), path = %doc.path.display(), "meeting notes finished");
+    if open {
+        if let Err(e) = crate::open_externally(&doc.path.to_string_lossy()) {
+            tracing::warn!(error = %e, "could not open the meeting notes");
         }
     }
-    tracing::info!(lines = doc.lines.len(), path = %doc.path.display(), "meeting notes finished");
-    if let Err(e) = crate::open_externally(&doc.path.to_string_lossy()) {
-        tracing::warn!(error = %e, "could not open the meeting notes");
+}
+
+/// Where meeting documents go: a folder of their own in Documents, where
+/// somebody looking for the file would look.
+fn folder<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
+    app.path()
+        .document_dir()
+        .unwrap_or_else(|_| crate::data_dir())
+        .join("Meetings")
+}
+
+/// Start recording, from the tray or the Hub, and bring the other in line.
+pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    let state = app.state::<crate::AppState>();
+    let mic = state.audio.lock().as_ref().map(|a| a.ring());
+    let path = state.meeting.start(state.stt.clone(), mic, &folder(app))?;
+    crate::tray::meeting_changed(app, true);
+    Ok(path)
+}
+
+pub fn stop<R: Runtime>(app: &AppHandle<R>, open: bool) {
+    app.state::<crate::AppState>().meeting.stop(open);
+    crate::tray::meeting_changed(app, false);
+}
+
+/// A document in the meetings folder, by file name alone. A path from the
+/// interface is never joined as given: `..\` would reach any file on the disk.
+fn document<R: Runtime>(app: &AppHandle<R>, name: &str) -> Result<PathBuf, String> {
+    if !is_document_name(name) {
+        return Err(format!("not a meeting: {name:?}"));
     }
+    Ok(folder(app).join(name))
+}
+
+fn is_document_name(name: &str) -> bool {
+    name.ends_with(".md") && !name.contains(['/', '\\', ':']) && !name.starts_with('.')
+}
+
+#[derive(serde::Serialize)]
+pub struct MeetingStatus {
+    recording: bool,
+    /// The document being written, while recording.
+    name: Option<String>,
+    elapsed_secs: u64,
+}
+
+#[derive(serde::Serialize)]
+pub struct MeetingFile {
+    name: String,
+    /// Last written, RFC 3339.
+    modified: String,
+}
+
+#[tauri::command]
+pub fn meeting_status(state: tauri::State<'_, crate::AppState>) -> MeetingStatus {
+    match &*state.meeting.session.lock() {
+        Some(s) => MeetingStatus {
+            recording: true,
+            name: s.path.file_name().map(|n| n.to_string_lossy().into_owned()),
+            elapsed_secs: s.started.elapsed().as_secs(),
+        },
+        None => MeetingStatus {
+            recording: false,
+            name: None,
+            elapsed_secs: 0,
+        },
+    }
+}
+
+/// Resolves to the new document's file name.
+#[tauri::command]
+pub fn meeting_start(app: AppHandle) -> Result<String, String> {
+    let path = start(&app)?;
+    Ok(path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default())
+}
+
+/// The Hub is already showing the transcript, so nothing is opened.
+#[tauri::command]
+pub fn meeting_stop(app: AppHandle) {
+    stop(&app, false);
+}
+
+/// Past meetings, newest first.
+#[tauri::command]
+pub fn meetings(app: AppHandle) -> Vec<MeetingFile> {
+    let Ok(entries) = std::fs::read_dir(folder(&app)) else {
+        // No folder is no meetings yet, not a failure.
+        return Vec::new();
+    };
+    let mut files: Vec<(std::time::SystemTime, String)> = entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let modified = e.metadata().ok()?.modified().ok()?;
+            is_document_name(&name).then_some((modified, name))
+        })
+        .collect();
+    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files
+        .into_iter()
+        .map(|(modified, name)| MeetingFile {
+            name,
+            modified: chrono::DateTime::<chrono::Utc>::from(modified).to_rfc3339(),
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub fn meeting_text(app: AppHandle, name: String) -> Result<String, String> {
+    std::fs::read_to_string(document(&app, &name)?).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn open_meeting(app: AppHandle, name: String) -> Result<(), String> {
+    crate::open_externally(&document(&app, &name)?.to_string_lossy())
 }
 
 struct Doc {
@@ -499,6 +638,14 @@ mod tests {
             "in this position."
         );
         assert_eq!(without_annotations("*laughs*"), "");
+    }
+
+    #[test]
+    fn only_a_plain_file_name_names_a_meeting() {
+        assert!(is_document_name("Meeting 2026-09-14 14-30.md"));
+        assert!(!is_document_name("..\\..\\secrets.md"));
+        assert!(!is_document_name("C:notes.md"));
+        assert!(!is_document_name("Meeting.txt"));
     }
 
     #[test]

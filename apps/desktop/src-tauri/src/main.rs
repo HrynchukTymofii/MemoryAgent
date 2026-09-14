@@ -1945,6 +1945,12 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             overlay_painted,
+            meeting::meeting_status,
+            meeting::meeting_start,
+            meeting::meeting_stop,
+            meeting::meetings,
+            meeting::meeting_text,
+            meeting::open_meeting,
             latency_report,
             capture_count,
             hook_stats,

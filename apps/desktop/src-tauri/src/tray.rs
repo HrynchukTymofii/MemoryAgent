@@ -13,6 +13,8 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&open, &meeting, &latency, &sep, &quit])?;
+    // Kept so the label can follow a recording started from the Hub.
+    app.manage(MeetingItem(meeting));
 
     TrayIconBuilder::with_id("main-tray")
         .icon(app.default_window_icon().unwrap().clone())
@@ -21,12 +23,9 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         // Left-click opens the Hub; without this the menu shows on both
         // buttons, which feels wrong on Windows.
         .show_menu_on_left_click(false)
-        .on_menu_event(move |app, event| match event.id.as_ref() {
+        .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_hub(app),
-            "meeting" => {
-                let recording = toggle_meeting(app);
-                let _ = meeting.set_text(if recording { STOP_MEETING } else { START_MEETING });
-            }
+            "meeting" => toggle_meeting(app),
             "latency" => {
                 if let Some(state) = app.try_state::<crate::AppState>() {
                     let r = state.latency.report();
@@ -62,30 +61,32 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 const START_MEETING: &str = "Start meeting notes";
 const STOP_MEETING: &str = "Stop meeting notes";
 
-/// Start or stop the meeting recorder, and say whether it is now recording.
-fn toggle_meeting<R: Runtime>(app: &AppHandle<R>) -> bool {
+struct MeetingItem<R: Runtime>(MenuItem<R>);
+
+/// Say "Stop" while recording and "Start" otherwise, whoever changed it.
+pub fn meeting_changed<R: Runtime>(app: &AppHandle<R>, recording: bool) {
+    if let Some(item) = app.try_state::<MeetingItem<R>>() {
+        let _ = item
+            .0
+            .set_text(if recording { STOP_MEETING } else { START_MEETING });
+    }
+}
+
+/// Start or stop the meeting recorder. Stopped from here, the document opens:
+/// the tray has nowhere else to show it.
+fn toggle_meeting<R: Runtime>(app: &AppHandle<R>) {
     let Some(state) = app.try_state::<crate::AppState>() else {
-        return false;
+        return;
     };
     if state.meeting.is_recording() {
-        state.meeting.stop();
-        return false;
+        crate::meeting::stop(app, true);
+        return;
     }
-    let mic = state.audio.lock().as_ref().map(|a| a.ring());
-    let dir = app
-        .path()
-        .document_dir()
-        .unwrap_or_else(|_| crate::data_dir())
-        .join("Meetings");
-    match state.meeting.start(state.stt.clone(), mic, &dir) {
-        Ok(path) => {
-            crate::hotkey::diag(&format!("meeting notes: {}", path.display()));
-            true
-        }
+    match crate::meeting::start(app) {
+        Ok(path) => crate::hotkey::diag(&format!("meeting notes: {}", path.display())),
         Err(e) => {
             tracing::error!(error = %e, "meeting notes did not start");
             crate::hotkey::diag(&format!("meeting notes did not start: {e}"));
-            false
         }
     }
 }
