@@ -2218,8 +2218,28 @@ fn main() {
                     let mut showing = false;
                     let mut capture_from: Option<memos_stt::Cursor> = None;
                     let mut pending_ctx: Option<memos_context::Pending> = None;
+                    // What a long hold has said so far. The ring keeps only the
+                    // last 30 s, so a hold that outlasts it is drained into here
+                    // as it goes rather than read back in one piece at release.
+                    let mut held: Vec<f32> = Vec::new();
                     loop {
-                        match rx.recv() {
+                        let event = if showing {
+                            match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+                                Ok(event) => Ok(event),
+                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                                    if let (Some(r), Some(at)) = (ring.as_ref(), capture_from.as_mut()) {
+                                        if let Some(audio) = r.drain(at) {
+                                            held.extend(audio);
+                                        }
+                                    }
+                                    continue;
+                                }
+                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(()),
+                            }
+                        } else {
+                            rx.recv().map_err(|_| ())
+                        };
+                        match event {
                             Err(_) => break, // hook gone; app shutting down
                             Ok(ChordState::Released(mode)) => {
                                 tracing::debug!("chord released");
@@ -2229,9 +2249,12 @@ fn main() {
                                     let released = std::time::Instant::now();
                                     let _ = handle.emit_to("overlay", "capture:end", ());
 
+                                    let so_far = std::mem::take(&mut held);
                                     match (ring.as_ref(), capture_from.take()) {
                                         (Some(r), Some(from)) => match r.read_from(from) {
-                                            Some(audio) => {
+                                            Some(tail) => {
+                                                let mut audio = so_far;
+                                                audio.extend(tail);
                                                 // Hand off and return immediately.
                                                 // Blocking here would make the
                                                 // dispatch thread miss the next
@@ -2293,9 +2316,10 @@ fn main() {
                                                 }
                                             }
                                             None => {
-                                                // The start cursor aged out of the
-                                                // ring — the chord was held past
-                                                // 30 s. Say so rather than
+                                                // The cursor aged out of the ring
+                                                // between drains, which only a
+                                                // stalled dispatch thread could
+                                                // cause. Say so rather than
                                                 // transcribing the wrong audio.
                                                 tracing::warn!("capture outran the audio buffer");
                                                 pending_ctx = None;
@@ -2339,6 +2363,7 @@ fn main() {
                                 // stage-1 measurement it would otherwise dwarf.
                                 tracker.begin();
                                 showing = true;
+                                held.clear();
                                 // Rewind past the debounce plus a margin: speech
                                 // starts fractionally before the chord registers.
                                 // The audio is already buffered, so including it

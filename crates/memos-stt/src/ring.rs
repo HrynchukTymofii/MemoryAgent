@@ -109,6 +109,18 @@ impl RingBuffer {
         Some(out)
     }
 
+    /// Take everything since `from` and move `from` to the write head.
+    ///
+    /// How a recording longer than the ring survives: a reader that drains more
+    /// often than every `RETAIN_SECS` keeps every sample, however long it runs.
+    /// `None`, with the cursor untouched, when the reader was too slow and the
+    /// start has already been overwritten.
+    pub fn drain(&self, from: &mut Cursor) -> Option<Vec<f32>> {
+        let audio = self.read_from(*from)?;
+        from.0 += audio.len() as u64;
+        Some(audio)
+    }
+
     /// A cursor `secs` in the past, clamped to what is retained. This is what
     /// makes retroactive capture work: rewind before the key was pressed.
     pub fn cursor_secs_ago(&self, secs: f32) -> Cursor {
@@ -171,6 +183,20 @@ mod tests {
         let start = r.cursor();
         r.push(&vec![0.0; CAPACITY + 10]);
         assert!(r.read_from(start).is_none());
+    }
+
+    #[test]
+    fn draining_keeps_a_recording_longer_than_the_ring() {
+        let r = RingBuffer::new();
+        let mut at = r.cursor();
+        let mut kept = Vec::new();
+        for _ in 0..3 {
+            r.push(&vec![0.3; CAPACITY - 10]);
+            kept.extend(r.drain(&mut at).unwrap());
+        }
+        assert_eq!(kept.len(), 3 * (CAPACITY - 10));
+        assert_eq!(at, r.cursor());
+        assert!(r.drain(&mut at).unwrap().is_empty());
     }
 
     #[test]
