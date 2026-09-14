@@ -16,6 +16,7 @@ import { Home } from "../features/home/Home";
 import { Library } from "../features/library/Library";
 import { Collections } from "../features/collections/Collections";
 import { Tasks } from "../features/tasks/Tasks";
+import { Meetings } from "../features/meetings/Meetings";
 import { Account } from "../features/account/Account";
 import { AccountMenu } from "../features/account/AccountMenu";
 import { Referral } from "../features/referral/Referral";
@@ -33,11 +34,19 @@ import {
   HistoryIcon,
   HomeIcon,
   LibraryIcon,
+  MicIcon,
   SettingsIcon,
   TasksIcon,
 } from "../components/icons";
 
-export type Page = "home" | "library" | "collections" | "tasks" | "account" | "settings";
+export type Page =
+  | "home"
+  | "library"
+  | "collections"
+  | "tasks"
+  | "meetings"
+  | "account"
+  | "settings";
 
 /**
  * How often the shell polls the backend.
@@ -330,6 +339,13 @@ export function App() {
             </ul>
             <div className="navh">Tools</div>
             <ul>
+              <NavItem
+                page="meetings"
+                current={page}
+                onGo={go}
+                icon={<MicIcon />}
+                label="Meeting notes"
+              />
               <li className="muted" title="Dictionary">
                 <span className="g">
                   <DictionaryIcon />
@@ -414,6 +430,7 @@ export function App() {
             <Collections revision={revision} onOpen={openCollection} />
           )}
           {page === "tasks" && <Tasks revision={revision} onChanged={refresh} />}
+          {page === "meetings" && <Meetings />}
           {page === "account" && <Account revision={revision} onChanged={refresh} />}
           {page === "settings" && <Settings hook={hook} offline={offline} />}
         </main>

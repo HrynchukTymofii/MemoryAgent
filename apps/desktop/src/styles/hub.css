@@ -969,6 +969,22 @@
 .pill .led.ok { background:var(--ok); }
 .pill .led.bad { background:var(--bad); }
 .pill .led.warn { background:var(--acc); }
+.pill .led.rec { background:var(--bad); animation:rec 1.2s ease-in-out infinite; }
+@keyframes rec { 50% { opacity:.35; } }
+@media (prefers-reduced-motion:reduce) { .pill .led.rec { animation:none; } }
+
+/* -------------------------------------------------------------- meetings */
+.meet-bar { display:flex; flex-wrap:wrap; align-items:center; gap:9px; margin-bottom:6px; }
+.meet-head { display:flex; flex-wrap:wrap; align-items:center; gap:9px; margin:22px 0 4px; }
+.meet-head .btn { font-size:11.5px; padding:4px 11px; }
+.meet-title { flex:1; min-width:0; font-size:13.5px; font-weight:600; color:var(--ink); }
+/* The speaker leads the line, so a run of "Them" and "Me" reads down the edge
+   like a script. */
+.item .who {
+  display:inline-block; min-width:44px; margin-right:8px;
+  font-size:11px; font-weight:700; color:var(--ink2);
+}
+.item .who.me { color:var(--acc); }
 
 .banner {
   margin-top:14px; background:var(--acc-soft); border:1px solid var(--acc-line);

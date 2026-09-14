@@ -205,7 +205,27 @@ export interface LibrarySummary {
   this_week: number;
 }
 
+export interface MeetingStatus {
+  recording: boolean;
+  /** The document being written, while recording. */
+  name: string | null;
+  elapsed_secs: number;
+}
+
+export interface MeetingFile {
+  name: string;
+  modified: string;
+}
+
 export const api = {
+  meetingStatus: () => invoke<MeetingStatus>("meeting_status"),
+  /** Resolves to the new document's file name. */
+  meetingStart: () => invoke<string>("meeting_start"),
+  meetingStop: () => invoke<void>("meeting_stop"),
+  /** Newest first. */
+  meetings: () => invoke<MeetingFile[]>("meetings"),
+  meetingText: (name: string) => invoke<string>("meeting_text", { name }),
+  openMeeting: (name: string) => invoke<void>("open_meeting", { name }),
   latency: () => invoke<LatencyReport>("latency_report"),
   hookStats: () => invoke<HookStats>("hook_stats"),
   mic: () => invoke<MicStatus>("mic_status"),
