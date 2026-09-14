@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Core permissions for the Hub and the capture overlay.",
-  "windows": ["main", "overlay"],
+  "description": "Core permissions for the Hub, the capture overlay and the meeting prompt.",
+  "windows": ["main", "overlay", "prompt"],
   "permissions": [
     "core:default",
     "core:window:allow-show",

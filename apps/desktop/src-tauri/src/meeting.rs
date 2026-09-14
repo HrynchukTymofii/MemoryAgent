@@ -216,7 +216,87 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     let mic = state.audio.lock().as_ref().map(|a| a.ring());
     let path = state.meeting.start(state.stt.clone(), mic, &folder(app))?;
     crate::tray::meeting_changed(app, true);
+    // However it was started, the offer to start it has been answered.
+    hide_prompt(app);
     Ok(path)
+}
+
+/// Offer to take notes whenever a call starts, and withdraw the offer when it
+/// ends.
+pub fn offer_on_calls(app: AppHandle) {
+    crate::detect::watch(move |call| match call {
+        Some(name) => {
+            crate::hotkey::diag(&format!("call detected: {name}"));
+            if !app.state::<crate::AppState>().meeting.is_recording() {
+                show_prompt(&app, name);
+            }
+        }
+        None => hide_prompt(&app),
+    });
+}
+
+/// Logical pixels from the pill's edge to the prompt: the idle pill's height
+/// and a gap.
+const PILL_CLEARANCE: f64 = 56.0;
+
+fn show_prompt<R: Runtime>(app: &AppHandle<R>, call: &str) {
+    use tauri::Emitter;
+    let Some(w) = app.get_webview_window("prompt") else {
+        return;
+    };
+    place_prompt(app, &w);
+    let _ = w.emit_to("prompt", "prompt:call", call);
+    if let Err(e) = w.show() {
+        tracing::warn!(?e, "could not show the meeting prompt");
+    }
+}
+
+fn hide_prompt<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(w) = app.get_webview_window("prompt") {
+        let _ = w.hide();
+    }
+}
+
+/// Just below the pill, or just above it when the pill sits at the bottom.
+fn place_prompt<R: Runtime>(app: &AppHandle<R>, w: &tauri::WebviewWindow<R>) {
+    let Ok(size) = w.outer_size() else { return };
+    let gap = (PILL_CLEARANCE * w.scale_factor().unwrap_or(1.0)) as i32;
+    let anchor = app.try_state::<crate::AppState>().and_then(|s| {
+        let c = s.config.lock();
+        c.pill_x.zip(c.pill_y).map(|(x, y)| (x, y, c.pill_top))
+    });
+    let (cx, y) = match anchor {
+        Some((x, y, true)) => (x, y + gap),
+        Some((x, y, false)) => (x, y - gap - size.height as i32),
+        // Where the overlay puts an unmoved pill: top centre, 5% down.
+        None => {
+            let monitor = app
+                .cursor_position()
+                .ok()
+                .and_then(|p| app.monitor_from_point(p.x, p.y).ok().flatten())
+                .or_else(|| w.primary_monitor().ok().flatten());
+            let Some(m) = monitor else { return };
+            (
+                m.position().x + m.size().width as i32 / 2,
+                m.position().y + m.size().height as i32 * 5 / 100 + gap,
+            )
+        }
+    };
+    let (x, y) = crate::clamp_onto_a_monitor(w, cx - size.width as i32 / 2, y, size);
+    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+/// "Take notes" on the prompt.
+#[tauri::command]
+pub fn meeting_prompt_accept(app: AppHandle) -> Result<(), String> {
+    hide_prompt(&app);
+    start(&app).map(|_| ())
+}
+
+/// "Not now", or the prompt timing out. It comes back with the next call.
+#[tauri::command]
+pub fn meeting_prompt_dismiss(app: AppHandle) {
+    hide_prompt(&app);
 }
 
 pub fn stop<R: Runtime>(app: &AppHandle<R>, open: bool) {

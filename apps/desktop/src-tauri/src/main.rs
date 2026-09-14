@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod config;
+mod detect;
 mod embedding;
 mod hotkey;
 mod inject;
@@ -1951,6 +1952,8 @@ fn main() {
             meeting::meetings,
             meeting::meeting_text,
             meeting::open_meeting,
+            meeting::meeting_prompt_accept,
+            meeting::meeting_prompt_dismiss,
             latency_report,
             capture_count,
             hook_stats,
@@ -2012,6 +2015,7 @@ fn main() {
         ])
         .setup(move |app| {
             tray::install(app.handle())?;
+            meeting::offer_on_calls(app.handle().clone());
 
             // The overlay is declared in tauri.conf.json with visible:false, so
             // by the time we get here it is already created, its webview is

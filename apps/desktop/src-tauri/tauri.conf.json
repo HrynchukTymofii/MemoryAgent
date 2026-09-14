@@ -41,6 +41,20 @@
         "shadow": false,
         "focus": false,
         "visible": false
+      },
+      {
+        "label": "prompt",
+        "url": "prompt.html",
+        "width": 420,
+        "height": 92,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "focus": false,
+        "visible": false
       }
     ],
     "macOSPrivateApi": true
