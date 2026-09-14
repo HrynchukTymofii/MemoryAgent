@@ -12,8 +12,8 @@
 //! the application receives is the `Arc<RingBuffer>` and some device facts —
 //! all `Send + Sync`, and all anyone else actually needs.
 //!
-//! The parked thread is not idle bookkeeping: dropping the stream stops capture
-//! silently, so something must hold it for as long as the process lives.
+//! The waiting thread is not idle bookkeeping: dropping the stream stops capture
+//! silently, so it holds the stream until the `AudioCapture` itself is dropped.
 
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -27,6 +27,8 @@ use crate::ring::{Cursor, RingBuffer, SAMPLE_RATE};
 pub enum AudioError {
     #[error("no input device available")]
     NoDevice,
+    #[error("no output device to record from")]
+    NoOutputDevice,
     #[error("device offers no usable input configuration: {0}")]
     NoConfig(String),
     #[error("could not build input stream: {0}")]
@@ -48,6 +50,19 @@ pub struct DeviceInfo {
 pub struct AudioCapture {
     ring: Arc<RingBuffer>,
     info: DeviceInfo,
+    /// Dropped with the capture, which is what lets its thread let go of the
+    /// stream. Never sent on.
+    _stop: mpsc::Sender<()>,
+}
+
+/// Which sound a capture records.
+#[derive(Clone, Copy)]
+enum Source {
+    Microphone,
+    /// Whatever the machine is playing — the other side of a call. WASAPI
+    /// records a render device in loopback when it is opened as an input, so
+    /// this is the default output device with nothing else to it.
+    Output,
 }
 
 impl AudioCapture {
@@ -56,21 +71,39 @@ impl AudioCapture {
     /// Blocks only until the stream is running or has failed, so a missing
     /// microphone is reported here rather than surfacing later as silence.
     pub fn start() -> Result<Self, AudioError> {
+        let capture = Self::open(Source::Microphone)?;
+        tracing::info!(
+            device = %capture.info.name,
+            input_rate = capture.info.input_rate,
+            channels = capture.info.channels,
+            "microphone open — stays open for the process lifetime"
+        );
+        Ok(capture)
+    }
+
+    /// Record what the machine is playing, for as long as this is held.
+    ///
+    /// Windows only: elsewhere the system does not offer its output as an
+    /// input, and this fails rather than quietly recording the microphone.
+    pub fn loopback() -> Result<Self, AudioError> {
+        Self::open(Source::Output)
+    }
+
+    fn open(source: Source) -> Result<Self, AudioError> {
         let ring = Arc::new(RingBuffer::new());
         let sink = ring.clone();
         let (tx, rx) = mpsc::channel::<Result<DeviceInfo, AudioError>>();
+        let (stop, stopped) = mpsc::channel::<()>();
 
         std::thread::Builder::new()
             .name("audio-capture".into())
-            .spawn(move || match open_stream(sink) {
+            .spawn(move || match open_stream(source, sink) {
                 Ok((_stream, info)) => {
                     let _ = tx.send(Ok(info));
-                    // `_stream` is deliberately never dropped: returning from
-                    // this thread would drop it and stop the microphone, with no
-                    // error anywhere. Parking here is what keeps capture alive.
-                    loop {
-                        std::thread::park();
-                    }
+                    // `_stream` must outlive this wait: returning drops it and
+                    // stops capture, with no error anywhere. The wait ends only
+                    // when the `AudioCapture` is dropped and its sender with it.
+                    let _ = stopped.recv();
                 }
                 Err(e) => {
                     let _ = tx.send(Err(e));
@@ -80,14 +113,11 @@ impl AudioCapture {
 
         let info = rx.recv().map_err(|_| AudioError::ThreadDied)??;
 
-        tracing::info!(
-            device = %info.name,
-            input_rate = info.input_rate,
-            channels = info.channels,
-            "microphone open — stays open for the process lifetime"
-        );
-
-        Ok(Self { ring, info })
+        Ok(Self {
+            ring,
+            info,
+            _stop: stop,
+        })
     }
 
     pub fn ring(&self) -> Arc<RingBuffer> {
@@ -123,14 +153,27 @@ impl AudioCapture {
     }
 }
 
-fn open_stream(sink: Arc<RingBuffer>) -> Result<(cpal::Stream, DeviceInfo), AudioError> {
+fn open_stream(
+    source: Source,
+    sink: Arc<RingBuffer>,
+) -> Result<(cpal::Stream, DeviceInfo), AudioError> {
     let host = cpal::default_host();
-    let device = host.default_input_device().ok_or(AudioError::NoDevice)?;
+    let device = match source {
+        Source::Microphone => host.default_input_device().ok_or(AudioError::NoDevice)?,
+        Source::Output if cfg!(windows) => host
+            .default_output_device()
+            .ok_or(AudioError::NoOutputDevice)?,
+        Source::Output => return Err(AudioError::NoOutputDevice),
+    };
     let name = device.name().unwrap_or_else(|_| "unknown".into());
 
-    let config = device
-        .default_input_config()
-        .map_err(|e| AudioError::NoConfig(e.to_string()))?;
+    // An output device has no input formats of its own. Loopback records it in
+    // the format it plays, so that is the one to ask for.
+    let config = match source {
+        Source::Microphone => device.default_input_config(),
+        Source::Output => device.default_output_config(),
+    }
+    .map_err(|e| AudioError::NoConfig(e.to_string()))?;
     let input_rate = config.sample_rate().0;
     let channels = config.channels();
     let sample_format = config.sample_format();
