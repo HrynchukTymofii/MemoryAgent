@@ -19,6 +19,7 @@
 //!    no network, a refusal, a malformed reply — comes back as an error the
 //!    caller can fall back from, because there is still a grammar downstairs.
 
+pub mod summary;
 pub mod tools;
 
 use std::time::{Duration, Instant};
@@ -227,15 +228,20 @@ impl Cloud {
             "tools": tools::schemas(),
             "messages": messages,
         });
+        self.send(&body, REQUEST_TIMEOUT)
+    }
 
+    /// One request to the Messages API, and its reply as JSON.
+    fn send(&self, body: &Value, timeout: Duration) -> Result<Value, CloudError> {
         let response = self
             .http
             .post(format!("{}/v1/messages", self.base))
+            .timeout(timeout)
             .header("content-type", "application/json")
             .header("x-api-key", &self.key)
             .header("anthropic-version", "2023-06-01")
             .header("anthropic-beta", "server-side-fallback-2026-07-01")
-            .json(&body)
+            .json(body)
             .send()
             .map_err(|e| CloudError::Network(e.to_string()))?;
 

@@ -214,3 +214,29 @@ fn a_rejected_request_says_why() {
         .expect_err("401 is not a plan");
     assert!(err.to_string().contains("invalid x-api-key"), "{err}");
 }
+
+/// The summary request carries the transcript and nothing that belongs to the
+/// router: no tools, no collections.
+#[test]
+fn a_summary_sends_the_transcript_and_returns_the_text() {
+    let (base, sent) = stub(vec![reply(
+        json!([{"type": "text", "text": "### Summary\nA short interview."}]),
+        "end_turn",
+    )]);
+    let cloud = memos_cloud::Cloud::new(Some("sk-ant-test".into()))
+        .unwrap()
+        .with_base(&base);
+
+    let summary = cloud
+        .summarize("**00:05 Them:** Tell me about yourself.")
+        .expect("a summary");
+    assert_eq!(summary, "### Summary\nA short interview.");
+
+    let body = sent.recv().unwrap();
+    assert_eq!(body["model"], "claude-opus-5");
+    assert!(body.get("tools").is_none());
+    assert!(body["messages"][0]["content"]
+        .as_str()
+        .unwrap()
+        .contains("Tell me about yourself."));
+}
