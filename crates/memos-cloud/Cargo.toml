@@ -16,8 +16,12 @@ tracing    = { workspace = true }
 # Blocking, and for the same reason as memos-auth: this runs on the capture
 # worker, which has nothing else to do until the answer arrives. An async client
 # would need a runtime threaded through a crate that otherwise has no use for one.
+# Native roots as well as the bundled ones: antivirus HTTPS scanning (Avast,
+# Kaspersky, ESET) re-signs every connection with a root it installs in the
+# system store, and a client that trusts only its own list refuses all of them.
 reqwest = { version = "0.12", default-features = false, features = [
     "blocking",
     "json",
     "rustls-tls",
+    "rustls-tls-native-roots",
 ] }
