@@ -153,13 +153,29 @@ fn record(stt: Arc<Stt>, mut tracks: Vec<Track>, mut doc: Doc, signal: Arc<Atomi
         }
 
         let now = started.elapsed();
-        let mut pieces = Vec::new();
+        // Every track read before any is cut, so a microphone piece is checked
+        // against everything the PC played up to the same moment.
         for track in &mut tracks {
             track.pull(now);
+        }
+        let mut pieces = Vec::new();
+        for track in &mut tracks {
             pieces.extend(track.cut(now, stopping));
         }
+        let playing = tracks.iter().find_map(|t| t.playing.as_ref());
 
-        for piece in pieces {
+        for mut piece in pieces {
+            if piece.who == ME {
+                if let Some(playing) = playing {
+                    playing.silence(piece.at, &mut piece.audio);
+                    let mut vad = Vad::default();
+                    vad.push(&piece.audio);
+                    // All of it was the PC coming back through the microphone.
+                    if !vad.heard_speech() {
+                        continue;
+                    }
+                }
+            }
             let Some(model) = stt.model() else {
                 if !warned_no_model {
                     warned_no_model = true;
@@ -432,6 +448,8 @@ struct Track {
     began: Option<Duration>,
     spoke: bool,
     paused: bool,
+    /// On the PC's track only: when it was making sound.
+    playing: Option<Playing>,
 }
 
 impl Track {
@@ -445,6 +463,7 @@ impl Track {
             began: None,
             spoke: false,
             paused: false,
+            playing: (who == THEM).then(Playing::default),
         }
     }
 
@@ -465,8 +484,12 @@ impl Track {
         if audio.is_empty() {
             return;
         }
+        let start = now.saturating_sub(Duration::from_secs_f32(secs(&audio)));
         if self.began.is_none() {
-            self.began = Some(now.saturating_sub(Duration::from_secs_f32(secs(&audio))));
+            self.began = Some(start);
+        }
+        if let Some(playing) = &mut self.playing {
+            playing.mark(start, &audio);
         }
         match self.vad.push(&audio) {
             Speech::Silence => {}
@@ -511,6 +534,72 @@ impl Track {
             audio,
         })
     }
+}
+
+/// Length of one slot in [`Playing`].
+const SLOT_MS: u64 = 20;
+const SLOT_LEN: usize = SAMPLE_RATE as usize * SLOT_MS as usize / 1000;
+/// Level above which the PC counts as playing. Its track is the digital signal
+/// itself, so silence there is near zero rather than room tone.
+const PLAYING_LEVEL: f32 = 0.003;
+/// How long after the PC made a sound the microphone can still be hearing it:
+/// the trip out of the speakers, the room's reverb, and the two devices'
+/// buffers disagreeing about when "now" was.
+const ECHO_TAIL_MS: u64 = 400;
+/// And how far the other way, for the same disagreement.
+const ECHO_LEAD_MS: u64 = 200;
+
+/// When the PC was making sound, in slots since the recording began.
+///
+/// Without headphones the microphone hears the call as well as the user, and
+/// whisper turns that into "Me" saying a garbled version of what they said —
+/// garbled enough that comparing words does not catch it. So the microphone
+/// is silenced wherever the PC was playing, before whisper hears it. The cost
+/// is the user's own words spoken over the other side at the same moment.
+#[derive(Default)]
+struct Playing {
+    slots: Vec<bool>,
+}
+
+impl Playing {
+    fn mark(&mut self, start: Duration, audio: &[f32]) {
+        let first = start.as_millis() as u64 / SLOT_MS;
+        for (i, frame) in audio.chunks(SLOT_LEN).enumerate() {
+            if level(frame) > PLAYING_LEVEL {
+                let slot = (first + i as u64) as usize;
+                if self.slots.len() <= slot {
+                    self.slots.resize(slot + 1, false);
+                }
+                self.slots[slot] = true;
+            }
+        }
+    }
+
+    /// Whether the PC was audible close enough to `at` for the microphone to be
+    /// hearing it then.
+    fn near(&self, at: Duration) -> bool {
+        let ms = at.as_millis() as u64;
+        let from = ms.saturating_sub(ECHO_TAIL_MS) / SLOT_MS;
+        let to = (ms + ECHO_LEAD_MS) / SLOT_MS;
+        (from..=to).any(|s| self.slots.get(s as usize).copied().unwrap_or(false))
+    }
+
+    /// Zero the microphone audio that began at `start` wherever the PC was
+    /// audible.
+    fn silence(&self, start: Duration, audio: &mut [f32]) {
+        for (i, frame) in audio.chunks_mut(SLOT_LEN).enumerate() {
+            if self.near(start + Duration::from_millis(i as u64 * SLOT_MS)) {
+                frame.fill(0.0);
+            }
+        }
+    }
+}
+
+fn level(frame: &[f32]) -> f32 {
+    if frame.is_empty() {
+        return 0.0;
+    }
+    (frame.iter().map(|v| v * v).sum::<f32>() / frame.len() as f32).sqrt()
 }
 
 /// `length` is the audio held, `elapsed` the time since it began — they differ
@@ -628,6 +717,32 @@ mod tests {
             who,
             text: text.into(),
         }
+    }
+
+    #[test]
+    fn the_microphone_is_silenced_while_the_pc_plays_and_just_after() {
+        let mut playing = Playing::default();
+        // The PC plays from 1.0 s to 2.0 s.
+        playing.mark(Duration::from_secs(1), &vec![0.2; SAMPLE_RATE as usize]);
+
+        // Four seconds of microphone from 0.0 s.
+        let mut mic = vec![0.5; SAMPLE_RATE as usize * 4];
+        playing.silence(Duration::ZERO, &mut mic);
+        let at = |secs: f32| mic[(secs * SAMPLE_RATE as f32) as usize];
+
+        assert_eq!(at(0.5), 0.5, "before the PC played");
+        assert_eq!(at(1.5), 0.0, "while it played");
+        assert_eq!(at(2.2), 0.0, "its echo, just after");
+        assert_eq!(at(3.0), 0.5, "well after");
+    }
+
+    #[test]
+    fn a_silent_pc_silences_nothing() {
+        let mut playing = Playing::default();
+        playing.mark(Duration::ZERO, &vec![0.0; SAMPLE_RATE as usize * 3]);
+        let mut mic = vec![0.5; SAMPLE_RATE as usize * 3];
+        playing.silence(Duration::ZERO, &mut mic);
+        assert!(mic.iter().all(|&v| v == 0.5));
     }
 
     #[test]
