@@ -165,6 +165,11 @@ impl Stt {
         self.detail.read().clone()
     }
 
+    /// The Claude client, when a key is configured.
+    pub fn cloud(&self) -> Option<Arc<memos_cloud::Cloud>> {
+        self.cloud.read().clone()
+    }
+
     /// The loaded model, for a caller that transcribes on its own thread.
     pub fn model(&self) -> Option<Arc<dyn Transcriber>> {
         self.model.read().clone()

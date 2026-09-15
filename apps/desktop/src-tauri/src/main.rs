@@ -1952,6 +1952,7 @@ fn main() {
             meeting::meetings,
             meeting::meeting_text,
             meeting::open_meeting,
+            meeting::summarize_meeting,
             meeting::meeting_prompt_accept,
             meeting::meeting_prompt_dismiss,
             latency_report,

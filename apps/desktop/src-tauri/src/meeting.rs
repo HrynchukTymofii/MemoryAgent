@@ -44,6 +44,8 @@ const PAUSE_MS: u32 = 700;
 #[derive(Default)]
 pub struct Recorder {
     session: Mutex<Option<Session>>,
+    /// Documents a summary is being written for, by file name.
+    summarizing: Mutex<std::collections::HashSet<String>>,
 }
 
 struct Session {
@@ -67,6 +69,7 @@ impl Recorder {
         stt: Arc<Stt>,
         mic: Option<Arc<RingBuffer>>,
         dir: &Path,
+        finished: impl FnOnce(Finished) + Send + 'static,
     ) -> Result<PathBuf, String> {
         let mut session = self.session.lock();
         if session.is_some() {
@@ -119,7 +122,7 @@ impl Recorder {
                 // Held here so the output stream lives exactly as long as the
                 // recording does.
                 let _loopback = loopback;
-                record(stt, tracks, doc, flag);
+                finished(record(stt, tracks, doc, flag));
             })
             .map_err(|e| e.to_string())?;
 
@@ -142,7 +145,15 @@ impl Recorder {
     }
 }
 
-fn record(stt: Arc<Stt>, mut tracks: Vec<Track>, mut doc: Doc, signal: Arc<AtomicU8>) {
+/// How a recording ended, once its last words are in the document.
+pub struct Finished {
+    pub path: PathBuf,
+    pub lines: usize,
+    /// Stopped from the tray, where the only way to see the result is the file.
+    pub open: bool,
+}
+
+fn record(stt: Arc<Stt>, mut tracks: Vec<Track>, mut doc: Doc, signal: Arc<AtomicU8>) -> Finished {
     let started = Instant::now();
     let mut warned_no_model = false;
     let open = loop {
@@ -210,10 +221,10 @@ fn record(stt: Arc<Stt>, mut tracks: Vec<Track>, mut doc: Doc, signal: Arc<Atomi
         }
     };
     tracing::info!(lines = doc.lines.len(), path = %doc.path.display(), "meeting notes finished");
-    if open {
-        if let Err(e) = crate::open_externally(&doc.path.to_string_lossy()) {
-            tracing::warn!(error = %e, "could not open the meeting notes");
-        }
+    Finished {
+        lines: doc.lines.iter().filter(|l| !is_echo(l, &doc.lines)).count(),
+        path: doc.path,
+        open,
     }
 }
 
@@ -230,7 +241,23 @@ fn folder<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
 pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     let state = app.state::<crate::AppState>();
     let mic = state.audio.lock().as_ref().map(|a| a.ring());
-    let path = state.meeting.start(state.stt.clone(), mic, &folder(app))?;
+    let handle = app.clone();
+    let path = state
+        .meeting
+        .start(state.stt.clone(), mic, &folder(app), move |done| {
+            // Summarised before it is opened, so the file opens with its summary.
+            if done.lines > 0 {
+                if let Err(e) = summarize(&handle, &done.path) {
+                    tracing::warn!(error = %e, "the meeting was not summarised");
+                    crate::hotkey::diag(&format!("meeting not summarised: {e}"));
+                }
+            }
+            if done.open {
+                if let Err(e) = crate::open_externally(&done.path.to_string_lossy()) {
+                    tracing::warn!(error = %e, "could not open the meeting notes");
+                }
+            }
+        })?;
     crate::tray::meeting_changed(app, true);
     // However it was started, the offer to start it has been answered.
     hide_prompt(app);
@@ -333,12 +360,105 @@ fn is_document_name(name: &str) -> bool {
     name.ends_with(".md") && !name.contains(['/', '\\', ':']) && !name.starts_with('.')
 }
 
+/// Write a summary by Claude into the document, above its transcript.
+///
+/// Blocking, for as long as the request takes — up to a minute for a long call.
+fn summarize<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), String> {
+    let state = app.state::<crate::AppState>();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let cloud = state.stt.cloud().ok_or(
+        "no Anthropic API key (ANTHROPIC_API_KEY in .env, or anthropic_api_key in config.json)",
+    )?;
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let transcript = without_summary(&text);
+    if !has_transcript(&transcript) {
+        return Err("nothing was transcribed, so there is nothing to summarise".into());
+    }
+
+    if !state.meeting.summarizing.lock().insert(name.clone()) {
+        return Err("already being summarised".into());
+    }
+    let result = cloud.summarize(&transcript).map_err(|e| e.to_string());
+    state.meeting.summarizing.lock().remove(&name);
+    let summary = result?;
+
+    // Read again: the file may have been edited while the summary was written.
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    std::fs::write(path, with_summary(&text, &summary)).map_err(|e| e.to_string())?;
+    tracing::info!(path = %path.display(), "meeting summarised");
+    Ok(())
+}
+
+const SUMMARY_HEADING: &str = "## Summary\n";
+const TRANSCRIPT_HEADING: &str = "## Transcript\n";
+
+/// Whether a block of the document is a transcript line: `**mm:ss Who:** …`.
+fn is_transcript_line(block: &str) -> bool {
+    block
+        .strip_prefix("**")
+        .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()) && rest.contains(":** "))
+}
+
+fn has_transcript(doc: &str) -> bool {
+    doc.split("\n\n")
+        .any(|b| is_transcript_line(b.trim_start()))
+}
+
+/// The document without its summary section, which is what a new summary is
+/// written from — a summary of a summary drifts further from what was said.
+fn without_summary(doc: &str) -> String {
+    let Some(start) = doc.find(SUMMARY_HEADING) else {
+        return doc.to_string();
+    };
+    let end = doc[start..]
+        .find(TRANSCRIPT_HEADING)
+        .map(|i| start + i + TRANSCRIPT_HEADING.len())
+        .unwrap_or(doc.len());
+    let mut out = doc[..start].to_string();
+    out.push_str(doc[end..].trim_start_matches('\n'));
+    out
+}
+
+/// The document with `summary` above its transcript, replacing any summary it
+/// already had. Everything else — the title, notices, words typed into the
+/// file by hand — stays where it was.
+fn with_summary(doc: &str, summary: &str) -> String {
+    let doc = without_summary(doc);
+    // The summary's own headings are demoted below the two that mark where it
+    // begins and ends, so neither can be mistaken for them.
+    let summary: Vec<String> = summary
+        .trim()
+        .lines()
+        .map(
+            |l| match l.strip_prefix("## ").or_else(|| l.strip_prefix("# ")) {
+                Some(rest) => format!("### {rest}"),
+                None => l.to_string(),
+            },
+        )
+        .collect();
+    let section = format!(
+        "{SUMMARY_HEADING}\n{}\n\n{TRANSCRIPT_HEADING}\n",
+        summary.join("\n")
+    );
+    let at = doc
+        .match_indices("\n\n")
+        .map(|(i, _)| i + 2)
+        .find(|&i| is_transcript_line(&doc[i..]))
+        .unwrap_or(doc.len());
+    format!("{}{section}{}", &doc[..at], &doc[at..])
+}
+
 #[derive(serde::Serialize)]
 pub struct MeetingStatus {
     recording: bool,
     /// The document being written, while recording.
     name: Option<String>,
     elapsed_secs: u64,
+    /// Documents a summary is being written for.
+    summarizing: Vec<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -350,16 +470,19 @@ pub struct MeetingFile {
 
 #[tauri::command]
 pub fn meeting_status(state: tauri::State<'_, crate::AppState>) -> MeetingStatus {
+    let summarizing = state.meeting.summarizing.lock().iter().cloned().collect();
     match &*state.meeting.session.lock() {
         Some(s) => MeetingStatus {
             recording: true,
             name: s.path.file_name().map(|n| n.to_string_lossy().into_owned()),
             elapsed_secs: s.started.elapsed().as_secs(),
+            summarizing,
         },
         None => MeetingStatus {
             recording: false,
             name: None,
             elapsed_secs: 0,
+            summarizing,
         },
     }
 }
@@ -408,6 +531,26 @@ pub fn meetings(app: AppHandle) -> Vec<MeetingFile> {
 #[tauri::command]
 pub fn meeting_text(app: AppHandle, name: String) -> Result<String, String> {
     std::fs::read_to_string(document(&app, &name)?).map_err(|e| e.to_string())
+}
+
+/// Summarise a meeting, or summarise it again. Resolves when the summary is in
+/// the document.
+#[tauri::command]
+pub async fn summarize_meeting(app: AppHandle, name: String) -> Result<(), String> {
+    let path = document(&app, &name)?;
+    let recording = app
+        .state::<crate::AppState>()
+        .meeting
+        .session
+        .lock()
+        .as_ref()
+        .is_some_and(|s| s.path == path);
+    if recording {
+        return Err("still recording — stop it first".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || summarize(&app, &path))
+        .await
+        .map_err(|e| format!("the summary did not run: {e}"))?
 }
 
 #[tauri::command]
@@ -841,6 +984,41 @@ mod tests {
         assert!(!is_document_name("..\\..\\secrets.md"));
         assert!(!is_document_name("C:notes.md"));
         assert!(!is_document_name("Meeting.txt"));
+    }
+
+    const DOC: &str = "# Meeting\n\n_No microphone._\n\n**00:05 Them:** Tell me about yourself.\n\n**00:09 Me:** Sure.\n\n";
+
+    #[test]
+    fn the_summary_goes_above_the_transcript() {
+        let doc = with_summary(DOC, "### Summary\nA short interview.");
+        assert_eq!(
+            doc,
+            "# Meeting\n\n_No microphone._\n\n## Summary\n\n### Summary\nA short interview.\n\n\
+             ## Transcript\n\n**00:05 Them:** Tell me about yourself.\n\n**00:09 Me:** Sure.\n\n"
+        );
+    }
+
+    #[test]
+    fn summarising_again_replaces_the_summary_and_keeps_the_rest() {
+        let once = with_summary(DOC, "### Summary\nFirst.");
+        let twice = with_summary(&once, "### Summary\nSecond.");
+        assert!(twice.contains("Second."));
+        assert!(!twice.contains("First."));
+        assert_eq!(twice.matches("## Transcript").count(), 1);
+        assert_eq!(without_summary(&twice), DOC);
+    }
+
+    #[test]
+    fn a_summary_cannot_fake_the_sections_around_it() {
+        let doc = with_summary(DOC, "## Transcript\nnot really");
+        assert_eq!(doc.matches("\n## Transcript\n").count(), 1);
+        assert!(doc.contains("### Transcript\nnot really"));
+    }
+
+    #[test]
+    fn a_document_with_no_lines_has_nothing_to_summarise() {
+        assert!(has_transcript(DOC));
+        assert!(!has_transcript("# Meeting\n\n_No microphone._\n\n"));
     }
 
     #[test]
