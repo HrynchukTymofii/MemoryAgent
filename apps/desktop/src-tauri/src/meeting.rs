@@ -245,8 +245,14 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     let path = state
         .meeting
         .start(state.stt.clone(), mic, &folder(app), move |done| {
-            // Summarised before it is opened, so the file opens with its summary.
-            if done.lines > 0 {
+            // Only when asked to every time; otherwise the Summarize button
+            // does it. Before opening, so the file opens with its summary.
+            let auto = handle
+                .state::<crate::AppState>()
+                .config
+                .lock()
+                .auto_summarize_meetings;
+            if auto && done.lines > 0 {
                 if let Err(e) = summarize(&handle, &done.path) {
                     tracing::warn!(error = %e, "the meeting was not summarised");
                     crate::hotkey::diag(&format!("meeting not summarised: {e}"));

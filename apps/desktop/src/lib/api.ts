@@ -82,6 +82,8 @@ export interface Settings {
   active_dictate_chord: string;
   /** Keep a small pill on screen when nothing is being captured. */
   idle_pill: boolean;
+  /** Summarise a meeting with Claude as soon as its recording stops. */
+  auto_summarize_meetings: boolean;
 }
 
 export interface Item {
@@ -248,6 +250,7 @@ export const api = {
   setDictateHotkey: (spec: string | null) =>
     invoke<Settings>("set_dictate_hotkey", { spec }),
   setIdlePill: (enabled: boolean) => invoke<Settings>("set_idle_pill", { enabled }),
+  setAutoSummarize: (enabled: boolean) => invoke<Settings>("set_auto_summarize", { enabled }),
   captureCount: () => invoke<number>("capture_count"),
   summary: () => invoke<LibrarySummary>("library_summary"),
   recent: (limit: number) => invoke<Item[]>("recent", { limit }),

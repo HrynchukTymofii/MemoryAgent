@@ -29,6 +29,13 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
       // changing is worse than one that does not move.
     }
   };
+  const toggleAutoSummarize = async (enabled: boolean) => {
+    try {
+      setSettings(await api.setAutoSummarize(enabled));
+    } catch {
+      // As above: the switch stays where the setting is.
+    }
+  };
   const [mic, setMic] = useState<MicStatus | null>(null);
   const [stt, setStt] = useState<SttStatus | null>(null);
   const [embed, setEmbed] = useState<EmbedStatus | null>(null);
@@ -231,6 +238,33 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
               type="button"
               className={settings && !settings.idle_pill ? "on" : ""}
               onClick={() => void toggleIdlePill(false)}
+            >
+              Off
+            </button>
+          </span>
+        </div>
+
+        <div className="row">
+          <span className="bd">
+            <span className="k">Summarize meetings automatically</span>
+            <span className="v">
+              When a meeting recording stops, Claude writes its summary straight away. Off, the
+              summary is written when you press Summarize on the meeting. Each summary sends the
+              transcript to Anthropic and uses your API key.
+            </span>
+          </span>
+          <span className="seg">
+            <button
+              type="button"
+              className={settings?.auto_summarize_meetings ? "on" : ""}
+              onClick={() => void toggleAutoSummarize(true)}
+            >
+              On
+            </button>
+            <button
+              type="button"
+              className={settings && !settings.auto_summarize_meetings ? "on" : ""}
+              onClick={() => void toggleAutoSummarize(false)}
             >
               Off
             </button>

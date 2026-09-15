@@ -98,6 +98,7 @@ struct Settings {
     /// is precisely the case the screen has to be able to show.
     active_dictate_chord: String,
     idle_pill: bool,
+    auto_summarize_meetings: bool,
 }
 
 /// One place that reads the config into the shape the Hub expects, so a field
@@ -112,6 +113,7 @@ fn settings_of(state: &tauri::State<'_, AppState>) -> Settings {
         active_chord: hotkey::active_chord_label(),
         active_dictate_chord: hotkey::dictate_chord_label(),
         idle_pill: c.idle_pill,
+        auto_summarize_meetings: c.auto_summarize_meetings,
     }
 }
 
@@ -1554,6 +1556,20 @@ fn set_idle_pill(
     Ok(settings_of(&state))
 }
 
+/// Whether a meeting is summarised by itself when its recording stops.
+#[tauri::command]
+fn set_auto_summarize(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<Settings, String> {
+    {
+        let mut cfg = state.config.lock();
+        cfg.auto_summarize_meetings = enabled;
+        cfg.save()?;
+    }
+    Ok(settings_of(&state))
+}
+
 /// Let the overlay be clicked without ever taking focus.
 ///
 /// `WS_EX_NOACTIVATE`. Without it, clicking an option would pull focus out of
@@ -1982,6 +1998,7 @@ fn main() {
             email_verify,
             open_hub,
             set_idle_pill,
+            set_auto_summarize,
             search,
             items,
             recent,

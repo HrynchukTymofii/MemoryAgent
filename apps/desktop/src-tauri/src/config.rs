@@ -223,6 +223,14 @@ pub struct Config {
     #[serde(default = "yes")]
     pub idle_pill: bool,
 
+    /// Summarise a meeting with Claude as soon as its recording stops.
+    ///
+    /// Off by default: a summary sends the transcript to Anthropic and costs
+    /// money, so it happens when somebody asks for one unless they have said
+    /// to do it every time.
+    #[serde(default)]
+    pub auto_summarize_meetings: bool,
+
     /// Where the user dragged the resting pill to, in absolute physical screen
     /// coordinates: `pill_x` is the horizontal centre, `pill_y` the edge it is
     /// anchored by. Absolute rather than monitor-relative because the pill is
@@ -290,6 +298,7 @@ impl Default for Config {
             // Pro would give it away to anyone who deleted this file.
             entitlement: memos_license::Entitlement::free(),
             idle_pill: true,
+            auto_summarize_meetings: false,
             pill_x: None,
             pill_y: None,
             pill_top: false,
