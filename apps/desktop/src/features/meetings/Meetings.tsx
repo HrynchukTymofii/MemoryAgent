@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { api, type MeetingFile, type MeetingStatus } from "../../lib/api";
 import { Empty } from "../../components/ItemList";
@@ -141,6 +141,7 @@ export function Meetings() {
           name={open}
           text={text}
           live={recording && status?.name === open}
+          summarizing={status?.summarizing.includes(open) ?? false}
           onBack={() => {
             setOpen(null);
             void loadFiles();
@@ -177,14 +178,35 @@ function Transcript({
   name,
   text,
   live,
+  summarizing,
   onBack,
 }: {
   name: string;
   text: string | null;
   live: boolean;
+  /** The backend is writing its summary — including the one it starts on Stop. */
+  summarizing: boolean;
   onBack: () => void;
 }) {
   const doc = text === null ? null : parse(text);
+  const [asking, setAsking] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFailed(null);
+  }, [name]);
+
+  const summarize = async () => {
+    setAsking(true);
+    setFailed(null);
+    try {
+      await api.summarizeMeeting(name);
+    } catch (e) {
+      setFailed(String(e));
+    } finally {
+      setAsking(false);
+    }
+  };
   return (
     <>
       <div className="meet-head">
@@ -201,6 +223,28 @@ function Transcript({
           {n}
         </div>
       ))}
+      {doc && doc.lines.length > 0 && !live && (
+        <div className="meet-summary">
+          {summarizing || asking ? (
+            <p className="meet-wait">Claude is writing the summary…</p>
+          ) : doc.summary ? (
+            <>
+              <Markdown text={doc.summary} />
+              <button type="button" className="btn" onClick={summarize}>
+                Summarize again
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="meet-wait">No summary yet.</p>
+              <button type="button" className="btn primary" onClick={summarize}>
+                Summarize with Claude
+              </button>
+            </>
+          )}
+          {failed && <p className="searchnote err">{failed}</p>}
+        </div>
+      )}
       {doc === null ? null : doc.lines.length === 0 ? (
         <Empty title={live ? "Listening…" : "Nothing was transcribed"}>
           {live
@@ -230,15 +274,35 @@ interface Line {
   text: string;
 }
 
+const SUMMARY = "## Summary\n";
+const TRANSCRIPT = "## Transcript\n";
+
 /**
- * Read the document the recorder writes. Its shape is fixed by `render` in
- * meeting.rs: a `#` title, `_notices_`, and `**mm:ss Who:** words` paragraphs.
+ * Read the document the recorder writes. Its shape is fixed by `render` and
+ * `with_summary` in meeting.rs: a `#` title, `_notices_`, an optional summary
+ * between `## Summary` and `## Transcript`, and `**mm:ss Who:** words`
+ * paragraphs.
  */
-function parse(md: string): { title: string | null; notices: string[]; lines: Line[] } {
+function parse(raw: string): {
+  title: string | null;
+  notices: string[];
+  summary: string | null;
+  lines: Line[];
+} {
+  let md = raw.replace(/\r\n/g, "\n");
+  let summary: string | null = null;
+  const from = md.indexOf(SUMMARY);
+  if (from >= 0) {
+    const to = md.indexOf(TRANSCRIPT, from);
+    const end = to >= 0 ? to : md.length;
+    summary = md.slice(from + SUMMARY.length, end).trim() || null;
+    md = md.slice(0, from) + md.slice(to >= 0 ? to + TRANSCRIPT.length : md.length);
+  }
+
   let title: string | null = null;
   const notices: string[] = [];
   const lines: Line[] = [];
-  for (const block of md.split(/\r?\n\r?\n/)) {
+  for (const block of md.split("\n\n")) {
     const b = block.trim();
     if (!b) continue;
     const line = /^\*\*(\d+:\d\d) ([^:*]+):\*\*\s*([\s\S]*)$/.exec(b);
@@ -247,7 +311,56 @@ function parse(md: string): { title: string | null; notices: string[]; lines: Li
     else if (b.startsWith("_") && b.endsWith("_")) notices.push(b.slice(1, -1));
     // Anything else was typed into the file by hand; it is still in the file.
   }
-  return { title, notices, lines };
+  return { title, notices, summary, lines };
+}
+
+/**
+ * The little Markdown a summary is written in: `###` headings, `-` bullets,
+ * paragraphs and `**bold**`. Built as elements, never as HTML — the text came
+ * from a model and a file anyone can edit.
+ */
+function Markdown({ text }: { text: string }) {
+  const out: ReactNode[] = [];
+  let bullets: string[] = [];
+  const flush = () => {
+    if (bullets.length === 0) return;
+    out.push(
+      <ul key={out.length}>
+        {bullets.map((b, i) => (
+          <li key={i}>{inline(b)}</li>
+        ))}
+      </ul>,
+    );
+    bullets = [];
+  };
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    const bullet = /^[-*] (.*)$/.exec(line);
+    if (bullet) {
+      bullets.push(bullet[1]);
+      continue;
+    }
+    flush();
+    if (!line) continue;
+    const heading = /^#{1,6} (.*)$/.exec(line);
+    out.push(
+      heading ? <h3 key={out.length}>{inline(heading[1])}</h3> : <p key={out.length}>{inline(line)}</p>,
+    );
+  }
+  flush();
+  return <>{out}</>;
+}
+
+function inline(text: string): ReactNode[] {
+  return text
+    .split(/(\*\*[^*]+\*\*)/)
+    .map((part, i) =>
+      part.length > 4 && part.startsWith("**") && part.endsWith("**") ? (
+        <strong key={i}>{part.slice(2, -2)}</strong>
+      ) : (
+        part
+      ),
+    );
 }
 
 function duration(secs: number): string {

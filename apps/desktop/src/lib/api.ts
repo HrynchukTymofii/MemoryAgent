@@ -210,6 +210,8 @@ export interface MeetingStatus {
   /** The document being written, while recording. */
   name: string | null;
   elapsed_secs: number;
+  /** Meetings a summary is being written for, by file name. */
+  summarizing: string[];
 }
 
 export interface MeetingFile {
@@ -226,6 +228,8 @@ export const api = {
   meetings: () => invoke<MeetingFile[]>("meetings"),
   meetingText: (name: string) => invoke<string>("meeting_text", { name }),
   openMeeting: (name: string) => invoke<void>("open_meeting", { name }),
+  /** Resolves once Claude's summary is in the document. Takes seconds to a minute. */
+  summarizeMeeting: (name: string) => invoke<void>("summarize_meeting", { name }),
   latency: () => invoke<LatencyReport>("latency_report"),
   hookStats: () => invoke<HookStats>("hook_stats"),
   mic: () => invoke<MicStatus>("mic_status"),
