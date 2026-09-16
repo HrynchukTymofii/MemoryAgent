@@ -99,6 +99,7 @@ struct Settings {
     active_dictate_chord: String,
     idle_pill: bool,
     auto_summarize_meetings: bool,
+    start_at_login: bool,
 }
 
 /// One place that reads the config into the shape the Hub expects, so a field
@@ -114,6 +115,7 @@ fn settings_of(state: &tauri::State<'_, AppState>) -> Settings {
         active_dictate_chord: hotkey::dictate_chord_label(),
         idle_pill: c.idle_pill,
         auto_summarize_meetings: c.auto_summarize_meetings,
+        start_at_login: c.start_at_login,
     }
 }
 
@@ -1570,6 +1572,48 @@ fn set_auto_summarize(
     Ok(settings_of(&state))
 }
 
+/// Whether the application comes back with the machine.
+///
+/// The config file is the truth and the registry entry is its effect, so this
+/// writes the setting first and reports a failed registry write as an error the
+/// screen can show. A toggle that moves while nothing changed is worse than one
+/// that refuses.
+#[tauri::command]
+fn set_start_at_login(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<Settings, String> {
+    {
+        let mut cfg = state.config.lock();
+        cfg.start_at_login = enabled;
+        cfg.save()?;
+    }
+    apply_start_at_login(&app, enabled).map_err(|e| e.to_string())?;
+    Ok(settings_of(&state))
+}
+
+/// Put the login entry where the config says it should be.
+///
+/// Idempotent, and called both from the toggle and once at startup — an
+/// installer, a cleanup utility or a second machine restoring a config file can
+/// all leave the two disagreeing, and the config is the one the user set.
+fn apply_start_at_login(
+    app: &tauri::AppHandle,
+    enabled: bool,
+) -> Result<(), tauri_plugin_autostart::Error> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    if manager.is_enabled()? == enabled {
+        return Ok(());
+    }
+    if enabled {
+        manager.enable()
+    } else {
+        manager.disable()
+    }
+}
+
 /// Let the overlay be clicked without ever taking focus.
 ///
 /// `WS_EX_NOACTIVATE`. Without it, clicking an option would pull focus out of
@@ -1861,6 +1905,9 @@ fn clamp_onto_a_monitor<R: Runtime>(
     )
 }
 
+/// The argument the login entry passes, and nothing else does.
+const HIDDEN_FLAG: &str = "--hidden";
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -1944,6 +1991,15 @@ fn main() {
                 let _ = w.set_focus();
             }
         }))
+        // Launch at login, into the tray. `--hidden` is what the login entry
+        // passes and the only thing that distinguishes the two ways this
+        // process starts: opened by hand it should show the Hub, started by
+        // Windows it should not put a window in front of somebody who is
+        // logging in to do something else.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![HIDDEN_FLAG]),
+        ))
         .manage(AppState {
             db: db.clone(),
             latency: latency.clone(),
@@ -1998,6 +2054,7 @@ fn main() {
             email_verify,
             open_hub,
             set_idle_pill,
+            set_start_at_login,
             set_auto_summarize,
             search,
             items,
@@ -2033,6 +2090,25 @@ fn main() {
         ])
         .setup(move |app| {
             tray::install(app.handle())?;
+
+            // The Hub is declared hidden so that a login launch never flashes a
+            // window on its way to the tray. Every other launch shows it, which
+            // is what makes double-clicking the icon do something.
+            if !std::env::args().any(|a| a == HIDDEN_FLAG) {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
+
+            // The registry is an effect, not a setting: reconcile it to the
+            // config on every launch so an entry removed behind our back comes
+            // back, and one left behind by an old build goes away.
+            let start_at_login = app.state::<AppState>().config.lock().start_at_login;
+            if let Err(e) = apply_start_at_login(app.handle(), start_at_login) {
+                tracing::warn!(?e, start_at_login, "could not reconcile the login entry");
+            }
+
             meeting::offer_on_calls(app.handle().clone());
 
             // The overlay is declared in tauri.conf.json with visible:false, so

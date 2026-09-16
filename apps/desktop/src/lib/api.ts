@@ -84,6 +84,8 @@ export interface Settings {
   idle_pill: boolean;
   /** Summarise a meeting with Claude as soon as its recording stops. */
   auto_summarize_meetings: boolean;
+  /** Launch with the machine, straight to the tray. */
+  start_at_login: boolean;
 }
 
 export interface Item {
@@ -251,6 +253,7 @@ export const api = {
     invoke<Settings>("set_dictate_hotkey", { spec }),
   setIdlePill: (enabled: boolean) => invoke<Settings>("set_idle_pill", { enabled }),
   setAutoSummarize: (enabled: boolean) => invoke<Settings>("set_auto_summarize", { enabled }),
+  setStartAtLogin: (enabled: boolean) => invoke<Settings>("set_start_at_login", { enabled }),
   captureCount: () => invoke<number>("capture_count"),
   summary: () => invoke<LibrarySummary>("library_summary"),
   recent: (limit: number) => invoke<Item[]>("recent", { limit }),

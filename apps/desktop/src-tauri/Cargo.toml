@@ -45,6 +45,9 @@ tracing    = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow     = { workspace = true }
 tauri-plugin-single-instance = "2"
+# Launch at login. Writes the user's own Run key on Windows and a LaunchAgent on
+# macOS - no elevation, no scheduled task, nothing left behind for another user.
+tauri-plugin-autostart = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # The event tap and its run loop. Both already arrive with tauri on this

@@ -223,6 +223,16 @@ pub struct Config {
     #[serde(default = "yes")]
     pub idle_pill: bool,
 
+    /// Launch with the machine, straight to the tray.
+    ///
+    /// Off by default: adding yourself to somebody's login without being asked
+    /// is the behaviour that makes people uninstall always-on tools. Once it is
+    /// on, the config file is the truth and the registry entry is its effect —
+    /// startup reconciles the two, so an installer or a cleanup utility that
+    /// removes the entry cannot silently turn the setting off.
+    #[serde(default)]
+    pub start_at_login: bool,
+
     /// Summarise a meeting with Claude as soon as its recording stops.
     ///
     /// Off by default: a summary sends the transcript to Anthropic and costs
@@ -298,6 +308,7 @@ impl Default for Config {
             // Pro would give it away to anyone who deleted this file.
             entitlement: memos_license::Entitlement::free(),
             idle_pill: true,
+            start_at_login: false,
             auto_summarize_meetings: false,
             pill_x: None,
             pill_y: None,

@@ -36,6 +36,14 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
       // As above: the switch stays where the setting is.
     }
   };
+  const toggleStartAtLogin = async (enabled: boolean) => {
+    try {
+      setSettings(await api.setStartAtLogin(enabled));
+    } catch {
+      // As above. This one can genuinely fail — the login entry is a registry
+      // write, and a locked-down machine may refuse it.
+    }
+  };
   const [mic, setMic] = useState<MicStatus | null>(null);
   const [stt, setStt] = useState<SttStatus | null>(null);
   const [embed, setEmbed] = useState<EmbedStatus | null>(null);
@@ -216,6 +224,32 @@ export function Settings({ hook, offline }: { hook: HookStats | null; offline: b
           onClear={() => api.setDictateHotkey(null)}
           onSaved={setSettings}
         />
+
+        <div className="row">
+          <span className="bd">
+            <span className="k">Start with Windows</span>
+            <span className="v">
+              The app comes back when you sign in, straight to the tray with no window. An
+              always-on shortcut you have to remember to launch is a shortcut you will not use.
+            </span>
+          </span>
+          <span className="seg">
+            <button
+              type="button"
+              className={settings?.start_at_login ? "on" : ""}
+              onClick={() => void toggleStartAtLogin(true)}
+            >
+              On
+            </button>
+            <button
+              type="button"
+              className={settings && !settings.start_at_login ? "on" : ""}
+              onClick={() => void toggleStartAtLogin(false)}
+            >
+              Off
+            </button>
+          </span>
+        </div>
 
         <div className="row">
           <span className="bd">
